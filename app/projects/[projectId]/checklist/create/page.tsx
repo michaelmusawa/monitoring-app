@@ -11,7 +11,7 @@ const ItemSchema = z.object({
 });
 const ChecklistSchema = z.object({
   projectId: z.string(),
-  items: z.array(ItemSchema),
+  items: z.array(z.object({ parameterId: z.string(), include: z.boolean() })),
 });
 
 export default function ChecklistCreatePage({ params }: any) {
@@ -19,7 +19,6 @@ export default function ChecklistCreatePage({ params }: any) {
   const [items, setItems] = useState(() =>
     standardChecklistParams.map((p) => ({
       parameterId: p.id,
-      weight: 1,
       include: true,
     }))
   );
@@ -34,7 +33,7 @@ export default function ChecklistCreatePage({ params }: any) {
       body: JSON.stringify(parsed),
       headers: { "Content-Type": "application/json" },
     });
-    if (res.ok) router.push(`/projects/${projectId}`);
+    if (res.ok) router.push(`/projects/${projectId}/checklist/draft-review`);
   }
 
   return (
@@ -51,22 +50,6 @@ export default function ChecklistCreatePage({ params }: any) {
                 standardChecklistParams.find((s) => s.id === it.parameterId)
                   ?.label
               }
-            </div>
-            <div>
-              <label className="block text-sm">Weight</label>
-              <input
-                type="number"
-                value={it.weight}
-                onChange={(e) => {
-                  const v = Number(e.target.value);
-                  setItems((prev) => {
-                    const copy = [...prev];
-                    copy[idx].weight = isNaN(v) ? 0 : v;
-                    return copy;
-                  });
-                }}
-                className="w-24 input"
-              />
             </div>
             <div>
               <label className="block text-sm">Include</label>

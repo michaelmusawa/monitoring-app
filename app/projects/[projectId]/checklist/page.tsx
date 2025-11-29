@@ -1,9 +1,20 @@
-import React from "react";
+import { redirect } from 'next/navigation';
+import { getChecklistForProject } from '@/lib/actions/actions';
 
-const Page = async (props: { params?: Promise<{ projectId?: string }> }) => {
-  const params = await props.params;
-  const projectId = params?.projectId || "";
-  return <div>Checklist</div>;
-};
-
-export default Page;
+export default async function ChecklistPage({ params }: { params: { projectId: string } }) {
+  const checklist = await getChecklistForProject(params.projectId);
+  switch (checklist?.status) {
+    case 'Draft':
+      redirect(`/projects/${params.projectId}/checklist/draft`);
+    case 'DraftReview':
+      redirect(`/projects/${params.projectId}/checklist/draft-review`);
+    case 'WeightsAssignment':
+      redirect(`/projects/${params.projectId}/checklist/weights`);
+    case 'WeightsReview':
+      redirect(`/projects/${params.projectId}/checklist/weights-review`);
+    case 'Approved':
+      redirect(`/projects/${params.projectId}/checklist/finalized`);
+    default:
+      return <div>No checklist found</div>;
+  }
+}

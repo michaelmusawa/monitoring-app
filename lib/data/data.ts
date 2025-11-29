@@ -138,11 +138,16 @@ export const cidpProjects: CIDPProject[] = [
 // STANDARD CHECKLIST PARAMETERS
 // ---------------------------------------------------------------
 export const standardChecklistParams: ChecklistParam[] = [
-  { id: "cid-1", label: "Material Availability", category: "Logistics" },
-  { id: "cid-2", label: "Workforce Adequacy", category: "HR" },
-  { id: "cid-3", label: "Adherence to Timeline", category: "Schedule" },
-  { id: "cid-4", label: "Financial Utilization", category: "Finance" },
-  { id: "cid-5", label: "Quality Assurance", category: "Quality" },
+  { id: "1.1", label: "Contract Signing & Insurances", category: "Mobilization" },
+  { id: "1.2", label: "Site Possession", category: "Mobilization" },
+  { id: "1.3", label: "Signboard, Site Office, and Hoarding", category: "Mobilization" },
+  { id: "1.4", label: "Receipt of Drawings", category: "Mobilization" },
+  { id: "2.1", label: "Excavation and Earthworks", category: "Perimeter Wall" },
+  { id: "2.2", label: "Formwork", category: "Perimeter Wall" },
+  { id: "2.3", label: "Substructure Reinforcement", category: "Perimeter Wall" },
+  { id: "6.1", label: "Cleaning", category: "Inspection and Handing Over" },
+  { id: "6.2", label: "Snagging", category: "Inspection and Handing Over" },
+  { id: "6.3", label: "Handover", category: "Inspection and Handing Over" },
 ];
 
 // ---------------------------------------------------------------
@@ -152,13 +157,51 @@ export const dummyChecklists: Checklist[] = [
   {
     projectId: "p1",
     id: "cl-1",
-    status: "Finalized",
+    status: "Approved",
     items: [
-      { parameterId: "cid-1", weight: 3 },
-      { parameterId: "cid-3", weight: 2 },
-      { parameterId: "cid-5", weight: 5 },
+      { parameterId: "1.1", weight: 2 },
+      { parameterId: "1.2", weight: 2 },
+      { parameterId: "2.2", weight: 3 },
+      { parameterId: "6.3", weight: 3 },
     ],
   },
+  {
+    projectId: "p2",
+    id: "cl-2",
+    status: "DraftReview",
+    items: [
+      { parameterId: "1.1", weight: 0 },
+      { parameterId: "1.3", weight: 0 },
+      { parameterId: "2.1", weight: 0 },
+    ],
+    draftReviewComments: {
+      reviewer: "me1@example.com", accepted: false, reason: "Add Handing Over steps"
+    }
+  },
+  {
+    projectId: "p3",
+    id: "cl-3",
+    status: "WeightsAssignment",
+    items: [
+      { parameterId: "1.2", weight: 0 },
+      { parameterId: "2.1", weight: 0 },
+      { parameterId: "2.3", weight: 0 },
+      { parameterId: "6.1", weight: 0 },
+    ],
+  },
+  {
+    projectId: "p4",
+    id: "cl-4",
+    status: "WeightsReview",
+    items: [
+      { parameterId: "1.1", weight: 3 },
+      { parameterId: "1.4", weight: 2 },
+      { parameterId: "6.1", weight: 5 },
+    ],
+    weightsReviewComments: {
+      reviewer: "me2@example.com", accepted: true, reason: "Mobilization a bit high"
+    }
+  }
 ];
 
 // ---------------------------------------------------------------

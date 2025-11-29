@@ -20,8 +20,24 @@ type ChecklistItem = {
 type Checklist = {
   id: string;
   projectId: string;
-  status: "Draft" | "Review" | "Approved";
+  status:
+    | "Draft"
+    | "DraftReview"
+    | "WeightsAssignment"
+    | "WeightsReview"
+    | "Approved";
   items: ChecklistItem[];
+  // New fields for M&E review reasons
+  draftReviewComments?: {
+    reviewer: string;
+    accepted: boolean;
+    reason?: string;
+  };
+  weightsReviewComments?: {
+    reviewer: string;
+    accepted: boolean;
+    reason?: string;
+  };
 };
 
 type StandardParam = {
@@ -70,7 +86,13 @@ export function ProjectChecklist({ projectId }: { projectId: string }) {
   );
 
   const renderStatusBar = (status: Checklist["status"]) => {
-    const stages: Checklist["status"][] = ["Draft", "Review", "Approved"];
+    const stages: Checklist["status"][] = [
+      "Draft",
+      "DraftReview",
+      "WeightsAssignment",
+      "WeightsReview",
+      "Approved",
+    ];
     return (
       <div className="flex items-center gap-2 mb-3">
         {stages.map((s, idx) => (
@@ -89,8 +111,28 @@ export function ProjectChecklist({ projectId }: { projectId: string }) {
     );
   };
 
+  console.log(checklist && checklist.items.length > 0);
+
   if (checklist && checklist.items.length > 0) {
-    // Display existing checklist
+    // Group selected checklist items by category
+    const categoryMap: Record<
+      string,
+      { id: string; label: string; weight: number }[]
+    > = {};
+    checklist.items.forEach((it) => {
+      const param = standardParams.find((p) => p.id === it.parameterId);
+      if (!param) return;
+      if (!categoryMap[param.category]) categoryMap[param.category] = [];
+      categoryMap[param.category].push({
+        id: param.id,
+        label: param.label,
+        weight: it.weight,
+      });
+    });
+    // Sort categoryMap entries by task id
+    Object.values(categoryMap).forEach((arr) =>
+      arr.sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }))
+    );
     return (
       <Card>
         <CardHeader>
@@ -98,29 +140,26 @@ export function ProjectChecklist({ projectId }: { projectId: string }) {
         </CardHeader>
         <CardContent>
           {renderStatusBar(checklist.status)}
-          {checklist.items.length === 0 && <p>No items yet.</p>}
-          <div className="space-y-3">
-            {checklist.items.map((it) => {
-              const param = standardParams.find((p) => p.id === it.parameterId);
-              return (
-                <div
-                  key={it.parameterId}
-                  className="flex justify-between p-2 border rounded"
-                >
-                  <div>
-                    <div className="font-medium">
-                      {param?.label || it.parameterId}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      Category: {param?.category || "Unknown"} | Weight:{" "}
-                      {it.weight}
-                    </div>
+          {Object.entries(categoryMap).map(([category, items]) => (
+            <div key={category} className="mb-4">
+              <h3 className="text-md font-semibold text-blue-700 mb-2">
+                {category}
+              </h3>
+              <div className="space-y-2">
+                {items.map((it) => (
+                  <div
+                    key={it.id}
+                    className="flex justify-between border rounded p-2"
+                  >
+                    <span>
+                      {it.id} {it.label}
+                    </span>
+                    <span className="text-xs">Weight: {it.weight}</span>
                   </div>
-                  <div className="text-sm">{checklist.status}</div>
-                </div>
-              );
-            })}
-          </div>
+                ))}
+              </div>
+            </div>
+          ))}
           <div className="mt-4">
             <Button
               onClick={async () => {

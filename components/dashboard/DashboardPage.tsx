@@ -42,6 +42,12 @@ export default function DashboardClient({ projects, stats }) {
         <StatsCharts stats={stats} />
       </div>
 
+      {/* MAP SECTION - full width */}
+      <div className="mt-10">
+        <ProjectsMap projects={projects} />
+      </div>
+
+      {/* DASHBOARD GRID */}
       <div className="grid lg:grid-cols-3 gap-8 mt-10">
         {/* LEFT SIDE */}
         <div className="lg:col-span-2 space-y-8">
@@ -52,7 +58,6 @@ export default function DashboardClient({ projects, stats }) {
 
         {/* RIGHT SIDE */}
         <div className="space-y-8">
-          <ProjectsMap projects={projects} />
           <CommentsFeed />
         </div>
       </div>
