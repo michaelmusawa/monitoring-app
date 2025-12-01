@@ -15,8 +15,9 @@ export default function ProjectsPage({ userEmail }: { userEmail?: string }) {
   const router = useRouter();
   const [projects, setProjects] = useState<CIDPProject[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
-  const [filters, setFilters] = useState({ status: "ALL", priority: "ALL" });
-  const [initFilter, setInitFilter] = useState("ALL");
+  // filters now holds size; status is driven by the status tabs (statusTab)
+  const [filters, setFilters] = useState({ size: "ALL" });
+  const [statusTab, setStatusTab] = useState("ALL"); // ALL | ACTIVE | PLANNING | COMPLETED | STALLED | CANCELLED
   const [activeTab, setActiveTab] = useState("cards"); // "cards" | "map"
 
   useEffect(() => {
@@ -35,22 +36,18 @@ export default function ProjectsPage({ userEmail }: { userEmail?: string }) {
       );
     }
 
-    if (filters.status !== "ALL") {
-      filtered = filtered.filter((p) => p.status === filters.status);
+    // Status driven by statusTab (tabs at the top). If ALL, show everything.
+    if (statusTab !== "ALL") {
+      filtered = filtered.filter((p) => p.status === statusTab);
     }
 
-    if (filters.priority !== "ALL") {
-      filtered = filtered.filter((p) => p.priority === filters.priority);
-    }
-
-    if (initFilter === "INIT") {
-      filtered = filtered.filter((p) => p.initialized === true);
-    } else if (initFilter === "NOT_INIT") {
-      filtered = filtered.filter((p) => p.initialized === false);
+    // Size filter (SMALL, MEDIUM, MEGA)
+    if (filters.size && filters.size !== "ALL") {
+      filtered = filtered.filter((p) => p.size === filters.size);
     }
 
     return filtered;
-  }, [projects, searchTerm, filters, initFilter]);
+  }, [projects, searchTerm, filters, statusTab]);
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto p-6 pt-20 lg:pt-6">
@@ -62,35 +59,46 @@ export default function ProjectsPage({ userEmail }: { userEmail?: string }) {
           </p>
         </div>
 
-        {userEmail && userEmail === "sector@gmail.com" && (
-          <div className="flex items-center gap-3">
-            <Button
-              onClick={() => setInitFilter("NOT_INIT")}
-              variant="outline"
-              className="flex items-center gap-2"
-            >
-              <Plus className="w-4 h-4" /> Initialize Project
-            </Button>
-            <Button onClick={() => router.push("/projects/sponsored/new")}>
-              Sponsored Project
-            </Button>
-          </div>
-        )}
+        {/* Removed standalone Initialize Project and Sponsored Project buttons.
+            Initialization is done from the project row actions (for PLANNING projects). */}
       </div>
       {/* Tabs for switching view */}
-      <div className="flex gap-3 border-b pb-2">
-        <Button
-          variant={activeTab === "cards" ? "default" : "ghost"}
-          onClick={() => setActiveTab("cards")}
-        >
-          Cards View
-        </Button>
-        <Button
-          variant={activeTab === "map" ? "default" : "ghost"}
-          onClick={() => setActiveTab("map")}
-        >
-          Map View
-        </Button>
+      <div className="flex gap-3 border-b pb-2 items-center justify-between">
+        <div className="flex gap-3">
+          <Button
+            variant={activeTab === "cards" ? "default" : "ghost"}
+            onClick={() => setActiveTab("cards")}
+          >
+            Cards View
+          </Button>
+          <Button
+            variant={activeTab === "map" ? "default" : "ghost"}
+            onClick={() => setActiveTab("map")}
+          >
+            Map View
+          </Button>
+        </div>
+
+        {/* Status tabs (All / Active / Planning / Completed / Stalled / Cancelled) */}
+        <div className="flex gap-2">
+          {[
+            "ALL",
+            "ACTIVE",
+            "PLANNING",
+            "COMPLETED",
+            "STALLED",
+            "CANCELLED",
+          ].map((s) => (
+            <Button
+              key={s}
+              variant={statusTab === s ? "default" : "ghost"}
+              onClick={() => setStatusTab(s)}
+              size="sm"
+            >
+              {s === "ALL" ? "All" : s.charAt(0) + s.slice(1).toLowerCase()}
+            </Button>
+          ))}
+        </div>
       </div>
       {/* Filters/Search only visible in cards view for now (can be extended to map if desired) */}
       {activeTab === "cards" && (
@@ -105,47 +113,45 @@ export default function ProjectsPage({ userEmail }: { userEmail?: string }) {
                 className="pl-10"
               />
             </div>
+
+            {/* The status filter is controlled by the status tabs above (statusTab).
+                Keep a size filter instead of priority. */}
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-zinc-500 mr-2">Status:</label>
+              <div className="flex gap-1">
+                {[
+                  "ALL",
+                  "ACTIVE",
+                  "PLANNING",
+                  "COMPLETED",
+                  "STALLED",
+                  "CANCELLED",
+                ].map((s) => (
+                  <Button
+                    key={s}
+                    size="sm"
+                    variant={statusTab === s ? "default" : "ghost"}
+                    onClick={() => setStatusTab(s)}
+                  >
+                    {s === "ALL"
+                      ? "All"
+                      : s.charAt(0) + s.slice(1).toLowerCase()}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
             <select
-              value={filters.status}
-              onChange={(e) =>
-                setFilters({ ...filters, status: e.target.value })
-              }
+              value={filters.size}
+              onChange={(e) => setFilters({ ...filters, size: e.target.value })}
               className="px-3 py-2 rounded border bg-background"
             >
-              <option value="ALL">All Status</option>
-              <option value="ACTIVE">Active</option>
-              <option value="PLANNING">Planning</option>
-              <option value="COMPLETED">Completed</option>
-              <option value="STALLED">Stalled</option>
-              <option value="CANCELLED">Cancelled</option>
-            </select>
-            <select
-              value={filters.priority}
-              onChange={(e) =>
-                setFilters({ ...filters, priority: e.target.value })
-              }
-              className="px-3 py-2 rounded border bg-background"
-            >
-              <option value="ALL">All Priority</option>
-              <option value="HIGH">High</option>
+              <option value="ALL">All Sizes</option>
+              <option value="SMALL">Small</option>
               <option value="MEDIUM">Medium</option>
-              <option value="LOW">Low</option>
-            </select>
-            <select
-              value={initFilter}
-              onChange={(e) => setInitFilter(e.target.value)}
-              className="px-3 py-2 rounded border bg-background"
-            >
-              <option value="ALL">All</option>
-              <option value="INIT">Initialized</option>
-              <option value="NOT_INIT">Not Initialized</option>
+              <option value="MEGA">Mega</option>
             </select>
           </div>
-          {initFilter === "NOT_INIT" && (
-            <p className="text-muted-foreground text-sm">
-              Choose a project below to initialize.
-            </p>
-          )}
         </>
       )}
       {/* Tab Content */}
@@ -167,7 +173,14 @@ export default function ProjectsPage({ userEmail }: { userEmail?: string }) {
         </div>
       ) : (
         <div className="mt-6">
-          <ProjectsMap projects={visibleProjects} />
+          {/* Constrain map view to Nairobi center/zoom. ProjectsMapClient uses these if accepted;
+              passing props here ensures the intent and will be picked up by a map client
+              implementation that accepts center/zoom. */}
+          <ProjectsMap
+            projects={visibleProjects}
+            center={[-1.2921, 36.8219]}
+            zoom={12}
+          />
         </div>
       )}
     </div>
@@ -252,7 +265,7 @@ function ProjectsTable({ projects }: { projects: CIDPProject[] }) {
                 Status
               </th>
               <th className="px-4 py-2 text-left text-xs font-semibold text-zinc-600 dark:text-zinc-300">
-                Priority
+                Size
               </th>
               <th className="px-4 py-2 text-left text-xs font-semibold text-zinc-600 dark:text-zinc-300">
                 Progress
@@ -275,10 +288,23 @@ function ProjectsTable({ projects }: { projects: CIDPProject[] }) {
                   {project.status?.toLowerCase()}
                 </td>
                 <td className="px-4 py-2 capitalize">
-                  {project.priority?.toLowerCase()}
+                  {project.size?.toLowerCase()}
                 </td>
                 <td className="px-4 py-2">{project.progress ?? 0}%</td>
-                <td className="px-4 py-2">
+                <td className="px-4 py-2 flex gap-2">
+                  {project.status === "PLANNING" && !project.initialized && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        // Initialize via the project's initialize page
+                        window.location.href = `/projects/${project.id}/initialize`;
+                      }}
+                    >
+                      Initialize
+                    </Button>
+                  )}
                   <Button
                     size="sm"
                     variant="outline"

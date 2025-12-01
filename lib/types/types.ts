@@ -13,18 +13,42 @@ export interface CIDPProject {
   name: string;
   sector: string;
   budget: number;
-  status: "PLANNING" | "ACTIVE" | "ON_HOLD" | "COMPLETED";
-  priority: "HIGH" | "MEDIUM" | "LOW";
+
+  // Status now includes broader states used across the app
+  status:
+    | "PLANNING"
+    | "ACTIVE"
+    | "ON_HOLD"
+    | "COMPLETED"
+    | "STALLED"
+    | "CANCELLED";
+
+  // Replaced `priority` with `size` derived from budget:
+  // - SMALL: budget < 500_000
+  // - MEDIUM: 500_000 <= budget <= 1_000_000
+  // - MEGA: budget > 1_000_000
+  size: "SMALL" | "MEDIUM" | "MEGA";
+
   prerequisites: string[];
   initialized: boolean;
   description: string;
   progress: number;
   members: ProjectMember[];
-  stage: "initialization" | "tracking" | "completed";
 
-  // NEW — map support
+  // Make stage optional and more flexible (string) so pages that rely on various
+  // stage naming won't fail type checks. Specific code can still narrow the type.
+  stage?: string;
+
+  // NEW — map support and optional locality information (projects are within Nairobi)
   lat: number | null;
   lng: number | null;
+
+  // Optional administrative/location metadata used by some UI components
+  subCounty?: string;
+  ward?: string;
+
+  // Optional activity/update history for the project (lightweight shape)
+  updates?: { title: string; date: string }[];
 }
 
 export interface ChecklistParam {

@@ -1,6 +1,12 @@
 import React from "react";
 import Link from "next/link";
-import { ExternalLink, MapPin, Calendar, DollarSign, Users } from "lucide-react";
+import {
+  ExternalLink,
+  MapPin,
+  Calendar,
+  DollarSign,
+  Users,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CIDPProject } from "@/lib/types/types";
 
@@ -12,15 +18,18 @@ interface ProjectDetailsCardProps {
 
 const statusColors = {
   PLANNING: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
-  ACTIVE: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
-  ON_HOLD: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
+  ACTIVE:
+    "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
+  ON_HOLD:
+    "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
   COMPLETED: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300",
 };
 
-const priorityColors = {
-  HIGH: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
-  MEDIUM: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
-  LOW: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
+const sizeColors = {
+  SMALL: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
+  MEDIUM:
+    "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
+  MEGA: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
 };
 
 export default function ProjectDetailsCard({
@@ -34,14 +43,18 @@ export default function ProjectDetailsCard({
     <div className="bg-white dark:bg-zinc-950 rounded-xl shadow-lg border border-zinc-200 dark:border-zinc-800 p-6 max-w-md w-full">
       <div className="mb-2">
         <h2 className="text-xl font-bold">{project.name}</h2>
-        <div className="text-xs text-zinc-500 dark:text-zinc-400">{project.code}</div>
+        <div className="text-xs text-zinc-500 dark:text-zinc-400">
+          {project.code}
+        </div>
       </div>
 
       {/* Description */}
       {project.description && (
         <div className="mb-4">
           <h3 className="text-sm font-semibold mb-1">Description</h3>
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">{project.description}</p>
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            {project.description}
+          </p>
         </div>
       )}
 
@@ -53,7 +66,8 @@ export default function ProjectDetailsCard({
             <p className="text-xs text-zinc-500 dark:text-zinc-400">Status</p>
             <span
               className={`text-sm font-medium px-2 py-1 rounded ${
-                statusColors[project.status] || statusColors.PLANNING
+                statusColors[project.status as keyof typeof statusColors] ||
+                statusColors.PLANNING
               }`}
             >
               {project.status}
@@ -64,13 +78,13 @@ export default function ProjectDetailsCard({
         <div className="flex items-center gap-2">
           <DollarSign className="h-4 w-4 text-zinc-500" />
           <div>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">Priority</p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">Size</p>
             <span
               className={`text-sm font-medium px-2 py-1 rounded ${
-                priorityColors[project.priority] || priorityColors.MEDIUM
+                sizeColors[project.size] || sizeColors.MEDIUM
               }`}
             >
-              {project.priority}
+              {project.size}
             </span>
           </div>
         </div>
@@ -129,7 +143,8 @@ export default function ProjectDetailsCard({
         <div className="mb-4">
           <h3 className="text-sm font-semibold mb-1">Location</h3>
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            Latitude: {project.lat.toFixed(6)}, Longitude: {project.lng.toFixed(6)}
+            Latitude: {project.lat.toFixed(6)}, Longitude:{" "}
+            {project.lng.toFixed(6)}
           </p>
         </div>
       )}
@@ -166,11 +181,7 @@ export default function ProjectDetailsCard({
             </Button>
           </Link>
           {onClose && (
-            <Button
-              variant="outline"
-              onClick={onClose}
-              className="flex-1"
-            >
+            <Button variant="outline" onClick={onClose} className="flex-1">
               Close
             </Button>
           )}

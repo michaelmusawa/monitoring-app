@@ -10,6 +10,7 @@ const statusColors = {
   ON_HOLD: "bg-amber-200 text-amber-900",
   COMPLETED: "bg-blue-200 text-blue-900",
   CANCELLED: "bg-red-200 text-red-900",
+  STALLED: "bg-amber-200 text-amber-900",
 };
 
 export default function ProjectCard({ project }) {
@@ -35,17 +36,18 @@ export default function ProjectCard({ project }) {
             {project.description || "No description"}
           </p>
 
-          {/* Status + Priority */}
+          {/* Status + Size */}
           <div className="flex items-center justify-between">
             <span
               className={`px-2 py-0.5 rounded text-xs ${
-                statusColors[project.status]
+                statusColors[project.status as keyof typeof statusColors] ||
+                statusColors.PLANNING
               }`}
             >
               {project.status.replace("_", " ")}
             </span>
             <span className="text-xs text-muted-foreground capitalize">
-              {project.priority} priority
+              {project.size ? `${project.size.toLowerCase()} size` : "n/a"}
             </span>
           </div>
 

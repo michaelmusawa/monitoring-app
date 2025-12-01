@@ -47,14 +47,35 @@ const createCustomIcon = (status: string) => {
 interface ProjectsMapClientProps {
   projects: CIDPProject[];
   onMarkerClick?: (project: CIDPProject) => void;
+  /**
+   * When true the map view is constrained to Nairobi region.
+   * Defaults to true since projects are within Nairobi county.
+   */
+  centerOnlyNairobi?: boolean;
+  /**
+   * Optional center override [lat, lng].
+   * Ignored when centerOnlyNairobi is true.
+   */
+  center?: [number, number];
+  /**
+   * Optional zoom override.
+   */
+  zoom?: number;
 }
 
 export default function ProjectsMapClient({
   projects,
   onMarkerClick,
+  centerOnlyNairobi = true,
+  center = [-1.2921, 36.8219],
+  zoom = 12,
 }: ProjectsMapClientProps) {
-  const [selectedProject, setSelectedProject] = useState<CIDPProject | null>(null);
-  const DEFAULT_COORD = [-1.286389, 36.817223]; // Nairobi
+  const [selectedProject, setSelectedProject] = useState<CIDPProject | null>(
+    null,
+  );
+
+  // Nairobi default center
+  const DEFAULT_COORD: [number, number] = [-1.2921, 36.8219];
 
   const handleMarkerClick = (project: CIDPProject) => {
     setSelectedProject(project);
@@ -63,11 +84,29 @@ export default function ProjectsMapClient({
     }
   };
 
+  // Compute effective center/zoom based on props and whether we should constrain to Nairobi
+  const mapCenter: [number, number] = centerOnlyNairobi
+    ? DEFAULT_COORD
+    : (center as [number, number]);
+  const mapZoom = zoom;
+
+  // Approximate bounding box for Nairobi county (southWest, northEast)
+  // This will keep the map constrained to Nairobi region.
+  const NAIROBI_BOUNDS: [number, number][] = [
+    [-1.5, 36.6], // southWest
+    [-1.0, 37.0], // northEast
+  ];
+
   return (
     <>
       <MapContainer
-        center={[-1.2921, 36.8219]}
-        zoom={6}
+        center={mapCenter}
+        zoom={mapZoom}
+        // Constrain to Nairobi bounds if requested
+        bounds={NAIROBI_BOUNDS}
+        maxBounds={NAIROBI_BOUNDS}
+        minZoom={10}
+        maxZoom={16}
         className="h-96 w-full rounded-lg"
         style={{ zIndex: 0 }}
       >
@@ -122,7 +161,9 @@ export default function ProjectsMapClient({
                   {!valid && (
                     <>
                       <br />
-                      <em className="text-xs text-amber-600">(Using default location)</em>
+                      <em className="text-xs text-amber-600">
+                        (Using default location)
+                      </em>
                     </>
                   )}
                   <br />
