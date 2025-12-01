@@ -429,6 +429,20 @@ export const standardChecklistParams: ChecklistParam[] = [
 // CHECKLISTS
 // ---------------------------------------------------------------
 export const dummyChecklists: Checklist[] = [
+  // Example project in Draft (phase one / formulate)
+  {
+    projectId: "p5",
+    id: "cl-0",
+    status: ChecklistStatus.Draft,
+    items: [
+      // Drafts typically have selected items but no finalized weights yet
+      { parameterId: "1.1", weight: 0 },
+      { parameterId: "1.4", weight: 0 },
+      { parameterId: "6.2", weight: 0 },
+    ],
+  },
+
+  // Example project with finalized checklist (approved) (phase five / tracker)
   {
     projectId: "p4",
     id: "cl-1",
@@ -440,6 +454,8 @@ export const dummyChecklists: Checklist[] = [
       { parameterId: "6.3", weight: 3 },
     ],
   },
+
+  // Example project in Draft Review (phase two / draft with suggestions)
   {
     projectId: "p2",
     id: "cl-2",
@@ -455,6 +471,8 @@ export const dummyChecklists: Checklist[] = [
       reason: "Add Handing Over steps",
     },
   },
+
+  // Example project in Weights Assignment (phase three)
   {
     projectId: "p3",
     id: "cl-3",
@@ -466,6 +484,8 @@ export const dummyChecklists: Checklist[] = [
       { parameterId: "6.1", weight: 0 },
     ],
   },
+
+  // Example project in Weights Review (phase four)
   {
     projectId: "p7",
     id: "cl-4",

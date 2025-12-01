@@ -2,7 +2,6 @@
 
 import {
   ArrowLeftIcon,
-  BarChart3Icon,
   CalendarIcon,
   CheckIcon,
   ClipboardListIcon,
@@ -14,7 +13,7 @@ import {
 
 import Link from "next/link";
 
-import { ProjectAnalytics } from "@/components/projects/ProjectAnalytics";
+import PublicComments from "@/components/projects/PublicComments";
 import { ProjectCalendar } from "@/components/projects/ProjectCalendar";
 
 import ProjectChecklistClient from "@/components/projects/ProjectChecklistClient";
@@ -23,7 +22,7 @@ import { getProjectById, getTrackers } from "@/lib/actions/actions";
 import { getChecklist } from "@/lib/actions/projectActions";
 import { ProjectTrackers } from "@/components/projects/ProjectTrackers";
 import ProjectMembers from "@/components/projects/ProjectMembers";
-import ProjectChecklist from "@/components/projects/ProjectChecklist";
+import { ProjectReports } from "@/components/projects/ProjectReports";
 
 export default async function ProjectDetail(props: {
   searchParams?: Promise<{ tab?: string }>;
@@ -50,6 +49,8 @@ export default async function ProjectDetail(props: {
       "bg-emerald-200 text-emerald-900 dark:bg-emerald-500 dark:text-emerald-900",
     ON_HOLD:
       "bg-amber-200 text-amber-900 dark:bg-amber-500 dark:text-amber-900",
+    STALLED:
+      "bg-violet-200 text-violet-900 dark:bg-violet-500 dark:text-violet-900",
     COMPLETED: "bg-blue-200 text-blue-900 dark:bg-blue-500 dark:text-blue-900",
     CANCELLED: "bg-red-200 text-red-900 dark:bg-red-500 dark:text-red-900",
   };
@@ -177,7 +178,7 @@ export default async function ProjectDetail(props: {
             { key: "checklist", label: "Checklist", icon: CheckIcon },
             { key: "trackers", label: "Trackers", icon: ClipboardListIcon },
             { key: "calendar", label: "Calendar", icon: CalendarIcon },
-            { key: "analytics", label: "Analytics", icon: BarChart3Icon },
+            { key: "comments", label: "Public Comments", icon: FileTextIcon },
             { key: "members", label: "Members", icon: GroupIcon },
           ].map((tabItem) => (
             <Link
@@ -222,7 +223,7 @@ export default async function ProjectDetail(props: {
             <ProjectTrackers projectId={p.id} trackers={trackers} />
           )}
           {tab === "calendar" && <ProjectCalendar projectId={p.id} />}
-          {tab === "analytics" && <ProjectAnalytics projectId={p.id} />}
+          {tab === "comments" && <PublicComments projectId={p.id} />}
           {tab === "reports" && <ProjectReports projectId={p.id} />}
           {tab === "members" && <ProjectMembers projectId={p.id} />}
         </div>

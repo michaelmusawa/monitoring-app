@@ -25,19 +25,79 @@ type Checklist = {
   projectId: string;
   status: ChecklistStatus | string;
   items: ChecklistItem[];
-  draftReviewComments?: { reviewer: string; accepted: boolean; reason?: string };
-  weightsReviewComments?: { reviewer: string; accepted: boolean; reason?: string };
+  draftReviewComments?: {
+    reviewer: string;
+    accepted: boolean;
+    reason?: string;
+  };
+  weightsReviewComments?: {
+    reviewer: string;
+    accepted: boolean;
+    reason?: string;
+  };
 };
 
-export default function ProjectChecklistClient({ projectId }: { projectId: string }) {
+export default function ProjectChecklistClient({
+  projectId,
+}: {
+  projectId: string;
+}) {
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
   const [checklist, setChecklist] = useState<Checklist | null>(null);
   const [standardParams, setStandardParams] = useState<StandardParam[]>([]);
-  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>(
-    {},
-  );
+  const [expandedCategories, setExpandedCategories] = useState<
+    Record<string, boolean>
+  >({});
   const [localItems, setLocalItems] = useState<Record<string, number>>({}); // parameterId -> weight (0 means excluded)
+
+  // When a user edits in Draft or in WeightsReview we require a reason for the edit
+  const [editPending, setEditPending] = useState<boolean>(false);
+  const [editReason, setEditReason] = useState<string>("");
+
+  // Submit a suggestion / edit reason to the server (prototype endpoint)
+  const submitSuggestion = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!editReason.trim()) {
+      alert("Please provide a reason for your changes");
+      return;
+    }
+    setSaving(true);
+    try {
+      // Send the current localItems and reason as a suggestion payload.
+      // This endpoint is a prototype; adjust on backend as needed.
+      await fetch(`/api/projects/${projectId}/checklist/suggest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId,
+          reason: editReason,
+          items: Object.entries(localItems)
+            .filter(([, w]) => Number(w) > 0)
+            .map(([parameterId, weight]) => ({
+              parameterId,
+              weight: Number(weight),
+            })),
+          status: checklist?.status ?? String(ChecklistStatus.Draft),
+        }),
+      });
+      alert("Suggestion submitted");
+      setEditPending(false);
+      setEditReason("");
+      // refresh checklist from server to reflect any server-side changes
+      const res = await fetch(`/api/projects/${projectId}/checklist`);
+      if (res.ok) {
+        const data = await res.json();
+        setChecklist(data.checklist ?? checklist);
+      }
+    } catch (err: unknown) {
+      console.error("Submit suggestion error", err);
+      const _msg = err instanceof Error ? err.message : String(err);
+      alert(`Failed to submit suggestion: ${_msg}`);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   // Fetch checklist + params from API
   useEffect(() => {
@@ -87,7 +147,9 @@ export default function ProjectChecklistClient({ projectId }: { projectId: strin
     });
     // sort tasks inside each category by id for consistent ordering
     Object.keys(map).forEach((k) =>
-      map[k].sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true })),
+      map[k].sort((a, b) =>
+        a.id.localeCompare(b.id, undefined, { numeric: true }),
+      ),
     );
     return map;
   }, [standardParams]);
@@ -113,6 +175,14 @@ export default function ProjectChecklistClient({ projectId }: { projectId: strin
 
   // Toggle task include (zero weight <-> default 1)
   const toggleTaskInclude = (paramId: string) => {
+    // If the checklist is in Draft (phase two) or WeightsReview (phase four),
+    // mark that a reason is required for this edit.
+    if (
+      checklist?.status === ChecklistStatus.Draft ||
+      checklist?.status === ChecklistStatus.WeightsReview
+    ) {
+      setEditPending(true);
+    }
     setLocalItems((prev) => {
       const copy = { ...prev };
       const current = copy[paramId] ?? 0;
@@ -127,6 +197,10 @@ export default function ProjectChecklistClient({ projectId }: { projectId: strin
 
   const setTaskWeight = (paramId: string, weight: number) => {
     if (weight < 0) weight = 0;
+    // If we are in the weights review phase, any weight change should prompt a reason
+    if (checklist?.status === ChecklistStatus.WeightsReview) {
+      setEditPending(true);
+    }
     setLocalItems((prev) => ({ ...prev, [paramId]: Math.floor(weight) }));
   };
 
@@ -141,11 +215,14 @@ export default function ProjectChecklistClient({ projectId }: { projectId: strin
   const buildPayload = (status?: string) => {
     const items = Object.entries(localItems)
       .filter(([, w]) => Number(w) > 0)
-      .map(([parameterId, weight]) => ({ parameterId, weight: Number(weight) }));
+      .map(([parameterId, weight]) => ({
+        parameterId,
+        weight: Number(weight),
+      }));
     const payload: Checklist = {
       id: checklist?.id ?? `cl-${projectId}`,
       projectId,
-      status: status ?? (checklist?.status ?? ChecklistStatus.Draft),
+      status: status ?? checklist?.status ?? ChecklistStatus.Draft,
       items,
     };
     return payload;
@@ -166,12 +243,13 @@ export default function ProjectChecklistClient({ projectId }: { projectId: strin
       }
       const json = await res.json();
       // optimistic update: replace local checklist with returned payload or our payload
-      const updated = json.result?.payload ?? payload;
-      setChecklist(payload);
+      const serverPayload = json?.result?.payload ?? null;
+      setChecklist(serverPayload ?? payload);
       alert("Checklist saved");
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Save checklist error", err);
-      alert(`Failed to save checklist: ${err?.message ?? err}`);
+      const _msg = err instanceof Error ? err.message : String(err);
+      alert(`Failed to save checklist: ${_msg}`);
     } finally {
       setSaving(false);
     }
@@ -203,13 +281,42 @@ export default function ProjectChecklistClient({ projectId }: { projectId: strin
         </div>
       </div>
 
-      {/* Status / summary */}
+      {/* Status / summary + phase progress bar */}
       <div className="mb-4">
-        <div className="text-sm text-muted-foreground">
+        <div className="text-sm text-muted-foreground mb-2">
           Status:{" "}
           <span className="font-medium">
             {checklist?.status ?? ChecklistStatus.Draft}
           </span>
+        </div>
+
+        {/* Simple step indicator for checklist phases */}
+        <div className="flex items-center gap-2 text-xs">
+          {[
+            { key: ChecklistStatus.Draft, label: "Draft (Formulate)" },
+            { key: ChecklistStatus.DraftReview, label: "Draft Review" },
+            {
+              key: ChecklistStatus.WeightsAssignment,
+              label: "Weights Assignment",
+            },
+            { key: ChecklistStatus.WeightsReview, label: "Weights Review" },
+            { key: ChecklistStatus.Approved, label: "Finalized / Tracker" },
+          ].map((step, idx) => {
+            const active = checklist?.status === step.key;
+            return (
+              <div
+                key={step.key}
+                className={`flex items-center gap-2 px-3 py-1 rounded-full ${
+                  active
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-100 text-gray-600"
+                }`}
+              >
+                <span className="font-semibold">{idx + 1}</span>
+                <span>{step.label}</span>
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -245,7 +352,8 @@ export default function ProjectChecklistClient({ projectId }: { projectId: strin
                 <div className="flex items-center gap-4">
                   <div className="text-sm font-medium">{sum} pts</div>
                   <div className="text-xs text-gray-500">
-                    {params.filter((p) => (localItems[p.id] ?? 0) > 0).length} selected
+                    {params.filter((p) => (localItems[p.id] ?? 0) > 0).length}{" "}
+                    selected
                   </div>
                 </div>
               </div>
@@ -295,39 +403,86 @@ export default function ProjectChecklistClient({ projectId }: { projectId: strin
       </div>
 
       {/* Actions */}
-      <div className="mt-4 flex gap-3">
-        <button
-          className="px-4 py-2 bg-blue-600 text-white rounded hover:opacity-90 disabled:opacity-50"
-          onClick={() => handleSave()}
-          disabled={saving}
-          type="button"
-        >
-          {saving ? "Saving…" : "Save Checklist"}
-        </button>
+      <div className="mt-4">
+        {/* If an edit occurred in a phase that requires a reason, show reason form */}
+        {editPending ? (
+          <form onSubmit={submitSuggestion} className="space-y-3">
+            <label className="block text-sm font-medium">
+              Reason for edits (required)
+            </label>
+            <textarea
+              value={editReason}
+              onChange={(e) => setEditReason(e.target.value)}
+              placeholder="Explain why these edits were made"
+              className="w-full border rounded p-2"
+              required
+              rows={4}
+            />
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:opacity-90 disabled:opacity-50"
+                disabled={saving}
+              >
+                {saving ? "Submitting…" : "Submit Suggestion"}
+              </button>
+              <button
+                type="button"
+                className="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200"
+                onClick={() => {
+                  setEditPending(false);
+                  setEditReason("");
+                  // revert to server checklist values
+                  const itemsMap: Record<string, number> = {};
+                  (checklist?.items ?? []).forEach((it) => {
+                    itemsMap[it.parameterId] = it.weight ?? 0;
+                  });
+                  setLocalItems(itemsMap);
+                  collapseAll();
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="flex gap-3">
+            <button
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:opacity-90 disabled:opacity-50"
+              onClick={() => handleSave()}
+              disabled={saving}
+              type="button"
+            >
+              {saving ? "Saving…" : "Save Checklist"}
+            </button>
 
-        <button
-          className="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200"
-          onClick={() => {
-            // reset localItems to server checklist
-            const itemsMap: Record<string, number> = {};
-            (checklist?.items ?? []).forEach((it) => {
-              itemsMap[it.parameterId] = it.weight ?? 0;
-            });
-            setLocalItems(itemsMap);
-            collapseAll();
-          }}
-          type="button"
-        >
-          Reset
-        </button>
+            <button
+              className="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200"
+              onClick={() => {
+                // reset localItems to server checklist
+                const itemsMap: Record<string, number> = {};
+                (checklist?.items ?? []).forEach((it) => {
+                  itemsMap[it.parameterId] = it.weight ?? 0;
+                });
+                setLocalItems(itemsMap);
+                collapseAll();
+              }}
+              type="button"
+            >
+              Reset
+            </button>
 
-        <button
-          className="px-4 py-2 bg-emerald-600 text-white rounded hover:opacity-90"
-          onClick={() => handleSave(String(ChecklistStatus.WeightsAssignment))}
-          type="button"
-        >
-          Save & Move to Weights Assignment
-        </button>
+            <button
+              className="px-4 py-2 bg-emerald-600 text-white rounded hover:opacity-90"
+              onClick={() =>
+                handleSave(String(ChecklistStatus.WeightsAssignment))
+              }
+              type="button"
+            >
+              Save & Move to Weights Assignment
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
