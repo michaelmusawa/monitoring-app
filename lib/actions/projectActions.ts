@@ -3,6 +3,7 @@
 "use server";
 
 import { cidpProjects, dummyChecklists, dummyTrackers } from "../data/data";
+import { ChecklistStatus } from "@/lib/types/types";
 
 export async function getProjects() {
   await new Promise((r) => setTimeout(r, 30));
@@ -21,7 +22,7 @@ export async function getChecklist(projectId: string) {
     checklist ?? {
       projectId,
       id: `cl-${projectId}`,
-      status: "Draft",
+      status: ChecklistStatus.Draft,
       items: [],
     }
   );
@@ -34,23 +35,20 @@ export async function getTrackers(projectId: string) {
 
 export async function getTrackerById(projectId: string, trackerId: string) {
   await new Promise((r) => setTimeout(r, 20));
-  console.log("getTrackerById", projectId, trackerId);
   return (
     dummyTrackers.find(
-      (t) => t.projectId === projectId && t.id === trackerId
+      (t) => t.projectId === projectId && t.id === trackerId,
     ) ?? null
   );
 }
 
 // simple action stubs for prototype
 export async function saveChecklist(projectId: string, payload: any) {
-  console.log("saveChecklist", projectId, payload);
   await new Promise((r) => setTimeout(r, 30));
   return { ok: true, id: `cl-saved-${Date.now()}` };
 }
 
 export async function saveTracker(projectId: string, payload: any) {
-  console.log("saveTracker", projectId, payload);
   await new Promise((r) => setTimeout(r, 30));
   return { ok: true, id: `t-saved-${Date.now()}` };
 }

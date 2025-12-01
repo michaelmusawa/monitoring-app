@@ -6,6 +6,7 @@ import {
   PublicComment,
   Tracker,
   CIDPProject,
+  ChecklistStatus,
 } from "../types/types";
 
 export const recentActivity = [
@@ -138,13 +139,25 @@ export const cidpProjects: CIDPProject[] = [
 // STANDARD CHECKLIST PARAMETERS
 // ---------------------------------------------------------------
 export const standardChecklistParams: ChecklistParam[] = [
-  { id: "1.1", label: "Contract Signing & Insurances", category: "Mobilization" },
+  {
+    id: "1.1",
+    label: "Contract Signing & Insurances",
+    category: "Mobilization",
+  },
   { id: "1.2", label: "Site Possession", category: "Mobilization" },
-  { id: "1.3", label: "Signboard, Site Office, and Hoarding", category: "Mobilization" },
+  {
+    id: "1.3",
+    label: "Signboard, Site Office, and Hoarding",
+    category: "Mobilization",
+  },
   { id: "1.4", label: "Receipt of Drawings", category: "Mobilization" },
   { id: "2.1", label: "Excavation and Earthworks", category: "Perimeter Wall" },
   { id: "2.2", label: "Formwork", category: "Perimeter Wall" },
-  { id: "2.3", label: "Substructure Reinforcement", category: "Perimeter Wall" },
+  {
+    id: "2.3",
+    label: "Substructure Reinforcement",
+    category: "Perimeter Wall",
+  },
   { id: "6.1", label: "Cleaning", category: "Inspection and Handing Over" },
   { id: "6.2", label: "Snagging", category: "Inspection and Handing Over" },
   { id: "6.3", label: "Handover", category: "Inspection and Handing Over" },
@@ -157,7 +170,7 @@ export const dummyChecklists: Checklist[] = [
   {
     projectId: "p1",
     id: "cl-1",
-    status: "Approved",
+    status: ChecklistStatus.Approved,
     items: [
       { parameterId: "1.1", weight: 2 },
       { parameterId: "1.2", weight: 2 },
@@ -168,20 +181,22 @@ export const dummyChecklists: Checklist[] = [
   {
     projectId: "p2",
     id: "cl-2",
-    status: "DraftReview",
+    status: ChecklistStatus.DraftReview,
     items: [
       { parameterId: "1.1", weight: 0 },
       { parameterId: "1.3", weight: 0 },
       { parameterId: "2.1", weight: 0 },
     ],
     draftReviewComments: {
-      reviewer: "me1@example.com", accepted: false, reason: "Add Handing Over steps"
-    }
+      reviewer: "me1@example.com",
+      accepted: false,
+      reason: "Add Handing Over steps",
+    },
   },
   {
     projectId: "p3",
     id: "cl-3",
-    status: "WeightsAssignment",
+    status: ChecklistStatus.WeightsAssignment,
     items: [
       { parameterId: "1.2", weight: 0 },
       { parameterId: "2.1", weight: 0 },
@@ -192,16 +207,18 @@ export const dummyChecklists: Checklist[] = [
   {
     projectId: "p4",
     id: "cl-4",
-    status: "WeightsReview",
+    status: ChecklistStatus.WeightsReview,
     items: [
       { parameterId: "1.1", weight: 3 },
       { parameterId: "1.4", weight: 2 },
       { parameterId: "6.1", weight: 5 },
     ],
     weightsReviewComments: {
-      reviewer: "me2@example.com", accepted: true, reason: "Mobilization a bit high"
-    }
-  }
+      reviewer: "me2@example.com",
+      accepted: true,
+      reason: "Mobilization a bit high",
+    },
+  },
 ];
 
 // ---------------------------------------------------------------

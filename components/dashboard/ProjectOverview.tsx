@@ -36,10 +36,22 @@ function prettyStatus(status?: string) {
   return status.replace("_", " ").replaceAll(/\b\w/g, (c) => c.toUpperCase());
 }
 
+type PublicComment = {
+  id: string;
+  projectId: string;
+  name: string;
+  email: string;
+  phone: string;
+  message: string;
+  createdAt: string;
+};
+
 export default function ProjectOverview({
   projects = [],
+  comments = [],
 }: {
   projects?: Project[];
+  comments?: PublicComment[];
 }) {
   // show top 5 or placeholder
   if (!projects || projects.length === 0) {
@@ -121,19 +133,21 @@ export default function ProjectOverview({
             </div>
 
             <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-500 mb-3">
-              <div className="flex items-center gap-4">
-                {project.members?.length > 0 && (
-                  <div className="flex items-center gap-1">
-                    <span className="text-xs">👥</span>
-                    {project.members.length} members
-                  </div>
-                )}
-                {project.end_date && (
-                  <div className="flex items-center gap-1">
-                    <span className="text-xs">📅</span>
-                    {new Date(project.end_date).toLocaleDateString()}
-                  </div>
-                )}
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-4">
+                  {project.members?.length > 0 && (
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs">👥</span>
+                      {project.members.length} members
+                    </div>
+                  )}
+                  {project.end_date && (
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs">📅</span>
+                      {new Date(project.end_date).toLocaleDateString()}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -152,6 +166,55 @@ export default function ProjectOverview({
                   style={{ width: `${project.progress ?? 0}%` }}
                 />
               </div>
+            </div>
+
+            {/* Recent Comments Preview */}
+            <div className="mt-4">
+              <div className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
+                Recent Comments
+              </div>
+              <div className="space-y-1">
+                {comments
+                  .filter((c) => c.projectId === project.id)
+                  .sort(
+                    (a, b) =>
+                      new Date(b.createdAt).getTime() -
+                      new Date(a.createdAt).getTime(),
+                  )
+                  .slice(0, 2).length === 0 && (
+                  <div className="text-xs text-zinc-400 italic">
+                    No comments yet
+                  </div>
+                )}
+                {comments
+                  .filter((c) => c.projectId === project.id)
+                  .sort(
+                    (a, b) =>
+                      new Date(b.createdAt).getTime() -
+                      new Date(a.createdAt).getTime(),
+                  )
+                  .slice(0, 2)
+                  .map((c) => (
+                    <div
+                      key={c.id}
+                      className="text-xs border rounded p-2 bg-zinc-50 dark:bg-zinc-800"
+                    >
+                      <span className="font-medium text-blue-700 dark:text-blue-400">
+                        {c.name}
+                      </span>
+                      <span className="ml-2 text-zinc-400">{c.createdAt}</span>
+                      <div className="text-zinc-700 dark:text-zinc-200">
+                        {c.message}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+              <Link
+                href={`/projects/${project.id}/comments`}
+                className="text-xs text-blue-600 dark:text-blue-400 hover:underline mt-1 inline-block"
+              >
+                View all comments
+              </Link>
             </div>
           </Link>
         ))}

@@ -1,16 +1,31 @@
-// File: components/projects/ProjectChecklist.tsx
+/**
+ * Server-rendered ProjectChecklist
+ *
+ * Converted to a server component to fetch checklist data and standard params
+ * using server actions. Interactive creation/editing flows are delegated to
+ * dedicated client pages (create / weights / review) to avoid calling server
+ * actions directly from a client component.
+ *
+ * This component renders the checklist if present and includes links to the
+ * existing interactive pages:
+ * - /projects/[projectId]/checklist/create
+ * - /projects/[projectId]/checklist/weights
+ * - /projects/[projectId]/checklist/weights-review
+ * - /projects/[projectId]/checklist/finalized
+ *
+ * If you prefer client-side interactivity instead, create a small client
+ * subcomponent and call an API route (e.g., /api/projects/[id]/checklist) to
+ * perform saves. That approach is outlined in the project but is implemented
+ * separately.
+ */
 
-"use client";
-import { useEffect, useState } from "react";
+import React from "react";
+import Link from "next/link";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
-
 import {
-  getChecklist,
-  saveChecklist,
+  getChecklistForProject,
   getStandardParams,
-} from "@/lib/actions/projectActions";
+} from "@/lib/actions/actions";
 
 type ChecklistItem = {
   parameterId: string;
@@ -20,14 +35,9 @@ type ChecklistItem = {
 type Checklist = {
   id: string;
   projectId: string;
-  status:
-    | "Draft"
-    | "DraftReview"
-    | "WeightsAssignment"
-    | "WeightsReview"
-    | "Approved";
+  // Relaxed to string to match shared types returned by server helpers
+  status: string;
   items: ChecklistItem[];
-  // New fields for M&E review reasons
   draftReviewComments?: {
     reviewer: string;
     accepted: boolean;
@@ -46,45 +56,16 @@ type StandardParam = {
   category: string;
 };
 
-export function ProjectChecklist({ projectId }: { projectId: string }) {
-  const [checklist, setChecklist] = useState<Checklist | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [standardParams, setStandardParams] = useState<StandardParam[]>([]);
-  const [creating, setCreating] = useState(false);
-  const [newChecklistItems, setNewChecklistItems] = useState<
-    Record<string, number>
-  >({}); // parameterId -> weight
+export default async function ProjectChecklist({
+  projectId,
+}: {
+  projectId: string;
+}) {
+  // Server-side fetch checklist and params
+  const checklist: Checklist = await getChecklistForProject(projectId);
+  const standardParams: StandardParam[] = await getStandardParams();
 
-  useEffect(() => {
-    (async () => {
-      const [c, params] = await Promise.all([
-        getChecklist(projectId),
-        getStandardParams(),
-      ]);
-      setChecklist(c);
-      setStandardParams(params);
-      setLoading(false);
-    })();
-  }, [projectId]);
-
-  if (loading) return <div>Loading checklist…</div>;
-
-  const handleWeightChange = (parameterId: string, weight: number) => {
-    setNewChecklistItems((prev) => ({
-      ...prev,
-      [parameterId]: weight,
-    }));
-  };
-
-  const groupedParams: Record<string, StandardParam[]> = standardParams.reduce(
-    (acc, param) => {
-      if (!acc[param.category]) acc[param.category] = [];
-      acc[param.category].push(param);
-      return acc;
-    },
-    {} as Record<string, StandardParam[]>
-  );
-
+  // Helper: render status bar
   const renderStatusBar = (status: Checklist["status"]) => {
     const stages: Checklist["status"][] = [
       "Draft",
@@ -111,14 +92,13 @@ export function ProjectChecklist({ projectId }: { projectId: string }) {
     );
   };
 
-  console.log(checklist && checklist.items.length > 0);
-
-  if (checklist && checklist.items.length > 0) {
-    // Group selected checklist items by category
+  // If there are checklist items, group them by category and render
+  if (checklist && checklist.items && checklist.items.length > 0) {
     const categoryMap: Record<
       string,
       { id: string; label: string; weight: number }[]
     > = {};
+
     checklist.items.forEach((it) => {
       const param = standardParams.find((p) => p.id === it.parameterId);
       if (!param) return;
@@ -129,10 +109,13 @@ export function ProjectChecklist({ projectId }: { projectId: string }) {
         weight: it.weight,
       });
     });
-    // Sort categoryMap entries by task id
+
     Object.values(categoryMap).forEach((arr) =>
-      arr.sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }))
+      arr.sort((a, b) =>
+        a.id.localeCompare(b.id, undefined, { numeric: true }),
+      ),
     );
+
     return (
       <Card>
         <CardHeader>
@@ -160,103 +143,68 @@ export function ProjectChecklist({ projectId }: { projectId: string }) {
               </div>
             </div>
           ))}
-          <div className="mt-4">
-            <Button
-              onClick={async () => {
-                toast.loading("Saving checklist…");
-                await saveChecklist(projectId, checklist);
-                toast.dismiss();
-                toast.success("Checklist saved (prototype)");
-              }}
+
+          <div className="mt-4 flex gap-2">
+            {/* Provide links to interactive pages where users can make changes */}
+            {checklist.status === "Draft" && (
+              <Link
+                href={`/projects/${projectId}/checklist/weights`}
+                className="btn"
+              >
+                Assign Weights
+              </Link>
+            )}
+
+            {checklist.status === "WeightsAssignment" && (
+              <Link
+                href={`/projects/${projectId}/checklist/weights-review`}
+                className="btn"
+              >
+                Review Weights
+              </Link>
+            )}
+
+            {checklist.status === "Approved" && (
+              <Link
+                href={`/projects/${projectId}/checklist/finalized`}
+                className="btn"
+              >
+                View Finalized Checklist
+              </Link>
+            )}
+
+            {/* Fallback: open the create/edit page */}
+            <Link
+              href={`/projects/${projectId}/checklist/create`}
+              className="btn-outline"
             >
-              Save Checklist
-            </Button>
+              Edit / Recreate Checklist
+            </Link>
           </div>
         </CardContent>
       </Card>
     );
   }
 
-  // No checklist exists, allow creating a new one
+  // No checklist items → show create flow link
   return (
     <Card>
       <CardHeader>
         <CardTitle>Create Checklist</CardTitle>
       </CardHeader>
       <CardContent>
-        {creating ? (
-          <form
-            onSubmit={async (e) => {
-              e.preventDefault();
-              const items = Object.entries(newChecklistItems)
-                .filter(([_, weight]) => weight > 0)
-                .map(([parameterId, weight]) => ({ parameterId, weight }));
-
-              if (items.length === 0) {
-                toast.error("Please select at least one task with weight");
-                return;
-              }
-
-              const payload: Checklist = {
-                projectId,
-                id: "cl-draft",
-                status: "Draft",
-                items,
-              };
-
-              toast.loading("Creating checklist…");
-              await saveChecklist(projectId, payload);
-              toast.dismiss();
-              toast.success("Draft checklist created");
-              setChecklist(payload);
-            }}
-            className="space-y-4"
+        <div className="text-sm text-muted-foreground mb-4">
+          This project has no checklist yet. Use the create page to build a
+          checklist and assign weights.
+        </div>
+        <div className="flex gap-2">
+          <Link
+            href={`/projects/${projectId}/checklist/create`}
+            className="btn"
           >
-            {Object.entries(groupedParams).map(([category, params]) => (
-              <div key={category}>
-                <h3 className="font-medium mb-2">{category}</h3>
-                <div className="space-y-2">
-                  {params.map((p) => (
-                    <div key={p.id} className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        id={p.id}
-                        onChange={(e) =>
-                          handleWeightChange(
-                            p.id,
-                            e.target.checked ? newChecklistItems[p.id] || 1 : 0
-                          )
-                        }
-                        checked={!!newChecklistItems[p.id]}
-                      />
-                      <label htmlFor={p.id} className="flex-1">
-                        {p.label}
-                      </label>
-                      {newChecklistItems[p.id] ? (
-                        <input
-                          type="number"
-                          min={1}
-                          max={10}
-                          value={newChecklistItems[p.id]}
-                          onChange={(e) =>
-                            handleWeightChange(p.id, Number(e.target.value))
-                          }
-                          className="w-16 input input-sm"
-                        />
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-
-            <div>
-              <Button type="submit">Create Draft Checklist</Button>
-            </div>
-          </form>
-        ) : (
-          <Button onClick={() => setCreating(true)}>Create Checklist</Button>
-        )}
+            Create Checklist
+          </Link>
+        </div>
       </CardContent>
     </Card>
   );

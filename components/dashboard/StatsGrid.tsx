@@ -1,6 +1,13 @@
 // app/dashboard/components/StatsGrid.tsx
 import React from "react";
-import { FolderOpen, CheckCircle, Users, AlertTriangle } from "lucide-react";
+import {
+  FolderOpen,
+  CheckCircle,
+  Users,
+  AlertTriangle,
+  BadgeAlertIcon,
+} from "lucide-react";
+import { CachedRouteKind } from "next/dist/server/response-cache";
 
 type Project = {
   id: string;
@@ -13,12 +20,12 @@ type Project = {
 export default function StatsGrid({ projects = [] }: { projects?: Project[] }) {
   const total = projects.length;
   const completed = projects.filter(
-    (p) => (p.status || "").toLowerCase() === "completed"
+    (p) => (p.status || "").toLowerCase() === "completed",
   ).length;
   const active = projects.filter(
     (p) =>
       (p.status || "").toLowerCase() === "ongoing" ||
-      (p.status || "").toLowerCase() === "initialized"
+      (p.status || "").toLowerCase() === "initialized",
   ).length;
   const myTasks = 0; // prototype placeholder
   const overdue = 0;
@@ -41,10 +48,10 @@ export default function StatsGrid({ projects = [] }: { projects?: Project[] }) {
       textColor: "text-emerald-500",
     },
     {
-      icon: Users,
-      title: "My Tasks",
-      value: myTasks,
-      subtitle: "assigned to me",
+      icon: BadgeAlertIcon,
+      title: "Stalled",
+      value: "stalled",
+      subtitle: "stalled projects",
       bgColor: "bg-purple-500/10",
       textColor: "text-purple-500",
     },
@@ -64,7 +71,7 @@ export default function StatsGrid({ projects = [] }: { projects?: Project[] }) {
         ({ icon: Icon, title, value, subtitle, bgColor, textColor }, i) => (
           <div
             key={i}
-            className="bg-white dark:bg-zinc-950 dark:bg-gradient-to-br dark:from-zinc-800/70 dark:to-zinc-900/50 border border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 transition duration-200 rounded-md"
+            className="bg-white dark:bg-zinc-950 dark:bg-linear-to-br dark:from-zinc-800/70 dark:to-zinc-900/50 border border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 transition duration-200 rounded-md"
           >
             <div className="p-6 py-4">
               <div className="flex items-start justify-between">
@@ -87,7 +94,7 @@ export default function StatsGrid({ projects = [] }: { projects?: Project[] }) {
               </div>
             </div>
           </div>
-        )
+        ),
       )}
     </div>
   );

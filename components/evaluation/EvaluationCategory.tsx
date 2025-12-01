@@ -4,20 +4,21 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { BarChart3, FileDown, FileText } from "lucide-react";
 
+import { getEvaluationQuestions } from "@/lib/actions/migrated/getEvaluationQuestions";
+import { useEffect, useState } from "react";
+
 export default function EvaluationCategory({ projectId, category }) {
   const readable = category.charAt(0).toUpperCase() + category.slice(1);
 
-  // Dummy data
-  const questions = [
-    {
-      q: "Was the project relevant to the community’s needs?",
-      responses: { yes: 78, no: 22 },
-    },
-    {
-      q: "Did the project align with county development priorities?",
-      responses: { yes: 91, no: 9 },
-    },
-  ];
+  const [questions, setQuestions] = useState([]);
+
+  useEffect(() => {
+    async function fetchQuestions() {
+      const data = await getEvaluationQuestions();
+      setQuestions(data);
+    }
+    fetchQuestions();
+  }, []);
 
   return (
     <div className="space-y-6">

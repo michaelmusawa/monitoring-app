@@ -9,11 +9,11 @@ import ProjectOverview from "@/components/dashboard/ProjectOverview";
 import StatsCharts from "./StatsCharts";
 import BestPracticesList from "./BestPracticesList";
 import ProjectsMap from "./ProjectsMap";
-import CommentsFeed from "./CommentsFeed";
 import StatsGrid from "./StatsGrid";
+import { publicComments } from "@/lib/data/data";
 
-export default function DashboardClient({ projects, stats }) {
-  const user = { fullName: "User" };
+export default function DashboardClient({ projects, stats, userEmail }) {
+  const user = userEmail.split("@")[0];
 
   return (
     <div className="max-w-7xl mx-auto p-6 pt-20 lg:pt-6">
@@ -28,11 +28,13 @@ export default function DashboardClient({ projects, stats }) {
           </p>
         </div>
 
-        <Link href="/projects" className="inline-flex">
-          <button className="flex items-center gap-2 px-4 py-2 text-sm rounded bg-gradient-to-br from-blue-500 to-blue-600 text-white hover:opacity-90 transition">
-            <Plus size={16} /> New Project
-          </button>
-        </Link>
+        {userEmail && userEmail === "sector@gmail.com" && (
+          <Link href="/projects" className="inline-flex">
+            <button className="flex items-center gap-2 px-4 py-2 text-sm rounded bg-linear-to-br from-blue-500 to-blue-600 text-white hover:opacity-90 transition">
+              <Plus size={16} /> New Project
+            </button>
+          </Link>
+        )}
       </div>
 
       <StatsGrid projects={projects} />
@@ -51,14 +53,9 @@ export default function DashboardClient({ projects, stats }) {
       <div className="grid lg:grid-cols-3 gap-8 mt-10">
         {/* LEFT SIDE */}
         <div className="lg:col-span-2 space-y-8">
-          <ProjectOverview projects={projects} />
+          <ProjectOverview projects={projects} comments={publicComments} />
           <RecentActivity />
           <BestPracticesList stats={stats} />
-        </div>
-
-        {/* RIGHT SIDE */}
-        <div className="space-y-8">
-          <CommentsFeed />
         </div>
       </div>
     </div>

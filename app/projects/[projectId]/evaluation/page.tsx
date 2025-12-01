@@ -13,6 +13,10 @@ import {
 } from "lucide-react";
 
 import { getProjectById } from "@/lib/actions/actions";
+import {
+  getEvaluationStats,
+  getCompletedStages,
+} from "@/lib/actions/migrated/getEvaluationStats";
 
 import EvaluationCategory from "@/components/evaluation/EvaluationCategory";
 
@@ -43,8 +47,10 @@ export default async function EvaluationPage(props: {
   }
 
   // -----------------------------------------
-  // EVALUATION PHASE PROGRESS
+  // EVALUATION PHASE PROGRESS & STATS (from migrated server actions)
+  // Note: server action imports moved to top-level for correct usage
   // -----------------------------------------
+
   const evaluationStages = [
     "relevance",
     "coherence",
@@ -54,40 +60,11 @@ export default async function EvaluationPage(props: {
     "sustainability",
   ];
 
-  const completedStages = ["relevance", "coherence"]; // dummy for demo
+  const completedStages = await getCompletedStages();
   const completedCount = completedStages.length;
-
   const completionPercent = (completedCount / evaluationStages.length) * 100;
 
-  // -----------------------------------------
-  // Dummy Stats
-  // -----------------------------------------
-  const stats = [
-    {
-      label: "Responses Collected",
-      value: 124,
-      icon: ClipboardListIcon,
-      color: "text-blue-500",
-    },
-    {
-      label: "Analysis Completed",
-      value: "2 / 6",
-      icon: GaugeIcon,
-      color: "text-emerald-500",
-    },
-    {
-      label: "Pending Categories",
-      value: "4",
-      icon: ListChecksIcon,
-      color: "text-amber-500",
-    },
-    {
-      label: "Final Report",
-      value: "Not Generated",
-      icon: FileTextIcon,
-      color: "text-red-500",
-    },
-  ];
+  const stats = await getEvaluationStats();
 
   // -----------------------------------------
   // PAGE
@@ -136,21 +113,36 @@ export default async function EvaluationPage(props: {
 
       {/* SUMMARY CARDS */}
       <div className="grid sm:flex flex-wrap gap-6">
-        {stats.map((s, i) => (
-          <div
-            key={i}
-            className="border border-zinc-200 dark:border-zinc-800 
-          dark:bg-zinc-900/60 rounded p-4 sm:min-w-60 flex justify-between"
-          >
-            <div>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                {s.label}
-              </p>
-              <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
+        {stats.map((s, i) => {
+          // map icon name strings from migrated data to actual components
+          // Use a concrete component type instead of `any` to tighten typing.
+          const iconMap: Record<string, typeof BarChart3Icon> = {
+            ClipboardListIcon: ClipboardListIcon,
+            BarChart3Icon: BarChart3Icon,
+            PieChartIcon: PieChartIcon,
+            GaugeIcon: GaugeIcon,
+            FileTextIcon: FileTextIcon,
+            ListChecksIcon: ListChecksIcon,
+          };
+          // narrow the key to the known icon map keys to avoid accessing with a plain string
+          const iconKey = s.icon as keyof typeof iconMap;
+          const IconComp = iconMap[iconKey] ?? BarChart3Icon;
+          return (
+            <div
+              key={`${s.label}-${i}`}
+              className="border border-zinc-200 dark:border-zinc-800
+            dark:bg-zinc-900/60 rounded p-4 sm:min-w-60 flex justify-between"
+            >
+              <div>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  {s.label}
+                </p>
+                <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
+              </div>
+              <IconComp className={`size-4 opacity-80 ${s.color}`} />
             </div>
-            <s.icon className={`size-4 opacity-80 ${s.color}`} />
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* TABS */}

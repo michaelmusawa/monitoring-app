@@ -1,5 +1,6 @@
 // File: app/projects/[projectId]/tracker/create/page.tsx
 import * as z from "zod";
+import { FileInput } from "@/components/ui/file-input";
 
 const TrackerItemSchema = z.object({
   parameterId: z.string(),
@@ -7,6 +8,7 @@ const TrackerItemSchema = z.object({
   percentComplete: z.number().min(0).max(100),
   challenges: z.string().nullable(),
   recommendations: z.string().nullable(),
+  attachments: z.any().nullable(),
 });
 const TrackerSchema = z.object({
   projectId: z.string(),
@@ -37,6 +39,7 @@ export default function TrackerCreate({ params }: any) {
             }))
         );
       });
+  }, []);
   }, []);
 
   async function onSubmit(e: React.FormEvent) {
@@ -115,6 +118,17 @@ export default function TrackerCreate({ params }: any) {
                 }
                 placeholder="Recommendations"
                 className="w-full"
+              />
+            </div>
+            <div className="mt-2">
+              <FileInput
+                onChange={(e) =>
+                  setItems((prev) => {
+                    const c = [...prev];
+                    c[idx].attachments = e.target.files;
+                    return c;
+                  })
+                }
               />
             </div>
           </div>

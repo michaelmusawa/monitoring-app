@@ -38,10 +38,23 @@ export interface ChecklistItem {
   weight: number;
 }
 
+/**
+ * Strongly-typed checklist status enum shared across the codebase.
+ * Using an enum helps ensure all checklist handling code uses a consistent set
+ * of statuses instead of arbitrary strings.
+ */
+export enum ChecklistStatus {
+  Draft = "Draft",
+  DraftReview = "DraftReview",
+  WeightsAssignment = "WeightsAssignment",
+  WeightsReview = "WeightsReview",
+  Approved = "Approved",
+}
+
 export interface Checklist {
   id: string;
   projectId: string;
-  status: string;
+  status: ChecklistStatus;
   items: ChecklistItem[];
 }
 

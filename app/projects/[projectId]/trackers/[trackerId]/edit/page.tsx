@@ -12,7 +12,15 @@ export default async function EditTrackerPage(props: {
   return (
     <div className="max-w-2xl mx-auto space-y-6 py-8">
       <h1 className="text-2xl font-semibold">Edit Tracker</h1>
-      <TrackerForm projectId={projectId} tracker={tracker} />
+      <TrackerForm
+        projectId={projectId}
+        tracker={{
+          ...tracker,
+          challenges: tracker.challenges || "",
+          recommendations: tracker.recommendations || "",
+          attachments: tracker.attachments || null,
+        }}
+      />
     </div>
   );
 }

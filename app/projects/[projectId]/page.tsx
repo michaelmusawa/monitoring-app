@@ -16,15 +16,14 @@ import Link from "next/link";
 
 import { ProjectAnalytics } from "@/components/projects/ProjectAnalytics";
 import { ProjectCalendar } from "@/components/projects/ProjectCalendar";
-import { ProjectSettings } from "@/components/projects/ProjectSettings";
 
-import { ProjectChecklist } from "@/components/projects/ProjectChecklist";
-import { ProjectReports } from "@/components/projects/ProjectReports";
+import ProjectChecklistClient from "@/components/projects/ProjectChecklistClient";
 
 import { getProjectById, getTrackers } from "@/lib/actions/actions";
 import { getChecklist } from "@/lib/actions/projectActions";
 import { ProjectTrackers } from "@/components/projects/ProjectTrackers";
 import ProjectMembers from "@/components/projects/ProjectMembers";
+import ProjectChecklist from "@/components/projects/ProjectChecklist";
 
 export default async function ProjectDetail(props: {
   searchParams?: Promise<{ tab?: string }>;
@@ -34,14 +33,14 @@ export default async function ProjectDetail(props: {
   const params = await props.params;
 
   const projectId = params?.projectId || "";
-  const tab = searchParams?.tab || "tasks";
+  const tab = searchParams?.tab || "checklist";
 
   const p = await getProjectById(projectId);
   const trackers = await getTrackers(projectId);
   const checklist = await getChecklist(projectId);
 
   const completedChecklistItems = checklist.items.filter(
-    (i) => i.parameterId
+    (i) => i.parameterId,
   ).length;
   const totalChecklistItems = checklist.items.length;
 
@@ -86,7 +85,7 @@ export default async function ProjectDetail(props: {
         <div className="flex items-center gap-4">
           <Link
             href="/projects"
-            className="p-1 rounded hover:bg-zinc-200 
+            className="p-1 rounded hover:bg-zinc-200
             dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-400"
           >
             <ArrowLeftIcon className="w-4 h-4" />
@@ -154,8 +153,8 @@ export default async function ProjectDetail(props: {
         ].map((card, idx) => (
           <div
             key={idx}
-            className="dark:bg-gradient-to-br dark:from-zinc-800/70 dark:to-zinc-900/50 
-            border border-zinc-200 dark:border-zinc-800 
+            className="dark:bg-gradient-to-br dark:from-zinc-800/70 dark:to-zinc-900/50
+            border border-zinc-200 dark:border-zinc-800
             flex justify-between sm:min-w-60 p-4 py-2.5 rounded"
           >
             <div>
@@ -218,7 +217,7 @@ export default async function ProjectDetail(props: {
 
         {/* TAB CONTENT */}
         <div className="mt-6">
-          {tab === "checklist" && <ProjectChecklist projectId={p.id} />}
+          {tab === "checklist" && <ProjectChecklistClient projectId={p.id} />}
           {tab === "trackers" && (
             <ProjectTrackers projectId={p.id} trackers={trackers} />
           )}

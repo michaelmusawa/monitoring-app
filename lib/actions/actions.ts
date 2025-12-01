@@ -9,6 +9,7 @@ import {
   recentActivity,
   taskSummary,
 } from "../data/data";
+import { ChecklistStatus } from "@/lib/types/types";
 
 // ======================================================
 // PROJECTS
@@ -37,7 +38,7 @@ export async function getChecklistForProject(projectId: string) {
     checklist ?? {
       projectId,
       id: "cl-new",
-      status: "Draft",
+      status: ChecklistStatus.Draft,
       items: [],
     }
   );
@@ -50,7 +51,6 @@ export async function getStandardParams() {
 
 // Save checklist (dummy prototype)
 export async function saveChecklist(projectId: string, payload: any) {
-  console.log("saveChecklist server action", projectId, payload);
   await new Promise((r) => setTimeout(r, 40));
 
   // In real DB this would persist.
@@ -67,7 +67,6 @@ export async function getTrackers(projectId: string) {
 }
 
 export async function saveTracker(projectId: string, payload: any) {
-  console.log("saveTracker", projectId, payload);
   await new Promise((r) => setTimeout(r, 40));
   return { ok: true, id: payload?.id ?? "t-saved" };
 }
@@ -82,7 +81,6 @@ export async function getPublicComments(projectId: string) {
 }
 
 export async function postPublicComment(projectId: string, comment: any) {
-  console.log("postPublicComment", projectId, comment);
   await new Promise((r) => setTimeout(r, 40));
   return { ok: true, id: "c-new" };
 }

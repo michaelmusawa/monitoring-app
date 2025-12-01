@@ -8,14 +8,25 @@ import { redirect } from "next/navigation";
 type User = {
   email: string;
   password: string;
+  role?: "Admin" | "Sector" | "M&E Officer" | "Management";
 };
 
 export async function getUser(email: string): Promise<User | undefined> {
   if (!email) return undefined;
-  if (email === "admin@gmail.com") {
-    const user = { email: "admin@gmail.com", password: "Admin@1234" };
-    return user;
-  }
+
+  // Hardcoded users for demo / manual auth
+  const users: User[] = [
+    { email: "admin@gmail.com", password: "Admin@1234", role: "Admin" },
+    { email: "sector@gmail.com", password: "Sector@1234", role: "Sector" },
+    { email: "meofficer@gmail.com", password: "MEO@1234", role: "M&E Officer" },
+    {
+      email: "management@gmail.com",
+      password: "Management@1234",
+      role: "Management",
+    },
+  ];
+
+  return users.find((u) => u.email === email);
 }
 
 export async function authenticate(_state: unknown, formData: FormData) {

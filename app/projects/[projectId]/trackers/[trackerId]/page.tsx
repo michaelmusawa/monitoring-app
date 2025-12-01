@@ -19,6 +19,8 @@ export default async function TrackerDetailPage({
 
   if (!tracker) return <div className="p-6">Tracker record not found.</div>;
 
+  const attachments = tracker.attachments || [];
+
   const contribution =
     project.progress > 0
       ? ((tracker.overallPercent / project.progress) * 100).toFixed(1)
@@ -28,7 +30,7 @@ export default async function TrackerDetailPage({
     <div className="p-6 space-y-6 max-w-3xl mx-auto">
       <Link
         href={`/projects/${projectId}/trackers/${trackerId}/edit`}
-        className="p-1 rounded hover:bg-zinc-200 
+        className="p-1 rounded hover:bg-zinc-200
                       dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-400"
       >
         Edit
@@ -84,6 +86,25 @@ export default async function TrackerDetailPage({
                     <p className="text-green-700 text-xs">
                       Recommendations: {item.recommendations}
                     </p>
+                  )}
+                  {item.attachments && item.attachments.length > 0 && (
+                    <div className="text-sm mt-2">
+                      <p className="font-medium">Attachments:</p>
+                      <ul className="list-disc list-inside">
+                        {item.attachments.map((attachment, index) => (
+                          <li key={index}>
+                            <a
+                              href={attachment.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-500 underline"
+                            >
+                              {attachment.name}
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   )}
                 </CardContent>
               </Card>
