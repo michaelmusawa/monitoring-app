@@ -1,27 +1,20 @@
 "use server";
 
-import { recentActivity, taskSummary } from "../data/data";
-
-export async function getRecentActivity() {
-  return recentActivity;
-}
-
-export async function getTaskSummary() {
-  return taskSummary;
-}
-
 // lib/actions/actions.ts
+// lib/actions/dashboardActions.ts
+
 export async function getDashboardStats() {
+  // Return dummy stats structure
   return {
     statusCounts: [
-      { name: "Active", value: 12 },
-      { name: "Planning", value: 6 },
-      { name: "Completed", value: 9 },
+      { name: "Active", value: 12, color: "#10b981" },
+      { name: "Planning", value: 6, color: "#f59e0b" },
+      { name: "Completed", value: 9, color: "#3b82f6" },
     ],
     priorityCounts: [
-      { name: "High", value: 8 },
-      { name: "Medium", value: 11 },
-      { name: "Low", value: 3 },
+      { name: "High", value: 8, color: "#ef4444" },
+      { name: "Medium", value: 11, color: "#f59e0b" },
+      { name: "Low", value: 3, color: "#10b981" },
     ],
     monthlyProgress: [
       { month: "Jan", value: 20 },

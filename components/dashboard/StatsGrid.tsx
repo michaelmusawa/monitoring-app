@@ -7,7 +7,6 @@ import {
   AlertTriangle,
   BadgeAlertIcon,
 } from "lucide-react";
-import { CachedRouteKind } from "next/dist/server/response-cache";
 
 type Project = {
   id: string;
@@ -15,20 +14,30 @@ type Project = {
   sector?: string;
   budget?: number;
   status?: string;
+  size?: string;
 };
 
 export default function StatsGrid({ projects = [] }: { projects?: Project[] }) {
   const total = projects.length;
+
+  // Calculate stats from dummy data
   const completed = projects.filter(
-    (p) => (p.status || "").toLowerCase() === "completed",
+    (p) => (p.status || "").toUpperCase() === "COMPLETE",
   ).length;
+
   const active = projects.filter(
     (p) =>
-      (p.status || "").toLowerCase() === "ongoing" ||
-      (p.status || "").toLowerCase() === "initialized",
+      (p.status || "").toUpperCase() === "ACTIVE" ||
+      (p.status || "").toUpperCase() === "ONGOING",
   ).length;
-  const myTasks = 0; // prototype placeholder
-  const overdue = 0;
+
+  const stalled = projects.filter(
+    (p) => (p.status || "").toUpperCase() === "STALLED",
+  ).length;
+
+  const megaProjects = projects.filter(
+    (p) => (p.size || "").toUpperCase() === "MEGA",
+  ).length;
 
   const statCards = [
     {
@@ -43,23 +52,23 @@ export default function StatsGrid({ projects = [] }: { projects?: Project[] }) {
       icon: CheckCircle,
       title: "Completed Projects",
       value: completed,
-      subtitle: `of ${total} total`,
+      subtitle: `${completed} of ${total} total`,
       bgColor: "bg-emerald-500/10",
       textColor: "text-emerald-500",
     },
     {
       icon: BadgeAlertIcon,
       title: "Stalled",
-      value: "stalled",
+      value: stalled,
       subtitle: "stalled projects",
       bgColor: "bg-purple-500/10",
       textColor: "text-purple-500",
     },
     {
       icon: AlertTriangle,
-      title: "Overdue",
-      value: overdue,
-      subtitle: "need attention",
+      title: "Mega Projects",
+      value: megaProjects,
+      subtitle: "large scale initiatives",
       bgColor: "bg-amber-500/10",
       textColor: "text-amber-500",
     },

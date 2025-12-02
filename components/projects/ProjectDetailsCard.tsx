@@ -1,3 +1,4 @@
+// components/projects/ProjectDetailsCard.tsx
 import React from "react";
 import Link from "next/link";
 import {
@@ -8,27 +9,48 @@ import {
   Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { CIDPProject } from "@/lib/types/types";
+
+type Project = {
+  id: string;
+  name: string;
+  sector?: string;
+  budget?: number | null;
+  status?: string;
+  size?: string;
+  description?: string;
+  progress?: number;
+  members?: string[];
+  lat?: number | null;
+  long?: number | null;
+  prerequisites?: string[];
+};
 
 interface ProjectDetailsCardProps {
-  project: CIDPProject;
+  project: Project;
   onClose?: () => void;
   showActions?: boolean;
 }
 
-const statusColors = {
-  PLANNING: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
+const statusColors: Record<string, string> = {
+  PENDING: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
+  PLANNED: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
   ACTIVE:
     "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
-  ON_HOLD:
-    "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
-  COMPLETED: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300",
+  ONGOING:
+    "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
+  COMPLETE:
+    "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400",
+  RETIRED: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300",
+  STALLED:
+    "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
 };
 
-const sizeColors = {
+const sizeColors: Record<string, string> = {
   SMALL: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
   MEDIUM:
     "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
+  LARGE:
+    "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400",
   MEGA: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
 };
 
@@ -39,12 +61,27 @@ export default function ProjectDetailsCard({
 }: ProjectDetailsCardProps) {
   if (!project) return null;
 
+  const formatBudget = (budget: number | null | undefined) => {
+    if (budget === null || budget === undefined) return "N/A";
+    return new Intl.NumberFormat("en-KE", {
+      style: "currency",
+      currency: "KES",
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(budget);
+  };
+
+  const getStatusLabel = (status?: string) => {
+    if (!status) return "Unknown";
+    return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
+  };
+
   return (
     <div className="bg-white dark:bg-zinc-950 rounded-xl shadow-lg border border-zinc-200 dark:border-zinc-800 p-6 max-w-md w-full">
       <div className="mb-2">
         <h2 className="text-xl font-bold">{project.name}</h2>
         <div className="text-xs text-zinc-500 dark:text-zinc-400">
-          {project.code}
+          ID: {project.id}
         </div>
       </div>
 
@@ -66,11 +103,10 @@ export default function ProjectDetailsCard({
             <p className="text-xs text-zinc-500 dark:text-zinc-400">Status</p>
             <span
               className={`text-sm font-medium px-2 py-1 rounded ${
-                statusColors[project.status as keyof typeof statusColors] ||
-                statusColors.PLANNING
+                statusColors[project.status || ""] || statusColors.PENDING
               }`}
             >
-              {project.status}
+              {getStatusLabel(project.status)}
             </span>
           </div>
         </div>
@@ -81,10 +117,10 @@ export default function ProjectDetailsCard({
             <p className="text-xs text-zinc-500 dark:text-zinc-400">Size</p>
             <span
               className={`text-sm font-medium px-2 py-1 rounded ${
-                sizeColors[project.size] || sizeColors.MEDIUM
+                sizeColors[project.size || "MEDIUM"] || sizeColors.MEDIUM
               }`}
             >
-              {project.size}
+              {project.size || "Medium"}
             </span>
           </div>
         </div>
@@ -102,13 +138,7 @@ export default function ProjectDetailsCard({
           <div>
             <p className="text-xs text-zinc-500 dark:text-zinc-400">Budget</p>
             <p className="text-sm font-medium">
-              {project.budget
-                ? new Intl.NumberFormat("en-KE", {
-                    style: "currency",
-                    currency: "KES",
-                    minimumFractionDigits: 0,
-                  }).format(project.budget)
-                : "N/A"}
+              {formatBudget(project.budget)}
             </p>
           </div>
         </div>
@@ -130,21 +160,25 @@ export default function ProjectDetailsCard({
         </div>
       </div>
 
-      {/* Stage */}
-      <div className="mb-4">
-        <h3 className="text-sm font-semibold mb-1">Stage</h3>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400 capitalize">
-          {project.stage || "Not started"}
-        </p>
-      </div>
+      {/* Prerequisites */}
+      {project.prerequisites && project.prerequisites.length > 0 && (
+        <div className="mb-4">
+          <h3 className="text-sm font-semibold mb-1">Prerequisites</h3>
+          <ul className="list-disc pl-5 text-sm text-zinc-600 dark:text-zinc-400">
+            {project.prerequisites.map((prereq, idx) => (
+              <li key={idx}>{prereq}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Location */}
-      {project.lat && project.lng && (
+      {project.lat && project.long && (
         <div className="mb-4">
           <h3 className="text-sm font-semibold mb-1">Location</h3>
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
             Latitude: {project.lat.toFixed(6)}, Longitude:{" "}
-            {project.lng.toFixed(6)}
+            {project.long.toFixed(6)}
           </p>
         </div>
       )}
@@ -159,7 +193,7 @@ export default function ProjectDetailsCard({
           <div className="space-y-1">
             {project.members.slice(0, 5).map((member, idx) => (
               <p key={idx} className="text-sm text-zinc-600 dark:text-zinc-400">
-                {member.user?.email || "Unknown"}
+                {member}
               </p>
             ))}
             {project.members.length > 5 && (

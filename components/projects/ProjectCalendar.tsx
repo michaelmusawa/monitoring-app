@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { trackers as dummyTrackers } from "@/lib/data/data";
 
 /**
  * ProjectCalendar (Gantt-like workplan)
@@ -11,7 +12,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
  * - Each task is rendered as a horizontal bar with left/width computed from dates
  * - Shows: progress bar, estimated vs actual hours, category and project summaries
  *
- * Uses the existing migrated getProjectTasks dynamic import (mock data).
+ * Uses dummy data from data.ts for trackers.
  */
 
 type RawTask = {
@@ -44,7 +45,7 @@ export function ProjectCalendar({ projectId }: { projectId: string }) {
   const [tasks, setTasks] = useState<RawTask[]>([]);
 
   useEffect(() => {
-    // Fetch tasks and trackers, then enrich tasks with live progress and actual hours
+    // Fetch tasks from the dynamic import (keeping this as is)
     let mounted = true;
 
     async function loadAll() {
@@ -53,36 +54,22 @@ export function ProjectCalendar({ projectId }: { projectId: string }) {
           await import("@/lib/actions/migrated/getProjectTasks");
         const data: RawTask[] = (await getProjectTasks()) || [];
 
-        // Fetch trackers for this project (API returns { trackers: Tracker[] })
-        // typed structure: trackers is an array of objects that include items with parameterId/percentComplete
-        let trackers: {
-          items?: { parameterId?: string; percentComplete?: number }[];
-        }[] = [];
-        try {
-          const trRes = await fetch(`/api/projects/${projectId}/trackers`);
-          if (trRes.ok) {
-            const trJson = await trRes.json();
-            trackers = (trJson.trackers ?? []) as {
-              items?: { parameterId?: string; percentComplete?: number }[];
-            }[];
-          }
-        } catch {
-          trackers = [];
-        }
+        // Use dummy trackers from data.ts, filtered by projectId
+        const filteredTrackers = dummyTrackers.filter(
+          (t) => t.projectId === projectId,
+        );
 
         // Build a map: parameterId -> array of percentComplete values (ordered by tracker submission order)
         const paramPercents: Record<string, number[]> = {};
-        trackers.forEach((t) => {
-          const items = t.items ?? [];
-          items.forEach(
-            (it: { parameterId?: string; percentComplete?: number }) => {
-              if (!it || !it.parameterId) return;
-              const pid = String(it.parameterId);
-              if (!paramPercents[pid]) paramPercents[pid] = [];
-              // use percentComplete as reported in the tracker item
-              paramPercents[pid].push(Number(it.percentComplete ?? 0));
-            },
-          );
+        filteredTrackers.forEach((t) => {
+          const tasks = t.tasks || [];
+          tasks.forEach((task: any) => {
+            if (!task || !task.parameterId) return;
+            const pid = String(task.parameterId);
+            if (!paramPercents[pid]) paramPercents[pid] = [];
+            // use percentComplete as reported in the tracker task
+            paramPercents[pid].push(Number(task.percentComplete ?? 0));
+          });
         });
 
         // Enrich tasks: for tasks that reference checklist parameter IDs (relatedParameterIds),
@@ -321,7 +308,9 @@ export function ProjectCalendar({ projectId }: { projectId: string }) {
                   {data.tasks.map((task) => {
                     const { left, width, duration } = computeBar(task);
                     const barTop = 0;
-                    const hoursInfo = `${task.actualHoursUsed ?? 0}/${task.estimatedHours ?? 0} hrs`;
+                    const hoursInfo = `${task.actualHoursUsed ?? 0}/${
+                      task.estimatedHours ?? 0
+                    } hrs`;
                     return (
                       <div key={task.id} className="relative pl-2 pr-2">
                         <div className="flex items-center justify-between mb-1">
@@ -359,7 +348,15 @@ export function ProjectCalendar({ projectId }: { projectId: string }) {
                             className="absolute h-1 rounded bg-amber-400"
                             style={{
                               left: `${left}%`,
-                              width: `${Math.min(100, (Number(task.actualHoursUsed || 0) / Math.max(1, Number(task.estimatedHours || 1))) * width)}%`,
+                              width: `${Math.min(
+                                100,
+                                (Number(task.actualHoursUsed || 0) /
+                                  Math.max(
+                                    1,
+                                    Number(task.estimatedHours || 1),
+                                  )) *
+                                  width,
+                              )}%`,
                               top: "25px",
                             }}
                           />

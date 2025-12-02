@@ -10,9 +10,20 @@ import StatsCharts from "./StatsCharts";
 import BestPracticesList from "./BestPracticesList";
 import ProjectsMap from "./ProjectsMap";
 import StatsGrid from "./StatsGrid";
-import { publicComments } from "@/lib/data/data";
 
-export default function DashboardClient({ projects, stats, userEmail }) {
+interface DashboardClientProps {
+  projects: any[];
+  stats: any;
+  userEmail: string;
+  comments: any[];
+}
+
+export default function DashboardClient({
+  projects,
+  stats,
+  userEmail,
+  comments,
+}: DashboardClientProps) {
   const user = userEmail.split("@")[0];
 
   return (
@@ -21,20 +32,12 @@ export default function DashboardClient({ projects, stats, userEmail }) {
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 ">
         <div>
           <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">
-            Welcome back, {user?.fullName || "User"}
+            Welcome back, {user || "User"}
           </h1>
           <p className="text-gray-500 dark:text-zinc-400 text-sm">
             Your project insights at a glance
           </p>
         </div>
-
-        {userEmail && userEmail === "sector@gmail.com" && (
-          <Link href="/projects" className="inline-flex">
-            <button className="flex items-center gap-2 px-4 py-2 text-sm rounded bg-linear-to-br from-blue-500 to-blue-600 text-white hover:opacity-90 transition">
-              <Plus size={16} /> New Project
-            </button>
-          </Link>
-        )}
       </div>
 
       <StatsGrid projects={projects} />
@@ -53,9 +56,14 @@ export default function DashboardClient({ projects, stats, userEmail }) {
       <div className="grid lg:grid-cols-3 gap-8 mt-10">
         {/* LEFT SIDE */}
         <div className="lg:col-span-2 space-y-8">
-          <ProjectOverview projects={projects} comments={publicComments} />
-          <RecentActivity />
+          <ProjectOverview projects={projects} comments={comments} />
+          {/*<RecentActivity /> */}
           <BestPracticesList stats={stats} />
+        </div>
+
+        {/* RIGHT SIDE - You can add more components here */}
+        <div className="space-y-8">
+          {/* Add any additional components you want on the right side */}
         </div>
       </div>
     </div>

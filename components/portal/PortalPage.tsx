@@ -1,276 +1,545 @@
 // components/portal/PortalClient.tsx
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useCallback } from "react";
 import dynamic from "next/dynamic";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { MapPin } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Search,
+  MapPin,
+  Filter,
+  MessageSquare,
+  TrendingUp,
+  AlertCircle,
+  CheckCircle,
+} from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
 import ProjectsList from "./ProjectsList";
 import ProjectDetailsModal from "./ProjectDetailsModal";
+import PublicComments from "./PublicComments";
+import SummaryCard from "./SummaryCard";
 
-// dynamic map (react-leaflet) client-only component
+// Dynamic imports
 const ProjectsMapClient = dynamic(
   () => import("../dashboard/ProjectsMapClient"),
   {
     ssr: false,
-  }
+    loading: () => (
+      <div className="h-[400px] bg-gray-100 dark:bg-gray-800 rounded-lg animate-pulse" />
+    ),
+  },
 );
 
-export default function PortalClient({ projects = [], publicComments = [] }) {
-  const [activeTab, setActiveTab] = useState("ALL"); // ALL | ONGOING | STALLED | COMPLETED
+// Types based on dummy data
+type Project = {
+  id: string;
+  name: string;
+  sector: string;
+  budget: number | null;
+  status: string;
+  prerequisites: string[];
+  description: string;
+  progress: number;
+  members: string[];
+  lat: number | null;
+  long: number | null;
+  subCounty: string | null;
+  ward: string | null;
+  size?: string;
+  stage?: string;
+  updates?: any[];
+};
+
+type PublicComment = {
+  id: string;
+  projectId: string;
+  userId: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+  attachments: any[];
+  replies: any[];
+};
+
+interface PortalClientProps {
+  projects?: Project[];
+  publicComments?: PublicComment[];
+}
+
+type StatusTab = "ALL" | "ONGOING" | "STALLED" | "COMPLETED";
+
+export default function PortalClient({
+  projects = [],
+  publicComments = [],
+}: PortalClientProps) {
+  const [activeTab, setActiveTab] = useState<StatusTab>("ALL");
   const [query, setQuery] = useState("");
   const [subCounty, setSubCounty] = useState("ALL");
   const [ward, setWard] = useState("ALL");
-  const [selectedProject, setSelectedProject] = useState(null);
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [showFilters, setShowFilters] = useState(false);
 
-  // Derive lists for filters (subcounty/ward) from projects (fallback to empty)
-  const subCounties = useMemo(() => {
-    const s = Array.from(
-      new Set(projects.map((p) => p.subCounty || "Unknown"))
-    );
-    return ["ALL", ...s];
+  // Derive filter options
+  const { subCounties, wards, sectors } = useMemo(() => {
+    const subCountiesSet = new Set<string>();
+    const wardsSet = new Set<string>();
+    const sectorsSet = new Set<string>();
+
+    projects.forEach((p) => {
+      if (p.subCounty) subCountiesSet.add(p.subCounty);
+      if (p.ward) wardsSet.add(p.ward);
+      if (p.sector) sectorsSet.add(p.sector);
+    });
+
+    return {
+      subCounties: ["ALL", ...Array.from(subCountiesSet).sort()],
+      wards: ["ALL", ...Array.from(wardsSet).sort()],
+      sectors: ["ALL", ...Array.from(sectorsSet).sort()],
+    };
   }, [projects]);
 
-  const wards = useMemo(() => {
-    const w = Array.from(new Set(projects.map((p) => p.ward || "Unknown")));
-    return ["ALL", ...w];
-  }, [projects]);
-
-  // Filter by tab (stage/status), search, and geography
-  const filtered = useMemo(() => {
-    return projects
-      .filter((p) => {
-        if (activeTab === "ONGOING")
-          return (
-            p.stage === "tracking" ||
-            p.status === "ACTIVE" ||
-            p.status === "ongoing"
-          );
-        if (activeTab === "STALLED")
-          return (
-            p.status === "ON_HOLD" ||
-            p.status === "Stalled" ||
-            p.stage === "stalled"
-          );
-        if (activeTab === "COMPLETED")
-          return (
-            p.stage === "completed" ||
-            p.status === "COMPLETED" ||
-            p.status === "completed"
-          );
-        return true;
-      })
-      .filter((p) => {
-        if (subCounty !== "ALL" && (p.subCounty || "Unknown") !== subCounty)
+  // Filter logic with better status handling
+  const filteredProjects = useMemo(() => {
+    return projects.filter((project) => {
+      // Status filter
+      if (activeTab === "ONGOING") {
+        if (
+          !["ACTIVE", "ONGOING", "tracking"].some(
+            (s) =>
+              project.status?.toUpperCase().includes(s) ||
+              project.stage?.toLowerCase().includes("tracking"),
+          )
+        )
           return false;
-        if (ward !== "ALL" && (p.ward || "Unknown") !== ward) return false;
-        if (!query) return true;
-        const q = query.toLowerCase();
+      }
+      if (activeTab === "STALLED") {
+        if (
+          !["STALLED", "ON_HOLD", "stalled"].some(
+            (s) =>
+              project.status?.toUpperCase().includes(s) ||
+              project.stage?.toLowerCase().includes("stalled"),
+          )
+        )
+          return false;
+      }
+      if (activeTab === "COMPLETED") {
+        if (
+          !["COMPLETED", "completed"].some(
+            (s) =>
+              project.status?.toUpperCase().includes(s) ||
+              project.stage?.toLowerCase().includes("completed"),
+          )
+        )
+          return false;
+      }
+
+      // Geography filter
+      if (subCounty !== "ALL" && project.subCounty !== subCounty) return false;
+      if (ward !== "ALL" && project.ward !== ward) return false;
+
+      // Search filter
+      if (query) {
+        const searchLower = query.toLowerCase();
         return (
-          p.name?.toLowerCase().includes(q) ||
-          p.sector?.toLowerCase().includes(q) ||
-          p.code?.toLowerCase().includes(q)
+          project.name?.toLowerCase().includes(searchLower) ||
+          project.sector?.toLowerCase().includes(searchLower) ||
+          project.description?.toLowerCase().includes(searchLower)
         );
-      });
+      }
+
+      return true;
+    });
   }, [projects, activeTab, query, subCounty, ward]);
 
-  // Summary counts
-  const counts = useMemo(() => {
+  // Summary statistics
+  const stats = useMemo(() => {
     const total = projects.length;
-    const ongoing = projects.filter(
-      (p) =>
-        p.stage === "tracking" ||
-        p.status === "ACTIVE" ||
-        p.status === "ongoing"
+    const ongoing = projects.filter((p) =>
+      ["ACTIVE", "ONGOING", "tracking"].some(
+        (s) =>
+          p.status?.toUpperCase().includes(s) ||
+          p.stage?.toLowerCase().includes("tracking"),
+      ),
     ).length;
-    const stalled = projects.filter(
-      (p) => p.status === "ON_HOLD" || p.status === "Stalled"
+    const stalled = projects.filter((p) =>
+      ["STALLED", "ON_HOLD", "stalled"].some(
+        (s) =>
+          p.status?.toUpperCase().includes(s) ||
+          p.stage?.toLowerCase().includes("stalled"),
+      ),
     ).length;
-    const completed = projects.filter(
-      (p) =>
-        p.stage === "completed" ||
-        p.status === "COMPLETED" ||
-        p.status === "completed"
+    const completed = projects.filter((p) =>
+      ["COMPLETED", "completed"].some(
+        (s) =>
+          p.status?.toUpperCase().includes(s) ||
+          p.stage?.toLowerCase().includes("completed"),
+      ),
     ).length;
-    return { total, ongoing, stalled, completed };
+    const planning = projects.filter((p) => p.status === "PENDING").length;
+
+    return { total, ongoing, stalled, completed, planning };
   }, [projects]);
+
+  // Get recent activity (simulated from dummy data)
+  const recentActivity = useMemo(() => {
+    const activities = [];
+    const statusMessages = {
+      ACTIVE: "Project is currently active and making progress",
+      PENDING: "Project is in planning phase awaiting approvals",
+      COMPLETE: "Project has been completed successfully",
+    };
+
+    for (const project of projects.slice(0, 3)) {
+      activities.push({
+        id: project.id,
+        title: project.name,
+        update:
+          statusMessages[project.status as keyof typeof statusMessages] ||
+          `Project status: ${project.status}`,
+        date: "2025-01-15", // Static date for demo
+        status: project.status,
+      });
+    }
+    return activities;
+  }, [projects]);
+
+  const handleProjectSelect = useCallback((project: Project) => {
+    setSelectedProject(project);
+    // Smooth scroll to top when modal opens
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
+  const handleClearFilters = useCallback(() => {
+    setQuery("");
+    setSubCounty("ALL");
+    setWard("ALL");
+    setActiveTab("ALL");
+  }, []);
 
   return (
     <div className="space-y-6">
-      {/* Summary cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <div className="p-4 rounded-xl border bg-white dark:bg-zinc-900">
-          <div className="text-sm text-muted-foreground">Total projects</div>
-          <div className="text-2xl font-bold">{counts.total}</div>
-        </div>
-        <div className="p-4 rounded-xl border bg-white dark:bg-zinc-900">
-          <div className="text-sm text-muted-foreground">Ongoing</div>
-          <div className="text-2xl font-bold">{counts.ongoing}</div>
-        </div>
-        <div className="p-4 rounded-xl border bg-white dark:bg-zinc-900">
-          <div className="text-sm text-muted-foreground">Stalled</div>
-          <div className="text-2xl font-bold">{counts.stalled}</div>
-        </div>
-        <div className="p-4 rounded-xl border bg-white dark:bg-zinc-900">
-          <div className="text-sm text-muted-foreground">Completed</div>
-          <div className="text-2xl font-bold">{counts.completed}</div>
-        </div>
+      {/* Stats Overview */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <SummaryCard
+          title="Total Projects"
+          value={stats.total}
+          icon={<TrendingUp className="w-5 h-5" />}
+          color="bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300"
+        />
+        <SummaryCard
+          title="Active"
+          value={stats.ongoing}
+          icon={
+            <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" />
+          }
+          color="bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300"
+        />
+        <SummaryCard
+          title="Stalled"
+          value={stats.stalled}
+          icon={<AlertCircle className="w-5 h-5" />}
+          color="bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300"
+        />
+        <SummaryCard
+          title="Completed"
+          value={stats.completed}
+          icon={<CheckCircle className="w-5 h-5" />}
+          color="bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300"
+        />
+        <SummaryCard
+          title="In Planning"
+          value={stats.planning}
+          icon={<MapPin className="w-5 h-5" />}
+          color="bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300"
+        />
       </div>
 
-      {/* Tabs + search + filters */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setActiveTab("ALL")}
-            className={`px-3 py-1 rounded ${
-              activeTab === "ALL"
-                ? "bg-zinc-100 dark:bg-zinc-800"
-                : "hover:bg-zinc-50"
-            }`}
-          >
-            All
-          </button>
-          <button
-            onClick={() => setActiveTab("ONGOING")}
-            className={`px-3 py-1 rounded ${
-              activeTab === "ONGOING"
-                ? "bg-emerald-100 dark:bg-emerald-800/30"
-                : "hover:bg-zinc-50"
-            }`}
-          >
-            Ongoing ({counts.ongoing})
-          </button>
-          <button
-            onClick={() => setActiveTab("STALLED")}
-            className={`px-3 py-1 rounded ${
-              activeTab === "STALLED"
-                ? "bg-amber-100 dark:bg-amber-800/30"
-                : "hover:bg-zinc-50"
-            }`}
-          >
-            Stalled ({counts.stalled})
-          </button>
-          <button
-            onClick={() => setActiveTab("COMPLETED")}
-            className={`px-3 py-1 rounded ${
-              activeTab === "COMPLETED"
-                ? "bg-blue-100 dark:bg-blue-800/30"
-                : "hover:bg-zinc-50"
-            }`}
-          >
-            Completed ({counts.completed})
-          </button>
-        </div>
+      {/* Filters Section */}
+      <Card>
+        <CardContent className="p-6">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Filter Projects</h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowFilters(!showFilters)}
+                className="lg:hidden"
+              >
+                <Filter className="w-4 h-4 mr-2" />
+                {showFilters ? "Hide" : "Show"} Filters
+              </Button>
+            </div>
 
-        <div className="flex gap-3 items-center">
-          <div className="relative">
-            <Input
-              placeholder="Search projects..."
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              className="pl-10"
-            />
-            <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
-          </div>
-
-          {/* sub-county and ward selectors */}
-          <div className="flex gap-2">
-            <select
-              className="px-3 py-2 rounded border bg-background"
-              value={subCounty}
-              onChange={(e) => {
-                setSubCounty(e.target.value);
-                setWard("ALL");
-              }}
+            <div
+              className={`space-y-4 ${showFilters ? "block" : "hidden lg:block"}`}
             >
-              {subCounties.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
+              {/* Status Tabs */}
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { id: "ALL", label: "All Projects", count: stats.total },
+                  { id: "ONGOING", label: "Active", count: stats.ongoing },
+                  { id: "STALLED", label: "Stalled", count: stats.stalled },
+                  {
+                    id: "COMPLETED",
+                    label: "Completed",
+                    count: stats.completed,
+                  },
+                ].map((tab) => {
+                  const isActive = activeTab === tab.id;
 
-            <select
-              className="px-3 py-2 rounded border bg-background"
-              value={ward}
-              onChange={(e) => setWard(e.target.value)}
-            >
-              {wards.map((w) => (
-                <option key={w} value={w}>
-                  {w}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </div>
+                  // Custom colors for active tabs
+                  const activeColor =
+                    tab.id === "ONGOING"
+                      ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                      : tab.id === "STALLED"
+                        ? "bg-amber-600 hover:bg-amber-700 text-white"
+                        : tab.id === "COMPLETED"
+                          ? "bg-blue-600 hover:bg-blue-700 text-white"
+                          : "bg-primary text-white"; // default for ALL
 
-      {/* Main layout: map + list */}
-      <div className="grid md:grid-cols-3 gap-6">
-        <div className="md:col-span-2 space-y-4">
-          <div className="p-4 border rounded-xl bg-white dark:bg-zinc-900">
-            <h3 className="font-semibold mb-3">Projects Map</h3>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">
-              Click on markers to view project details
-            </p>
-            <ProjectsMapClient projects={filtered} />
-          </div>
+                  return (
+                    <Button
+                      key={tab.id}
+                      variant={isActive ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setActiveTab(tab.id as StatusTab)}
+                      className={isActive ? activeColor : ""}
+                    >
+                      {tab.label}
+                      <span className="ml-2 bg-black/10 px-1.5 py-0.5 rounded text-xs">
+                        {tab.count}
+                      </span>
+                    </Button>
+                  );
+                })}
+              </div>
 
-          <div className="p-4 border rounded-xl bg-white dark:bg-zinc-900">
-            <h3 className="font-semibold mb-3">Projects</h3>
-            <ProjectsList
-              projects={filtered}
-              onSelect={(p) => setSelectedProject(p)}
-            />
-          </div>
-        </div>
-
-        <aside className="space-y-4">
-          <div className="p-4 border rounded-xl bg-white dark:bg-zinc-900">
-            <h3 className="font-semibold">What people say</h3>
-            <div className="mt-3 space-y-3">
-              {publicComments.slice(0, 5).map((c) => (
-                <div key={c.id} className="text-sm">
-                  <div className="font-medium">{c.name}</div>
-                  <div className="text-muted-foreground">{c.message}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {c.createdAt}
-                  </div>
+              {/* Search and Filters */}
+              <div className="flex flex-col md:flex-row gap-4">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                  <Input
+                    placeholder="Search projects by name, code, or description..."
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    className="pl-10"
+                  />
                 </div>
-              ))}
-            </div>
-          </div>
 
-          <div className="p-4 border rounded-xl bg-white dark:bg-zinc-900">
-            <h3 className="font-semibold">Quick actions</h3>
-            <div className="mt-3 flex flex-col gap-2">
-              <Button
-                onClick={() => {
-                  setActiveTab("ONGOING");
-                }}
-              >
-                Show ongoing
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setActiveTab("STALLED");
-                }}
-              >
-                Show stalled
-              </Button>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                  <Select value={subCounty} onValueChange={setSubCounty}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Sub-County" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {subCounties.map((sc) => (
+                        <SelectItem key={sc} value={sc}>
+                          {sc}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Select value={ward} onValueChange={setWard}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Ward" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {wards.map((w) => (
+                        <SelectItem key={w} value={w}>
+                          {w}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Button
+                    variant="outline"
+                    onClick={handleClearFilters}
+                    className="col-span-2 md:col-span-1"
+                  >
+                    Clear Filters
+                  </Button>
+                </div>
+              </div>
             </div>
           </div>
-        </aside>
+        </CardContent>
+      </Card>
+
+      {/* Main Content */}
+      <div className="grid lg:grid-cols-3 gap-6">
+        {/* Map Section */}
+        <div className="lg:col-span-2 space-y-6">
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="font-semibold text-lg">Projects Map</h3>
+                  <p className="text-sm text-gray-500">
+                    Showing {filteredProjects.length} projects
+                    {subCounty !== "ALL" && ` in ${subCounty}`}
+                    {ward !== "ALL" && `, ${ward} ward`}
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const element = document.querySelector(".projects-map");
+                    element?.scrollIntoView({ behavior: "smooth" });
+                  }}
+                >
+                  <MapPin className="w-4 h-4 mr-2" />
+                  View Map
+                </Button>
+              </div>
+              <div className="h-[400px] rounded-lg overflow-hidden border projects-map">
+                <ProjectsMapClient
+                  projects={filteredProjects.filter((p) => p.lat && p.long)}
+                  onMarkerClick={handleProjectSelect}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Projects List */}
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold text-lg">Project List</h3>
+                <span className="text-sm text-gray-500">
+                  {filteredProjects.length} projects found
+                </span>
+              </div>
+              <ProjectsList
+                projects={filteredProjects}
+                onSelect={handleProjectSelect}
+              />
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Sidebar */}
+        <div className="space-y-6">
+          {/* Public Comments */}
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <MessageSquare className="w-5 h-5 text-gray-500" />
+                <h3 className="font-semibold">Community Feedback</h3>
+              </div>
+              <PublicComments comments={publicComments} />
+            </CardContent>
+          </Card>
+
+          {/* Recent Activity */}
+          <Card>
+            <CardContent className="p-6">
+              <h3 className="font-semibold mb-4">Recent Updates</h3>
+              <div className="space-y-3">
+                {recentActivity.map((activity) => (
+                  <div
+                    key={activity.id}
+                    className="p-3 rounded-lg border hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer transition-colors"
+                    onClick={() => {
+                      const project = projects.find(
+                        (p) => p.id === activity.id,
+                      );
+                      if (project) handleProjectSelect(project);
+                    }}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm font-medium truncate">
+                        {activity.title}
+                      </span>
+                      <span
+                        className={`text-xs px-2 py-1 rounded-full ${
+                          activity.status === "ACTIVE"
+                            ? "bg-emerald-100 text-emerald-800"
+                            : activity.status === "STALLED"
+                              ? "bg-amber-100 text-amber-800"
+                              : "bg-blue-100 text-blue-800"
+                        }`}
+                      >
+                        {activity.status}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">
+                      {activity.update}
+                    </p>
+                    <span className="text-xs text-gray-500">
+                      {activity.date}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Quick Actions */}
+          <Card>
+            <CardContent className="p-6">
+              <h3 className="font-semibold mb-4">Quick Actions</h3>
+              <div className="space-y-2">
+                <Button
+                  className="w-full justify-start"
+                  variant="outline"
+                  onClick={() => {
+                    setActiveTab("ONGOING");
+                    handleClearFilters();
+                  }}
+                >
+                  <div className="w-2 h-2 rounded-full bg-emerald-500 mr-3 animate-pulse" />
+                  View Active Projects
+                </Button>
+                <Button
+                  className="w-full justify-start"
+                  variant="outline"
+                  onClick={() => {
+                    setActiveTab("STALLED");
+                    handleClearFilters();
+                  }}
+                >
+                  <AlertCircle className="w-4 h-4 mr-3 text-amber-500" />
+                  View Stalled Projects
+                </Button>
+                <Button
+                  className="w-full justify-start"
+                  variant="outline"
+                  onClick={() => {
+                    const mapElement = document.querySelector(".projects-map");
+                    mapElement?.scrollIntoView({ behavior: "smooth" });
+                  }}
+                >
+                  <MapPin className="w-4 h-4 mr-3" />
+                  View on Map
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
-      {/* Project details modal */}
+      {/* Project Details Modal */}
       {selectedProject && (
         <ProjectDetailsModal
           project={selectedProject}
           onClose={() => setSelectedProject(null)}
+          publicComments={publicComments.filter(
+            (c) => c.projectId === selectedProject.id,
+          )}
         />
       )}
     </div>

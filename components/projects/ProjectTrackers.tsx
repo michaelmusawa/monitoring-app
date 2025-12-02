@@ -13,18 +13,13 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 
-/**
- * Enhanced ProjectTrackers component
- *
- * - Accepts an initial list of trackers (server-provided) and manages local state.
- * - Supports viewing tracker details in a dialog.
- * - Supports creating and editing trackers inline via a dialog and saving to the
- *   prototype API at /api/projects/[projectId]/trackers (created earlier).
- * - Tracks attachments locally (File objects) but does not implement upload storage.
- *
- * This is intentionally self-contained so the UI remains responsive and usable
- * without requiring full backend persistence.
- */
+// Import dummy data
+import {
+  trackers as dummyTrackers,
+  checklistParamsMobility,
+  checklistParamsIDE,
+} from "@/lib/data/data";
+import { projects } from "@/lib/data/data";
 
 /* Basic tracker and item shapes (compatible with lib types) */
 type TrackerItem = {
@@ -33,7 +28,7 @@ type TrackerItem = {
   percentComplete: number;
   challenges?: string;
   recommendations?: string;
-  attachments?: File[] | null;
+  attachments?: (File | string)[] | null;
 };
 
 type Tracker = {
@@ -55,9 +50,39 @@ export function ProjectTrackers({
   projectProgress?: number;
   trackers?: Tracker[];
 }) {
-  const [list, setList] = useState<Tracker[]>(() =>
-    (trackers ?? []).map((t) => ({ ...t })),
-  );
+  // Get project from dummy data to determine sector
+  const project = projects.find((p) => p.id === projectId);
+  const projectSector = project?.sector;
+
+  // Convert dummy trackers to component format
+  const convertDummyTracker = (dummyTracker: any): Tracker => {
+    return {
+      id: dummyTracker.id,
+      projectId: dummyTracker.projectId,
+      title: dummyTracker.title || `Tracker for ${project?.name || "Project"}`,
+      submittedBy: dummyTracker.submittedBy,
+      submittedAt: dummyTracker.submittedAt,
+      overallPercent: dummyTracker.overallProgress || 0,
+      items: (dummyTracker.tasks || []).map((task: any) => ({
+        parameterId: task.parameterId,
+        status: task.status?.toUpperCase() || "ONGOING",
+        percentComplete: task.percentComplete || 0,
+        challenges: task.challenges || "",
+        recommendations: task.recommendations || "",
+        attachments: task.attachments || null,
+      })),
+    };
+  };
+
+  // Get initial trackers from dummy data (filtered by projectId)
+  const initialTrackers = dummyTrackers
+    .filter((t) => t.projectId === projectId)
+    .map(convertDummyTracker);
+
+  const [list, setList] = useState<Tracker[]>(() => [
+    ...initialTrackers,
+    ...(trackers ?? []).map((t) => ({ ...t })),
+  ]);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [mode, setMode] = useState<"view" | "edit" | "create">("view");
@@ -66,28 +91,35 @@ export function ProjectTrackers({
     { id: string; label: string; category: string }[]
   >([]);
 
-  // Load standard params for creating trackers (pull from checklist API)
+  // Load standard params based on project sector
   useEffect(() => {
-    let mounted = true;
-    async function load() {
-      try {
-        const res = await fetch(`/api/projects/${projectId}/checklist`);
-        if (!res.ok) {
-          // fallback to empty list
-          return;
-        }
-        const data = await res.json();
-        if (!mounted) return;
-        setStandardParams(data.standardParams ?? []);
-      } catch (err) {
-        // ignore
-      }
+    if (projectSector === "IDE") {
+      setStandardParams(
+        checklistParamsIDE.map((p) => ({
+          id: p.id,
+          label: p.label,
+          category: p.category,
+        })),
+      );
+    } else if (projectSector === "Mobility & Works") {
+      setStandardParams(
+        checklistParamsMobility.map((p) => ({
+          id: p.id,
+          label: p.label,
+          category: p.category,
+        })),
+      );
+    } else {
+      // Default to IDE params if sector not found
+      setStandardParams(
+        checklistParamsIDE.map((p) => ({
+          id: p.id,
+          label: p.label,
+          category: p.category,
+        })),
+      );
     }
-    load();
-    return () => {
-      mounted = false;
-    };
-  }, [projectId]);
+  }, [projectSector]);
 
   // Derived: project progress share for each tracker (helper)
   const getTrackerShare = (overallPercent?: number) =>
@@ -101,6 +133,7 @@ export function ProjectTrackers({
     setMode("view");
     setDialogOpen(true);
   }
+
   function openEdit(tr: Tracker) {
     // Make a shallow clone for editing
     setCurrent({
@@ -113,6 +146,7 @@ export function ProjectTrackers({
     setMode("edit");
     setDialogOpen(true);
   }
+
   async function openCreate() {
     // Build initial tracker using first N standard params (or none)
     const items: TrackerItem[] = (
@@ -149,14 +183,13 @@ export function ProjectTrackers({
     return Math.round((sum / items.length) * 10) / 10;
   }
 
-  // Save handler for create/edit
+  // Save handler for create/edit - using local state only (no API)
   async function handleSave(updated: Tracker) {
     // compute overall
     updated.overallPercent = computeOverall(updated.items);
     updated.submittedAt = updated.submittedAt ?? new Date().toISOString();
 
-    // Prepare a JSON-safe payload by serializing File objects (attachments)
-    // into filenames. This ensures the POST body can be JSON.stringified.
+    // Prepare a JSON-safe payload
     const safeItems = (updated.items || []).map((it) => {
       const attachments = Array.isArray(it.attachments)
         ? it.attachments.map((f) =>
@@ -171,48 +204,26 @@ export function ProjectTrackers({
       };
     });
 
-    const payload = {
+    const savedTracker: Tracker = {
       ...updated,
-      items: safeItems,
+      items: safeItems as TrackerItem[],
+      overallPercent: updated.overallPercent,
     };
 
-    try {
-      const res = await fetch(`/api/projects/${projectId}/trackers`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || "Save failed");
+    setList((prev) => {
+      const exists = prev.find((p) => p.id === savedTracker.id);
+      if (exists) {
+        return prev.map((p) =>
+          p.id === savedTracker.id ? { ...savedTracker } : p,
+        );
+      } else {
+        return [savedTracker, ...prev];
       }
-      const json = await res.json();
-      // optimistic local update: use a version without File objects (use safeItems)
-      const savedTracker: Tracker = {
-        ...updated,
-        items: safeItems as TrackerItem[],
-        overallPercent: updated.overallPercent,
-      };
-
-      setList((prev) => {
-        const exists = prev.find((p) => p.id === savedTracker.id);
-        if (exists) {
-          return prev.map((p) =>
-            p.id === savedTracker.id ? { ...savedTracker } : p,
-          );
-        } else {
-          return [savedTracker, ...prev];
-        }
-      });
-      setDialogOpen(false);
-      setCurrent(null);
-      setMode("view");
-      return json;
-    } catch (error) {
-      console.error("Failed to save tracker", error);
-      alert("Failed to save tracker (see console)");
-      throw error;
-    }
+    });
+    setDialogOpen(false);
+    setCurrent(null);
+    setMode("view");
+    return savedTracker;
   }
 
   // UI for editing/creating tracker inside dialog
@@ -264,114 +275,111 @@ export function ProjectTrackers({
         </div>
 
         <div className="space-y-2">
-          {tracker.items.map((it, idx) => (
-            <div key={idx} className="border rounded p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="font-medium">{it.parameterId}</div>
-                <div className="text-xs text-muted-foreground">
-                  {it.status} • {it.percentComplete}%
+          {tracker.items.map((it, idx) => {
+            // Find the parameter label from standardParams
+            const param = standardParams.find((p) => p.id === it.parameterId);
+
+            return (
+              <div key={idx} className="border rounded p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="font-medium">
+                    {param
+                      ? `${param.label} (${param.category})`
+                      : it.parameterId}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {it.status} • {it.percentComplete}%
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <select
+                    value={it.status}
+                    onChange={(e) =>
+                      updateItem(idx, { status: e.target.value })
+                    }
+                    className="input"
+                  >
+                    <option value="ONGOING">Ongoing</option>
+                    <option value="STALLED">Stalled</option>
+                    <option value="COMPLETED">Completed</option>
+                  </select>
+
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={it.percentComplete}
+                    onChange={(e) =>
+                      updateItem(idx, {
+                        percentComplete: Number(e.target.value),
+                      })
+                    }
+                    className="w-24 input"
+                  />
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => removeItem(idx)}
+                  >
+                    Remove
+                  </Button>
+                </div>
+
+                <div>
+                  <label className="block text-sm">Challenges</label>
+                  <textarea
+                    value={it.challenges ?? ""}
+                    onChange={(e) =>
+                      updateItem(idx, { challenges: e.target.value })
+                    }
+                    className="w-full input"
+                    rows={2}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm">Recommendations</label>
+                  <textarea
+                    value={it.recommendations ?? ""}
+                    onChange={(e) =>
+                      updateItem(idx, { recommendations: e.target.value })
+                    }
+                    className="w-full input"
+                    rows={2}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm">Attachments</label>
+                  <input
+                    type="file"
+                    multiple
+                    onChange={(e) =>
+                      updateItem(idx, {
+                        attachments:
+                          e.target.files && e.target.files.length > 0
+                            ? Array.from(e.target.files)
+                            : null,
+                      })
+                    }
+                    className="w-full"
+                  />
+                  {it.attachments && Array.isArray(it.attachments) && (
+                    <div className="text-xs mt-1">
+                      {it.attachments.map((f, i: number) => (
+                        <div key={i}>{typeof f === "string" ? f : f.name}</div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
-
-              <div className="flex items-center gap-2">
-                <select
-                  value={it.status}
-                  onChange={(e) => updateItem(idx, { status: e.target.value })}
-                  className="input"
-                >
-                  <option value="ONGOING">Ongoing</option>
-                  <option value="STALLED">Stalled</option>
-                  <option value="COMPLETED">Completed</option>
-                </select>
-
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={it.percentComplete}
-                  onChange={(e) =>
-                    updateItem(idx, { percentComplete: Number(e.target.value) })
-                  }
-                  className="w-24 input"
-                />
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => removeItem(idx)}
-                >
-                  Remove
-                </Button>
-              </div>
-
-              <div>
-                <label className="block text-sm">Challenges</label>
-                <textarea
-                  value={it.challenges ?? ""}
-                  onChange={(e) =>
-                    updateItem(idx, { challenges: e.target.value })
-                  }
-                  className="w-full"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm">Recommendations</label>
-                <textarea
-                  value={it.recommendations ?? ""}
-                  onChange={(e) =>
-                    updateItem(idx, { recommendations: e.target.value })
-                  }
-                  className="w-full"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm">Attachments</label>
-                <input
-                  type="file"
-                  multiple
-                  onChange={(e) =>
-                    updateItem(idx, {
-                      attachments:
-                        e.target.files && e.target.files.length > 0
-                          ? Array.from(e.target.files)
-                          : null,
-                    })
-                  }
-                />
-                {it.attachments && Array.isArray(it.attachments) && (
-                  <div className="text-xs mt-1">
-                    {it.attachments.map((f: File, i: number) => (
-                      <div key={i}>{f.name}</div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* add item picker from standard params */}
-        {standardParams.length > 0 && (
-          <div className="border-t pt-3">
-            <div className="text-sm text-muted-foreground mb-2">
-              Add task from standard params
-            </div>
-            <div className="flex gap-2 flex-wrap">
-              {standardParams.map((p) => (
-                <button
-                  key={p.id}
-                  className="px-2 py-1 bg-zinc-100 rounded text-sm"
-                  type="button"
-                  onClick={() => addItemFromParam(p.id)}
-                >
-                  {p.id}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
     );
   }
@@ -386,13 +394,6 @@ export function ProjectTrackers({
             <Plus className="w-4 h-4 mr-2" />
             Add Tracker
           </Button>
-          <Button
-            size="sm"
-            onClick={() => alert("Mark project complete - implement")}
-          >
-            <CheckIcon className="size-4 mr-2" />
-            Mark project complete
-          </Button>
         </div>
       </div>
 
@@ -404,6 +405,7 @@ export function ProjectTrackers({
             <div
               key={tr.id}
               className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition cursor-pointer"
+              onClick={() => openView(tr)}
             >
               <div className="flex justify-between items-start">
                 <div className="space-y-1">
@@ -444,22 +446,29 @@ export function ProjectTrackers({
                   </div>
                   <div className="flex gap-2 mt-2">
                     <button
-                      onClick={() => openView(tr)}
-                      className="px-2 py-1 border rounded flex items-center gap-2"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openView(tr);
+                      }}
+                      className="px-2 py-1 border rounded flex items-center gap-2 hover:bg-zinc-100 transition"
                     >
                       <Eye className="w-4 h-4" />
                       View
                     </button>
                     <button
-                      onClick={() => openEdit(tr)}
-                      className="px-2 py-1 border rounded flex items-center gap-2"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openEdit(tr);
+                      }}
+                      className="px-2 py-1 border rounded flex items-center gap-2 hover:bg-zinc-100 transition"
                     >
                       <Edit3 className="w-4 h-4" />
                       Edit
                     </button>
                     <Link
                       href={`/projects/${projectId}/trackers/${tr.id}`}
-                      className="px-2 py-1 border rounded inline-block"
+                      onClick={(e) => e.stopPropagation()}
+                      className="px-2 py-1 border rounded inline-block hover:bg-zinc-100 transition"
                     >
                       Open
                     </Link>
@@ -469,6 +478,13 @@ export function ProjectTrackers({
             </div>
           );
         })}
+
+        {list.length === 0 && (
+          <div className="text-center py-8 text-zinc-500">
+            No trackers found for this project. Click "Add Tracker" to create
+            one.
+          </div>
+        )}
       </div>
 
       {/* Dialog for view/edit/create */}
@@ -493,35 +509,53 @@ export function ProjectTrackers({
                     <div className="text-sm">
                       Overall Progress: {current.overallPercent ?? 0}%
                     </div>
-                    {current.items.map((it, i) => (
-                      <div key={i} className="border rounded p-3">
-                        <div className="font-medium">{it.parameterId}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {it.status} • {it.percentComplete}%
+                    {current.items.map((it, i) => {
+                      // Find the parameter label from standardParams
+                      const param = standardParams.find(
+                        (p) => p.id === it.parameterId,
+                      );
+
+                      return (
+                        <div key={i} className="border rounded p-3">
+                          <div className="font-medium">
+                            {param
+                              ? `${param.label} (${param.category})`
+                              : it.parameterId}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {it.status} • {it.percentComplete}%
+                          </div>
+                          {it.challenges && (
+                            <div className="mt-2 text-sm">
+                              <span className="font-medium">Challenges:</span>{" "}
+                              {it.challenges}
+                            </div>
+                          )}
+                          {it.recommendations && (
+                            <div className="mt-2 text-sm">
+                              <span className="font-medium">
+                                Recommendations:
+                              </span>{" "}
+                              {it.recommendations}
+                            </div>
+                          )}
+                          {it.attachments && Array.isArray(it.attachments) && (
+                            <div className="mt-2">
+                              <span className="text-xs font-medium">
+                                Attachments:
+                              </span>
+                              {it.attachments.map(
+                                (f: File | string, idx: number) => (
+                                  <div key={idx} className="text-xs">
+                                    {typeof f === "string" ? f : f.name}
+                                  </div>
+                                ),
+                              )}
+                            </div>
+                          )}
                         </div>
-                        {it.challenges && (
-                          <div className="mt-2 text-sm">
-                            Challenges: {it.challenges}
-                          </div>
-                        )}
-                        {it.recommendations && (
-                          <div className="mt-2 text-sm">
-                            Recommendations: {it.recommendations}
-                          </div>
-                        )}
-                        {it.attachments && Array.isArray(it.attachments) && (
-                          <div className="mt-2">
-                            {it.attachments.map(
-                              (f: File | string, idx: number) => (
-                                <div key={idx} className="text-xs">
-                                  {typeof f === "string" ? f : f.name}
-                                </div>
-                              ),
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <TrackerForm

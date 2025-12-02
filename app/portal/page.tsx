@@ -1,24 +1,46 @@
-// app/portal/page.tsx
+// monitoring-app/app/portal/page.tsx
+import React from "react";
 import PortalClient from "@/components/portal/PortalPage";
-import { getProjects, getPublicComments } from "@/lib/actions/actions"; // adjust path if different
+import { projects, publicComments } from "@/lib/data/data";
 
-export const metadata = { title: "Public Projects Portal" };
+export const metadata = {
+  title: "Public Projects Portal - Nairobi County",
+  description:
+    "Track and provide feedback on county infrastructure projects in Nairobi.",
+};
 
-export default async function PortalPage() {
-  // Server-side fetch of projects & public comments (small dataset)
-  const projects = await getProjects();
-  const comments = await getPublicComments(""); // all comments; you can filter server-side later
-
+export default function PortalPage() {
   return (
-    <div className="max-w-7xl mx-auto p-6 pt-20 lg:pt-6">
-      <h1 className="text-2xl font-semibold mb-2">Public Projects Portal</h1>
-      <p className="text-sm text-muted-foreground mb-6">
-        View county infrastructure projects, leave public feedback, and see
-        trackers & updates.
-      </p>
+    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-black">
+      <div className="max-w-7xl mx-auto p-4 sm:p-6 pt-20 lg:pt-6">
+        <header className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-3">
+            Nairobi County Projects Portal
+          </h1>
+          <p className="text-base text-gray-600 dark:text-gray-300 mb-4 max-w-3xl">
+            Stay informed, track progress, and provide feedback on county
+            infrastructure projects. Your voice helps shape better public
+            services.
+          </p>
+          <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
+            <span className="flex items-center gap-1">
+              <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+              <span>Active Projects</span>
+            </span>
+            <span className="flex items-center gap-1">
+              <div className="w-2 h-2 rounded-full bg-amber-500"></div>
+              <span>Stalled Projects</span>
+            </span>
+            <span className="flex items-center gap-1">
+              <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+              <span>Completed Projects</span>
+            </span>
+          </div>
+        </header>
 
-      {/* Portal client receives the projects as props */}
-      <PortalClient projects={projects} publicComments={comments} />
+        {/* Render the client-side portal component */}
+        <PortalClient projects={projects} publicComments={publicComments} />
+      </div>
     </div>
   );
 }

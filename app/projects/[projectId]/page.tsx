@@ -15,14 +15,21 @@ import Link from "next/link";
 
 import PublicComments from "@/components/projects/PublicComments";
 import { ProjectCalendar } from "@/components/projects/ProjectCalendar";
-
 import ProjectChecklistClient from "@/components/projects/ProjectChecklistClient";
-
-import { getProjectById, getTrackers } from "@/lib/actions/actions";
-import { getChecklist } from "@/lib/actions/projectActions";
 import { ProjectTrackers } from "@/components/projects/ProjectTrackers";
 import ProjectMembers from "@/components/projects/ProjectMembers";
-import { ProjectReports } from "@/components/projects/ProjectReports";
+
+import {
+  projects,
+  trackers,
+  checklists,
+  users,
+  publicComments,
+  checklistParamsIDE,
+  checklistParamsMobility,
+} from "@/lib/data/data";
+
+// Import dummy data
 
 export default async function ProjectDetail(props: {
   searchParams?: Promise<{ tab?: string }>;
@@ -34,10 +41,29 @@ export default async function ProjectDetail(props: {
   const projectId = params?.projectId || "";
   const tab = searchParams?.tab || "checklist";
 
-  const p = await getProjectById(projectId);
-  const trackers = await getTrackers(projectId);
-  const checklist = await getChecklist(projectId);
+  // Use dummy data instead of server actions
+  const p = projects.find((project) => project.id === projectId);
 
+  // Get trackers for this project
+  const projectTrackers = trackers.filter(
+    (tracker) => tracker.projectId === projectId,
+  );
+
+  // Get checklist for this project
+  const checklist = checklists.find((c) => c.projectId === projectId) || {
+    id: `cl-${projectId}`,
+    projectId,
+    status: "draft",
+    items: [],
+  };
+
+  // Get users for this project (members)
+  const projectUsers =
+    p?.members
+      ?.map((memberId) => users.find((user) => user.id === memberId))
+      .filter(Boolean) || [];
+
+  // Calculate checklist stats
   const completedChecklistItems = checklist.items.filter(
     (i) => i.parameterId,
   ).length;
@@ -53,6 +79,9 @@ export default async function ProjectDetail(props: {
       "bg-violet-200 text-violet-900 dark:bg-violet-500 dark:text-violet-900",
     COMPLETED: "bg-blue-200 text-blue-900 dark:bg-blue-500 dark:text-blue-900",
     CANCELLED: "bg-red-200 text-red-900 dark:bg-red-500 dark:text-red-900",
+    PENDING:
+      "bg-yellow-200 text-yellow-900 dark:bg-yellow-500 dark:text-yellow-900",
+    RETIRED: "bg-gray-200 text-gray-900 dark:bg-gray-500 dark:text-gray-900",
   };
 
   if (!p) {
@@ -69,7 +98,7 @@ export default async function ProjectDetail(props: {
     );
   }
 
-  // PHASE PROGRESS BAR
+  // PHASE PROGRESS BAR - Added stage field to handle this
   const stageOrder = [
     "initialization",
     "checklist",
@@ -77,7 +106,26 @@ export default async function ProjectDetail(props: {
     "completed",
     "evaluation",
   ];
-  const currentStageIndex = stageOrder.indexOf(p.stage || "initialization");
+  // For dummy data, determine stage based on checklist status
+  const getStageFromChecklist = (status: string) => {
+    switch (status) {
+      case "draft":
+      case "draft_review":
+        return "checklist";
+      case "weight_assignment":
+      case "weights_review":
+        return "checklist";
+      case "approved":
+        return "tracking";
+      case "completed":
+        return "completed";
+      default:
+        return "initialization";
+    }
+  };
+
+  const currentStage = getStageFromChecklist(checklist.status);
+  const currentStageIndex = stageOrder.indexOf(currentStage);
 
   return (
     <div className="mt-10 space-y-5 max-w-6xl mx-auto text-zinc-900 dark:text-white px-6 pt-20 lg:pt-6">
@@ -96,7 +144,8 @@ export default async function ProjectDetail(props: {
             <h1 className="text-xl font-medium">{p.name}</h1>
             <span
               className={`px-2 py-1 rounded text-xs capitalize ${
-                statusColors[p.status]
+                statusColors[p.status as keyof typeof statusColors] ||
+                statusColors.PLANNING
               }`}
             >
               {p.status.replace("_", " ")}
@@ -133,7 +182,7 @@ export default async function ProjectDetail(props: {
         {[
           {
             label: "Filled Trackers",
-            value: trackers.length,
+            value: projectTrackers.length,
             color: "text-blue-700 dark:text-blue-400",
           },
           {
@@ -143,12 +192,12 @@ export default async function ProjectDetail(props: {
           },
           {
             label: "Project Stage",
-            value: p.stage || "initialization",
+            value: currentStage,
             color: "text-amber-700 dark:text-amber-400",
           },
           {
             label: "Team Members",
-            value: p.members?.length || 0,
+            value: projectUsers.length,
             color: "text-purple-700 dark:text-purple-400",
           },
         ].map((card, idx) => (
@@ -202,7 +251,6 @@ export default async function ProjectDetail(props: {
           >
             <FileTextIcon className="size-3.5" />
             Reports
-            {/* Indicator that it opens a separate page */}
             <ArrowUpRightIcon className="size-3.5 opacity-60" />
           </Link>
           <Link
@@ -211,20 +259,28 @@ export default async function ProjectDetail(props: {
           >
             <FileTextIcon className="size-3.5" />
             Evaluation
-            {/* Indicator that it opens a separate page */}
             <ArrowUpRightIcon className="size-3.5 opacity-60" />
           </Link>
         </div>
 
         {/* TAB CONTENT */}
         <div className="mt-6">
-          {tab === "checklist" && <ProjectChecklistClient projectId={p.id} />}
+          {tab === "checklist" && (
+            <ProjectChecklistClient
+              projectId={p.id}
+              checklist={checklist}
+              standardParams={
+                p.sector === "Mobility & Works"
+                  ? checklistParamsMobility
+                  : checklistParamsIDE
+              }
+            />
+          )}
           {tab === "trackers" && (
-            <ProjectTrackers projectId={p.id} trackers={trackers} />
+            <ProjectTrackers projectId={p.id} trackers={projectTrackers} />
           )}
           {tab === "calendar" && <ProjectCalendar projectId={p.id} />}
           {tab === "comments" && <PublicComments projectId={p.id} />}
-          {tab === "reports" && <ProjectReports projectId={p.id} />}
           {tab === "members" && <ProjectMembers projectId={p.id} />}
         </div>
       </div>
