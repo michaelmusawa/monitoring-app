@@ -3,7 +3,10 @@
 
 import Link from "next/link";
 
-export default function ProjectsList({ projects = [], onSelect = () => {} }) {
+export default function ProjectsList({
+  projects = [],
+  onSelect = () => {},
+}: any) {
   if (!projects.length) {
     return (
       <div className="text-sm text-muted-foreground">No projects to show.</div>
@@ -12,7 +15,7 @@ export default function ProjectsList({ projects = [], onSelect = () => {} }) {
 
   return (
     <div className="grid gap-3">
-      {projects.map((p) => (
+      {projects.map((p: any) => (
         <div
           key={p.id}
           className="p-3 rounded-xl border hover:bg-zinc-50 dark:hover:bg-zinc-800/50 flex justify-between items-start"

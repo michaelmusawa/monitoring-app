@@ -14,9 +14,9 @@ export default function ProjectDetailsModal({
   project: any;
   onClose: any;
 }) {
-  const [comments, setComments] = useState([]);
+  const [comments, setComments] = useState<any>([]);
   const [form, setForm] = useState({ name: "", email: "", message: "" });
-  const [files, setFiles] = useState(null);
+  const [files, setFiles] = useState<any>(null);
 
   useEffect(() => {
     // a small fetch to get project-specific comments
@@ -34,7 +34,7 @@ export default function ProjectDetailsModal({
     fd.append("email", form.email);
     fd.append("message", form.message);
     if (files) {
-      Array.from(files).forEach((f) => fd.append("files", f));
+      Array.from(files).forEach((f: any) => fd.append("files", f));
     }
 
     toast.loading("Submitting comment...");
@@ -106,7 +106,7 @@ export default function ProjectDetailsModal({
               </div>
             )}
             {comments.length > 0 &&
-              comments.map((c) => (
+              comments.map((c: any) => (
                 <div key={c.id} className="p-3 border rounded">
                   <div className="flex justify-between items-start">
                     <div>
