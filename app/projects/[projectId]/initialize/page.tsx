@@ -242,7 +242,7 @@ export default function InitializePage() {
                   <div>
                     <p className="text-sm text-muted-foreground">Progress</p>
                     <div className="flex items-center gap-2 mt-1">
-                      <Progress value={project.progress || 0} className="h-2" />
+                      <Progress value={project.progress || 0} />
                       <span className="text-sm font-medium">
                         {project.progress || 0}%
                       </span>
