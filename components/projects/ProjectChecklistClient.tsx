@@ -219,7 +219,7 @@ export default function ProjectChecklistClient({
 
     // Initialize local items from checklist
     const itemsMap: Record<string, number> = {};
-    initialChecklist.items.forEach((it) => {
+    initialChecklist.items.forEach((it: any) => {
       itemsMap[it.parameterId] = it.weight ?? 0;
     });
     setLocalItems(itemsMap);
@@ -407,7 +407,7 @@ export default function ProjectChecklistClient({
   // Reset to server state
   const handleReset = () => {
     const itemsMap: Record<string, number> = {};
-    (checklist?.items ?? []).forEach((it) => {
+    (checklist?.items ?? []).forEach((it: any) => {
       itemsMap[it.parameterId] = it.weight ?? 0;
     });
     setLocalItems(itemsMap);

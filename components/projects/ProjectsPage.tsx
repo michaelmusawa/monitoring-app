@@ -59,17 +59,9 @@ const SIZE_OPTIONS = [
   { value: "MEGA", label: "Mega" },
 ] as const;
 
-interface ProjectsPageProps {
-  userEmail?: string;
-  initialProjects: any[];
-}
-
-export default function ProjectsPage({
-  userEmail,
-  initialProjects,
-}: ProjectsPageProps) {
+export default function ProjectsPage({ userEmail, initialProjects }: any) {
   const router = useRouter();
-  const [projects] = useState<Project[]>(initialProjects);
+  const [projects] = useState<any[]>(initialProjects);
   const [loading] = useState(false);
 
   const [searchTerm, setSearchTerm] = useState("");
@@ -78,12 +70,10 @@ export default function ProjectsPage({
   const [activeTab, setActiveTab] = useState<"cards" | "map">("cards");
 
   // Modal for click-open project details
-  const [openModalProject, setOpenModalProject] = useState<Project | null>(
-    null,
-  );
+  const [openModalProject, setOpenModalProject] = useState<any | null>(null);
 
   // Function to get project progress from trackers
-  const getProjectProgress = useCallback((projectId: string): number => {
+  const getProjectProgress = useCallback((projectId: any): any => {
     const projectTracker = trackers.find(
       (tracker) => tracker.projectId === projectId,
     );
@@ -521,7 +511,7 @@ function EmptyState({
   onClearFilters,
   router,
 }: {
-  hasFilters: boolean;
+  hasFilters: any;
   onClearFilters: () => void;
   router: any;
 }) {

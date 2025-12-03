@@ -49,7 +49,7 @@ export default function ReportsClient({
   // =============================================================
 
   // Colors auto-generated or you can hardcode
-  const progressConfig: ChartConfig = Object.fromEntries(
+  const progressConfig: any = Object.fromEntries(
     trackerProgress.map((item: any) => [
       item.name,
       {
@@ -59,7 +59,7 @@ export default function ReportsClient({
     ]),
   );
 
-  const pieConfig: ChartConfig = progressConfig;
+  const pieConfig: any = progressConfig;
 
   return (
     <div className="p-6 space-y-8">
@@ -240,7 +240,7 @@ export default function ReportsClient({
             <p className="text-sm text-zinc-500">Uploaded by field teams</p>
 
             <div className="flex flex-col gap-2">
-              {attachments.map((a, i) => (
+              {attachments.map((a: any, i: any) => (
                 <div
                   key={i}
                   className="flex justify-between items-center p-2 border rounded-lg"
