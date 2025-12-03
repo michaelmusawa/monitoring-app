@@ -85,7 +85,7 @@ function InitializeProjectForm({
                 {Math.round(progress)}% complete
               </span>
             </div>
-            <Progress value={progress} className="h-2" />
+            <Progress value={progress} />
 
             <div className="space-y-3">
               {prerequisites.map((item, index) => (
@@ -143,7 +143,7 @@ function InitializeProjectForm({
 
 export default function InitializePage() {
   const params = useParams();
-  const projectId = params.projectId as string;
+  const projectId = params?.projectId as string;
 
   const [project, setProject] = useState<any>(null);
   const [loading, setLoading] = useState(true);
