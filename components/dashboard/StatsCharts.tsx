@@ -22,33 +22,33 @@ import {
   Line,
 } from "recharts";
 
-export default function StatsCharts({ stats }) {
+export default function StatsCharts({ stats }: { stats: any }) {
   const { statusCounts, priorityCounts, monthlyProgress } = stats;
 
   // ---------------------------
   // PIE CHART CONFIG (Project Status)
   // ---------------------------
   const statusConfig: ChartConfig = Object.fromEntries(
-    statusCounts.map((item) => [
+    statusCounts.map((item: any) => [
       item.name,
       {
         label: item.name,
         color: item.color || "#2563eb",
       },
-    ])
+    ]),
   );
 
   // ---------------------------
   // BAR CHART CONFIG (Priority Levels)
   // ---------------------------
   const priorityConfig: ChartConfig = Object.fromEntries(
-    priorityCounts.map((item) => [
+    priorityCounts.map((item: any) => [
       item.name,
       {
         label: item.name,
         color: item.color || "#60a5fa",
       },
-    ])
+    ]),
   );
 
   // ---------------------------
@@ -83,7 +83,7 @@ export default function StatsCharts({ stats }) {
               outerRadius={70}
               label
             >
-              {statusCounts.map((entry, index) => (
+              {statusCounts.map((entry: any, index: any) => (
                 <Cell key={index} fill={statusConfig[entry.name].color} />
               ))}
             </Pie>
@@ -114,7 +114,7 @@ export default function StatsCharts({ stats }) {
             <ChartTooltip content={<ChartTooltipContent />} />
             <ChartLegend content={<ChartLegendContent />} />
 
-            {priorityCounts.map((entry, idx) => (
+            {priorityCounts.map((entry: any, idx: any) => (
               <Bar
                 key={idx}
                 dataKey="value"

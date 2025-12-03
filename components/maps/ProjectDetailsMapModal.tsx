@@ -7,11 +7,11 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { CIDPProject } from "@/lib/types/types";
+
 import ProjectDetailsCard from "@/components/projects/ProjectDetailsCard";
 
 interface ProjectDetailsMapModalProps {
-  project: CIDPProject | null;
+  project: any | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }

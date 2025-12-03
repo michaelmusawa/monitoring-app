@@ -15,6 +15,9 @@ export function TrackerForm({
     id: string;
     name: string;
     description: string;
+    challenges: string;
+    recommendations: string;
+    attachments: FileList | null;
     percentCompleted: number;
   };
 }) {

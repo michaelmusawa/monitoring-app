@@ -1,7 +1,7 @@
 // components/dashboard/BestPracticesList.tsx
 "use client";
 
-export default function BestPracticesList({ stats }) {
+export default function BestPracticesList({ stats }: { stats: any }) {
   const { bestPractices } = stats;
 
   return (
@@ -9,7 +9,7 @@ export default function BestPracticesList({ stats }) {
       <h3 className="font-semibold mb-3">Seen Best Practices</h3>
 
       <ul className="space-y-2 text-sm">
-        {bestPractices.map((bp, idx) => (
+        {bestPractices.map((bp: any, idx: any) => (
           <li
             key={idx}
             className="p-3 rounded border bg-gray-50 dark:bg-zinc-800"

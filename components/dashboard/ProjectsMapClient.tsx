@@ -6,7 +6,6 @@ import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import ProjectDetailsMapModal from "@/components/maps/ProjectDetailsMapModal";
-import { CIDPProject } from "@/lib/types/types";
 
 // --- Fix missing default icons in Next.js ---
 delete L.Icon.Default.prototype._getIconUrl;
@@ -45,8 +44,8 @@ const createCustomIcon = (status: string) => {
 };
 
 interface ProjectsMapClientProps {
-  projects: CIDPProject[];
-  onMarkerClick?: (project: CIDPProject) => void;
+  projects: any[];
+  onMarkerClick?: (project: any) => void;
   /**
    * When true the map view is constrained to Nairobi region.
    * Defaults to true since projects are within Nairobi county.
@@ -70,14 +69,12 @@ export default function ProjectsMapClient({
   center = [-1.2921, 36.8219],
   zoom = 12,
 }: ProjectsMapClientProps) {
-  const [selectedProject, setSelectedProject] = useState<CIDPProject | null>(
-    null,
-  );
+  const [selectedProject, setSelectedProject] = useState<any | null>(null);
 
   // Nairobi default center
   const DEFAULT_COORD: [number, number] = [-1.2921, 36.8219];
 
-  const handleMarkerClick = (project: CIDPProject) => {
+  const handleMarkerClick = (project: any) => {
     setSelectedProject(project);
     if (onMarkerClick) {
       onMarkerClick(project);

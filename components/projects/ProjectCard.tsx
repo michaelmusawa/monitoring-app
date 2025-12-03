@@ -13,7 +13,7 @@ const statusColors = {
   STALLED: "bg-amber-200 text-amber-900",
 };
 
-export default function ProjectCard({ project }) {
+export default function ProjectCard({ project }: any) {
   const router = useRouter();
 
   const handleInitialize = (e: React.MouseEvent) => {

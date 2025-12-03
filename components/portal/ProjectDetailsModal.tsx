@@ -7,7 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 
-export default function ProjectDetailsModal({ project, onClose }) {
+export default function ProjectDetailsModal({
+  project,
+  onClose,
+}: {
+  project: any;
+  onClose: any;
+}) {
   const [comments, setComments] = useState([]);
   const [form, setForm] = useState({ name: "", email: "", message: "" });
   const [files, setFiles] = useState(null);
@@ -21,7 +27,7 @@ export default function ProjectDetailsModal({ project, onClose }) {
     })();
   }, [project.id]);
 
-  async function submitComment(e) {
+  async function submitComment(e: any) {
     e.preventDefault();
     const fd = new FormData();
     fd.append("name", form.name);
@@ -99,19 +105,20 @@ export default function ProjectDetailsModal({ project, onClose }) {
                 No comments yet.
               </div>
             )}
-            {comments.map((c) => (
-              <div key={c.id} className="p-3 border rounded">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <div className="font-medium">{c.name}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {c.createdAt}
+            {comments.length > 0 &&
+              comments.map((c) => (
+                <div key={c.id} className="p-3 border rounded">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <div className="font-medium">{c.name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {c.createdAt}
+                      </div>
                     </div>
                   </div>
+                  <div className="text-sm mt-2">{c.message}</div>
                 </div>
-                <div className="text-sm mt-2">{c.message}</div>
-              </div>
-            ))}
+              ))}
           </div>
         </div>
 

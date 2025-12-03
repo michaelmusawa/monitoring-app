@@ -61,7 +61,7 @@ const SIZE_OPTIONS = [
 
 interface ProjectsPageProps {
   userEmail?: string;
-  initialProjects: Project[];
+  initialProjects: any[];
 }
 
 export default function ProjectsPage({
@@ -87,7 +87,7 @@ export default function ProjectsPage({
     const projectTracker = trackers.find(
       (tracker) => tracker.projectId === projectId,
     );
-    return projectTracker ? projectTracker.overallProgress : 0;
+    return projectTracker ? projectTracker?.overallProgress : 0;
   }, []);
 
   // Create projects with tracker-based progress

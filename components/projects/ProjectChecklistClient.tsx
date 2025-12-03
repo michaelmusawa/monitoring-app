@@ -37,7 +37,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
+
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -60,7 +60,6 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 // Import types from data
-import { Checklist as DataChecklist, ChecklistParam } from "@/lib/data";
 
 // Keep your existing StandardParam type
 type StandardParam = {
@@ -74,13 +73,6 @@ type StandardParam = {
 };
 
 // Update Checklist type to use DataChecklist
-type Checklist = DataChecklist & {
-  version?: number;
-  lastModified?: string;
-  lastModifiedBy?: string;
-  draftReviewComments?: any;
-  weightsReviewComments?: any;
-};
 
 type ChecklistPhase = {
   id: ChecklistStatus;
@@ -164,20 +156,14 @@ const PHASES: ChecklistPhase[] = [
   },
 ];
 
-interface ProjectChecklistClientProps {
-  projectId: string;
-  checklist: DataChecklist;
-  standardParams: ChecklistParam[];
-}
-
 export default function ProjectChecklistClient({
   projectId,
   checklist: initialChecklist,
   standardParams: initialStandardParams,
-}: ProjectChecklistClientProps) {
+}: any) {
   const [loading, setLoading] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
-  const [checklist, setChecklist] = useState<Checklist | null>(null);
+  const [checklist, setChecklist] = useState<any | null>(null);
   const [standardParams, setStandardParams] = useState<StandardParam[]>([]);
   const [localItems, setLocalItems] = useState<Record<string, number>>({});
   const [editReason, setEditReason] = useState<string>("");
@@ -191,7 +177,7 @@ export default function ProjectChecklistClient({
     setLoading(true);
 
     // Convert DataChecklist to our component Checklist type
-    const convertedChecklist: Checklist = {
+    const convertedChecklist: any = {
       ...initialChecklist,
       version: 1,
       lastModified: new Date().toISOString(),
@@ -217,8 +203,8 @@ export default function ProjectChecklistClient({
     };
 
     // Convert ChecklistParam to StandardParam
-    const convertedStandardParams: StandardParam[] = initialStandardParams.map(
-      (param) => ({
+    const convertedStandardParams: any = initialStandardParams.map(
+      (param: any) => ({
         id: param.id,
         label: param.label,
         category: param.category,
@@ -399,7 +385,7 @@ export default function ProjectChecklistClient({
         };
 
         // In real app, this would be an API call
-        setChecklist(payload as Checklist);
+        setChecklist(payload);
         setPendingChanges(false);
         setEditReason("");
 

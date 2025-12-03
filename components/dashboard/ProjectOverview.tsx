@@ -161,10 +161,10 @@ export default function ProjectOverview({
                       {project.sector}
                     </div>
                   )}
-                  {project.members?.length > 0 && (
+                  {project?.members && project?.members?.length > 0 && (
                     <div className="flex items-center gap-1">
                       <span className="text-xs">👥</span>
-                      {project.members.length} members
+                      {project?.members?.length} members
                     </div>
                   )}
                 </div>

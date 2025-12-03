@@ -1,6 +1,5 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -51,13 +50,13 @@ export default function ReportsClient({
 
   // Colors auto-generated or you can hardcode
   const progressConfig: ChartConfig = Object.fromEntries(
-    trackerProgress.map((item) => [
+    trackerProgress.map((item: any) => [
       item.name,
       {
         label: item.name,
         color: item.color || "#3b82f6", // fallback blue
       },
-    ])
+    ]),
   );
 
   const pieConfig: ChartConfig = progressConfig;
@@ -160,7 +159,7 @@ export default function ReportsClient({
                 fillOpacity={0.9}
                 shape="rectangle"
               >
-                {trackerProgress.map((entry, index) => (
+                {trackerProgress.map((entry: any, index: any) => (
                   <Cell key={index} fill={progressConfig[entry.name].color} />
                 ))}
               </Bar>
@@ -193,7 +192,7 @@ export default function ReportsClient({
                 outerRadius={90}
                 label
               >
-                {trackerProgress.map((entry, index) => (
+                {trackerProgress.map((entry: any, index: any) => (
                   <Cell key={index} fill={pieConfig[entry.name].color} />
                 ))}
               </Pie>
@@ -215,7 +214,7 @@ export default function ReportsClient({
 
         <CardContent>
           <div className="space-y-4">
-            {timeline.map((t, i) => (
+            {timeline.map((t: any, i: any) => (
               <div key={i} className="flex gap-4">
                 <div className="w-32 text-sm text-zinc-500">{t.date}</div>
                 <div className="flex-1">{t.event}</div>

@@ -28,12 +28,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-export default function ProjectMembers({ projectId }) {
+export default function ProjectMembers({
+  projectId,
+}: {
+  projectId: string | number;
+}) {
   const [members, setMembers] = useState([
     {
       id: "u1",
-      name: "Michael Musawa",
-      email: "michael@example.com",
+      name: "Sylvester Stallone",
+      email: "stallon@example.com",
       role: "Owner",
     },
     {
@@ -68,11 +72,11 @@ export default function ProjectMembers({ projectId }) {
     setInviteEmail("");
   };
 
-  const updateRole = (id, role) => {
+  const updateRole = (id: string | number, role: string) => {
     setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, role } : m)));
   };
 
-  const removeMember = (id) => {
+  const removeMember = (id: string | number) => {
     setMembers((prev) => prev.filter((m) => m.id !== id));
   };
 
