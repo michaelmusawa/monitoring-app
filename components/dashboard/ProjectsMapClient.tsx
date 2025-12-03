@@ -121,7 +121,7 @@ export default function ProjectsMapClient({
             lng >= -180 &&
             lng <= 180;
 
-          const position = valid ? [lat, lng] : DEFAULT_COORD;
+          const position: any = valid ? [lat, lng] : DEFAULT_COORD;
           const customIcon = createCustomIcon(p.status || "PLANNING");
 
           return (
