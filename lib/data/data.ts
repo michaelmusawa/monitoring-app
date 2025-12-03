@@ -1,3 +1,12 @@
+import {
+  Project,
+  ChecklistParam,
+  Checklist,
+  Tracker,
+  User,
+  PublicComment,
+} from "../types/types";
+
 export const projects: Project[] = [
   // ------------------------------------------------------------
   // 1. E-Payment System

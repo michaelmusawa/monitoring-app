@@ -6,7 +6,7 @@ import dynamic from "next/dynamic";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
 import {
   Select,
   SelectContent,
@@ -28,6 +28,10 @@ import ProjectsList from "./ProjectsList";
 import ProjectDetailsModal from "./ProjectDetailsModal";
 import PublicComments from "./PublicComments";
 import SummaryCard from "./SummaryCard";
+import {
+  Project as ProjectType,
+  PublicComment as PublicCommentType,
+} from "@/lib/types/types";
 
 // Dynamic imports
 const ProjectsMapClient = dynamic(
@@ -40,40 +44,27 @@ const ProjectsMapClient = dynamic(
   },
 );
 
-// Types based on dummy data
-type Project = {
-  id: string;
-  name: string;
-  sector: string;
-  budget: number | null;
-  status: string;
-  prerequisites: string[];
-  description: string;
-  progress: number;
-  members: string[];
-  lat: number | null;
-  long: number | null;
-  subCounty: string | null;
-  ward: string | null;
-  size?: string;
-  stage?: string;
-  updates?: any[];
-};
+const ProjectsMapClientAny =
+  ProjectsMapClient as unknown as React.ComponentType<Record<string, unknown>>;
+const ProjectDetailsModalAny =
+  ProjectDetailsModal as unknown as React.ComponentType<
+    Record<string, unknown>
+  >;
+const ProjectsListAny = ProjectsList as unknown as React.ComponentType<
+  Record<string, unknown>
+>;
+const PublicCommentsAny = PublicComments as unknown as React.ComponentType<
+  Record<string, unknown>
+>;
 
-type PublicComment = {
-  id: string;
-  projectId: string;
-  userId: string;
-  content: string;
-  createdAt: string;
-  updatedAt: string;
-  attachments: any[];
-  replies: any[];
-};
+// Types based on dummy data
+type Project = ProjectType;
+
+type PublicComment = PublicCommentType;
 
 interface PortalClientProps {
-  projects?: Project[];
-  publicComments?: PublicComment[];
+  projects?: ProjectType[];
+  publicComments?: PublicCommentType[];
 }
 
 type StatusTab = "ALL" | "ONGOING" | "STALLED" | "COMPLETED";
@@ -86,7 +77,9 @@ export default function PortalClient({
   const [query, setQuery] = useState("");
   const [subCounty, setSubCounty] = useState("ALL");
   const [ward, setWard] = useState("ALL");
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [selectedProject, setSelectedProject] = useState<ProjectType | null>(
+    null,
+  );
   const [showFilters, setShowFilters] = useState(false);
 
   // Derive filter options
@@ -116,8 +109,12 @@ export default function PortalClient({
         if (
           !["ACTIVE", "ONGOING", "tracking"].some(
             (s) =>
-              project.status?.toUpperCase().includes(s) ||
-              project.stage?.toLowerCase().includes("tracking"),
+              String(project.status ?? "")
+                .toUpperCase()
+                .includes(s) ||
+              String(project.stage ?? "")
+                .toLowerCase()
+                .includes("tracking"),
           )
         )
           return false;
@@ -126,8 +123,12 @@ export default function PortalClient({
         if (
           !["STALLED", "ON_HOLD", "stalled"].some(
             (s) =>
-              project.status?.toUpperCase().includes(s) ||
-              project.stage?.toLowerCase().includes("stalled"),
+              String(project.status ?? "")
+                .toUpperCase()
+                .includes(s) ||
+              String(project.stage ?? "")
+                .toLowerCase()
+                .includes("stalled"),
           )
         )
           return false;
@@ -136,8 +137,12 @@ export default function PortalClient({
         if (
           !["COMPLETED", "completed"].some(
             (s) =>
-              project.status?.toUpperCase().includes(s) ||
-              project.stage?.toLowerCase().includes("completed"),
+              String(project.status ?? "")
+                .toUpperCase()
+                .includes(s) ||
+              String(project.stage ?? "")
+                .toLowerCase()
+                .includes("completed"),
           )
         )
           return false;
@@ -167,22 +172,34 @@ export default function PortalClient({
     const ongoing = projects.filter((p) =>
       ["ACTIVE", "ONGOING", "tracking"].some(
         (s) =>
-          p.status?.toUpperCase().includes(s) ||
-          p.stage?.toLowerCase().includes("tracking"),
+          String(p.status ?? "")
+            .toUpperCase()
+            .includes(s) ||
+          String(p.stage ?? "")
+            .toLowerCase()
+            .includes("tracking"),
       ),
     ).length;
     const stalled = projects.filter((p) =>
       ["STALLED", "ON_HOLD", "stalled"].some(
         (s) =>
-          p.status?.toUpperCase().includes(s) ||
-          p.stage?.toLowerCase().includes("stalled"),
+          String(p.status ?? "")
+            .toUpperCase()
+            .includes(s) ||
+          String(p.stage ?? "")
+            .toLowerCase()
+            .includes("stalled"),
       ),
     ).length;
     const completed = projects.filter((p) =>
       ["COMPLETED", "completed"].some(
         (s) =>
-          p.status?.toUpperCase().includes(s) ||
-          p.stage?.toLowerCase().includes("completed"),
+          String(p.status ?? "")
+            .toUpperCase()
+            .includes(s) ||
+          String(p.stage ?? "")
+            .toLowerCase()
+            .includes("completed"),
       ),
     ).length;
     const planning = projects.filter((p) => p.status === "PENDING").length;
@@ -406,7 +423,7 @@ export default function PortalClient({
                 </Button>
               </div>
               <div className="h-[400px] rounded-lg overflow-hidden border projects-map">
-                <ProjectsMapClient
+                <ProjectsMapClientAny
                   projects={filteredProjects.filter((p) => p.lat && p.long)}
                   onMarkerClick={handleProjectSelect}
                 />
@@ -423,7 +440,7 @@ export default function PortalClient({
                   {filteredProjects.length} projects found
                 </span>
               </div>
-              <ProjectsList
+              <ProjectsListAny
                 projects={filteredProjects}
                 onSelect={handleProjectSelect}
               />
@@ -440,7 +457,7 @@ export default function PortalClient({
                 <MessageSquare className="w-5 h-5 text-gray-500" />
                 <h3 className="font-semibold">Community Feedback</h3>
               </div>
-              <PublicComments comments={publicComments} />
+              <PublicCommentsAny comments={publicComments} />
             </CardContent>
           </Card>
 
@@ -534,7 +551,7 @@ export default function PortalClient({
 
       {/* Project Details Modal */}
       {selectedProject && (
-        <ProjectDetailsModal
+        <ProjectDetailsModalAny
           project={selectedProject}
           onClose={() => setSelectedProject(null)}
           publicComments={publicComments.filter(

@@ -24,7 +24,6 @@ import {
   trackers,
   checklists,
   users,
-  publicComments,
   checklistParamsIDE,
   checklistParamsMobility,
 } from "@/lib/data/data";

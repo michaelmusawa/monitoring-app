@@ -1,10 +1,7 @@
 "use client";
 
 import React from "react";
-import Link from "next/link";
-import { Plus } from "lucide-react";
 
-import RecentActivity from "@/components/dashboard/RecentActivity";
 import ProjectOverview from "@/components/dashboard/ProjectOverview";
 import StatsCharts from "./StatsCharts";
 import BestPracticesList from "./BestPracticesList";

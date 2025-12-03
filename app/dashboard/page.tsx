@@ -3,11 +3,12 @@
 import { auth } from "@/auth";
 import DashboardClient from "@/components/dashboard/DashboardPage";
 import { projects as dummyProjects, publicComments } from "@/lib/data/data";
+import { Metadata } from "next";
 
-export const metadata = { title: "Dashboard" };
+export const metadata: Metadata = { title: "Dashboard" };
 
 // Helper function to calculate dashboard stats from dummy data
-function calculateDashboardStats(projects: any[]) {
+function calculateDashboardStats(projects: typeof dummyProjects) {
   const statusCounts = [
     {
       name: "Active",
