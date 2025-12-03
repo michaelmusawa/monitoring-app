@@ -48,7 +48,7 @@ export function ProjectTrackers({
 }: {
   projectId: string;
   projectProgress?: number;
-  trackers?: Tracker[];
+  trackers?: any[];
 }) {
   // Get project from dummy data to determine sector
   const project = projects.find((p) => p.id === projectId);
