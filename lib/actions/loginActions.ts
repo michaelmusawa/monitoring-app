@@ -17,7 +17,8 @@ export async function getUser(email: string): Promise<User | undefined> {
   // Hardcoded users for demo / manual auth
   const users: User[] = [
     { email: "admin@gmail.com", password: "Admin@1234", role: "Admin" },
-    { email: "sector@gmail.com", password: "Sector@1234", role: "Sector" },
+    { email: "ide@gmail.com", password: "Ide@1234", role: "Sector" },
+    { email: "mw@gmail.com", password: "Mw@1234", role: "Sector" },
     { email: "meofficer@gmail.com", password: "MEO@1234", role: "M&E Officer" },
     {
       email: "management@gmail.com",

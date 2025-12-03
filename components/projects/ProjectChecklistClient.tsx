@@ -58,6 +58,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useRouter } from "next/navigation";
 
 // Import types from data
 
@@ -92,7 +93,7 @@ const PHASES: ChecklistPhase[] = [
   {
     id: ChecklistStatus.Draft,
     label: "Draft",
-    description: "Select checklist tasks (no weights)",
+    description: "Select checklist tasks",
     icon: <FileText className="w-4 h-4" />,
     color: "bg-blue-500",
     canEdit: true,
@@ -105,7 +106,7 @@ const PHASES: ChecklistPhase[] = [
   {
     id: ChecklistStatus.DraftReview,
     label: "Draft Review",
-    description: "Review selected tasks (no weights)",
+    description: "Review selected tasks",
     icon: <Users className="w-4 h-4" />,
     color: "bg-amber-500",
     canEdit: true,
@@ -172,6 +173,9 @@ export default function ProjectChecklistClient({
   const [showIncludedOnly, setShowIncludedOnly] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<string>("items");
   const [pendingChanges, setPendingChanges] = useState<boolean>(false);
+  const router = useRouter();
+
+  console.log("user", userEmail);
 
   // Initialize from props instead of API call
   useEffect(() => {
@@ -240,6 +244,7 @@ export default function ProjectChecklistClient({
 
     // In WeightsAssignment and later phases, only show selected tasks
     if (
+      currentPhase.id === ChecklistStatus.DraftReview ||
       currentPhase.id === ChecklistStatus.WeightsAssignment ||
       currentPhase.id === ChecklistStatus.WeightsReview ||
       currentPhase.id === ChecklistStatus.Approved
@@ -391,6 +396,12 @@ export default function ProjectChecklistClient({
         setEditReason("");
 
         toast.success("Checklist saved successfully (Demo Mode)");
+
+        if (projectId === "proj-mukuru-grounds") {
+          router.push(`/projects/proj-dandora-stadium`);
+        } else if (projectId === "proj-dandora-stadium") {
+          router.push(`/projects/proj-pandpieri`);
+        }
       } catch (err) {
         console.error("Save checklist error", err);
         toast.error("Failed to save checklist");
@@ -1021,29 +1032,37 @@ export default function ProjectChecklistClient({
 
               {/* Action Buttons */}
               <div className="flex flex-col sm:flex-row gap-3">
-                {currentPhase.canEdit && (
-                  <Button
-                    onClick={() => handleSave()}
-                    disabled={saving || (!pendingChanges && !editReason.trim())}
-                    className="sm:flex-1"
-                  >
-                    <Save className="w-4 h-4 mr-2" />
-                    {saving ? "Saving..." : "Save Changes"}
-                  </Button>
-                )}
-
-                {checklist?.status === ChecklistStatus.Draft && (
-                  <Button
-                    variant="outline"
-                    onClick={() => handleSave(ChecklistStatus.DraftReview)}
-                    disabled={saving}
-                  >
-                    Submit for Draft Review
-                  </Button>
-                )}
+                {userEmail &&
+                  userEmail === "meofficer@gmail.com" &&
+                  currentPhase.canEdit && (
+                    <Button
+                      onClick={() => handleSave()}
+                      disabled={
+                        saving || (!pendingChanges && !editReason.trim())
+                      }
+                      className="sm:flex-1"
+                    >
+                      <Save className="w-4 h-4 mr-2" />
+                      {saving ? "Saving..." : "Save Changes"}
+                    </Button>
+                  )}
 
                 {userEmail &&
-                  userEmail === "sector@gmail.com" &&
+                  (userEmail === "ide@gmail.com" ||
+                    userEmail === "mw@gmail.com") &&
+                  checklist?.status === ChecklistStatus.Draft && (
+                    <Button
+                      variant="outline"
+                      onClick={() => handleSave(ChecklistStatus.DraftReview)}
+                      disabled={saving}
+                    >
+                      Submit for Draft Review
+                    </Button>
+                  )}
+
+                {userEmail &&
+                  (userEmail === "ide@gmail.com" ||
+                    userEmail === "mw@gmail.com") &&
                   checklist?.status === ChecklistStatus.WeightsAssignment && (
                     <Button
                       onClick={() => handleSave(ChecklistStatus.WeightsReview)}
@@ -1053,20 +1072,24 @@ export default function ProjectChecklistClient({
                     </Button>
                   )}
 
-                {checklist?.status === ChecklistStatus.WeightsReview && (
-                  <Button
-                    variant="default"
-                    onClick={() => handleSave(ChecklistStatus.Approved)}
-                    disabled={saving || !editReason.trim()}
-                    className="bg-green-600 hover:bg-green-700"
-                  >
-                    <CheckCircle className="w-4 h-4 mr-2" />
-                    Approve & Finalize
-                  </Button>
-                )}
+                {userEmail &&
+                  userEmail === "meofficer@gmail.com" &&
+                  checklist?.status === ChecklistStatus.WeightsReview && (
+                    <Button
+                      variant="default"
+                      onClick={() => handleSave(ChecklistStatus.Approved)}
+                      disabled={saving || !editReason.trim()}
+                      className="bg-green-600 hover:bg-green-700"
+                    >
+                      <CheckCircle className="w-4 h-4 mr-2" />
+                      Approve & Finalize
+                    </Button>
+                  )}
               </div>
 
-              {pendingChanges &&
+              {userEmail &&
+                userEmail === "meofficer@gmail.com" &&
+                pendingChanges &&
                 currentPhase.requiresReasonForChanges &&
                 !editReason.trim() && (
                   <div className="flex items-center gap-2 text-sm text-amber-600">

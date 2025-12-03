@@ -45,8 +45,6 @@ export default async function ProjectDetail(props: {
 
   const userEmail = session?.user?.email || "";
 
-  console.log("User email", userEmail);
-
   // Use dummy data instead of server actions
   const p = projects.find((project) => project.id === projectId);
 

@@ -91,11 +91,11 @@ export default async function DashboardPage() {
 
   const userEmail = session?.user?.email || "";
 
-  console.log("user email", userEmail);
-
   let projects;
-  if (userEmail && userEmail === "sector@gmail.com") {
+  if (userEmail && userEmail === "ide@gmail.com") {
     projects = dummyProjects.filter((p) => p.sector === "IDE");
+  } else if (userEmail && userEmail === "mw@gmail.com") {
+    projects = dummyProjects.filter((p) => p.sector === "Mobility & Works");
   } else {
     projects = dummyProjects;
   }

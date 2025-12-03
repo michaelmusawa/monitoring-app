@@ -22,6 +22,8 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import Link from "next/link";
 import { notFound, useParams } from "next/navigation";
+import { toast } from "sonner";
+import { useRouter } from "next/navigation";
 
 // Mock InitializeProjectForm for demo purposes
 function InitializeProjectForm({
@@ -33,6 +35,7 @@ function InitializeProjectForm({
 }) {
   const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const router = useRouter(); // Use the useRouter hook
 
   // Initialize checkboxes
   useEffect(() => {
@@ -55,11 +58,14 @@ function InitializeProjectForm({
     // Simulate API call
     setTimeout(() => {
       setIsSubmitting(false);
-      alert("Project initialized successfully! (Demo Mode)");
-      // In a real app, you would redirect or update state
+      toast.success("Project Initialized", {
+        description:
+          "Your project has been initialized successfully! (Demo Mode)",
+      });
+      // Remove the alert() line - it blocks the toast from showing
+      router.push(`/projects/proj-mukuru-grounds`); // Use router instead of Router
     }, 1500);
   };
-
   const allChecked =
     prerequisites.length > 0 &&
     prerequisites.every((item) => checkedItems[item]);
@@ -349,7 +355,7 @@ export default function InitializePage() {
                   <div className="space-y-2">
                     {[
                       "Project Proposal Document",
-                      "Budget Approval",
+                      "Public participation plan",
                       "Environmental Impact Assessment",
                       "Stakeholder Agreement",
                       "Timeline Schedule",
