@@ -95,7 +95,7 @@ export function ProjectTrackers({
   useEffect(() => {
     if (projectSector === "IDE") {
       setStandardParams(
-        checklistParamsIDE.map((p) => ({
+        checklistParamsIDE.map((p: any) => ({
           id: p.id,
           label: p.label,
           category: p.category,
@@ -103,7 +103,7 @@ export function ProjectTrackers({
       );
     } else if (projectSector === "Mobility & Works") {
       setStandardParams(
-        checklistParamsMobility.map((p) => ({
+        checklistParamsMobility.map((p: any) => ({
           id: p.id,
           label: p.label,
           category: p.category,
@@ -112,7 +112,7 @@ export function ProjectTrackers({
     } else {
       // Default to IDE params if sector not found
       setStandardParams(
-        checklistParamsIDE.map((p) => ({
+        checklistParamsIDE.map((p: any) => ({
           id: p.id,
           label: p.label,
           category: p.category,
@@ -481,8 +481,8 @@ export function ProjectTrackers({
 
         {list.length === 0 && (
           <div className="text-center py-8 text-zinc-500">
-            No trackers found for this project. Click "Add Tracker" to create
-            one.
+            No trackers found for this project. Click &ldquo;Add Tracker&ldquo;
+            to create one.
           </div>
         )}
       </div>
