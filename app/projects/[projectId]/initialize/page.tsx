@@ -478,9 +478,9 @@ export default function InitializePage() {
                     2
                   </div>
                   <div>
-                    <p className="font-medium text-sm">Team Assignment</p>
+                    <p className="font-medium text-sm">Checklist formulation</p>
                     <p className="text-xs text-muted-foreground">
-                      Assign project team members
+                      Choose task parameters and assign weights
                     </p>
                   </div>
                 </div>
@@ -489,9 +489,9 @@ export default function InitializePage() {
                     3
                   </div>
                   <div>
-                    <p className="font-medium text-sm">Execution Phase</p>
+                    <p className="font-medium text-sm">Tracking Phase</p>
                     <p className="text-xs text-muted-foreground">
-                      Begin project implementation
+                      Fill trackers and monitor progress
                     </p>
                   </div>
                 </div>

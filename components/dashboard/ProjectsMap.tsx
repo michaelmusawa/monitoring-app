@@ -1,12 +1,12 @@
 // components/dashboard/ProjectsMap.tsx
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import { Icon } from "leaflet";
 
-// Fix for default marker icons in Next.js
+// Fix Leaflet marker assets for Next.js
 import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
 import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
@@ -35,40 +35,63 @@ interface ProjectsMapProps {
   zoom?: number;
 }
 
+// 🎨 Color based on project status
 const getStatusColor = (status?: string) => {
   switch (status?.toUpperCase()) {
     case "ACTIVE":
     case "ONGOING":
-      return "#10b981"; // Green
-    case "COMPLETE":
+      return "#10b981";
     case "COMPLETED":
-      return "#8b5cf6"; // Purple
-    case "PLANNED":
+    case "COMPLETE":
+      return "#8b5cf6";
     case "PENDING":
-      return "#3b82f6"; // Blue
+    case "PLANNED":
+      return "#3b82f6";
     case "STALLED":
-      return "#f59e0b"; // Amber
+      return "#f59e0b";
     case "RETIRED":
-      return "#6b7280"; // Gray
+      return "#6b7280";
     default:
-      return "#6b7280"; // Gray
+      return "#6b7280";
   }
+};
+
+// 🖼 Generate marker icon SVG and encode it
+const createSvgIcon = (color: string) => {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+      <circle cx="16" cy="16" r="14" fill="${color}" stroke="white" stroke-width="2"/>
+    </svg>
+  `;
+
+  return new Icon({
+    iconUrl: "data:image/svg+xml;base64," + btoa(svg),
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32],
+  });
 };
 
 export default function ProjectsMap({
   projects,
-  center = [-1.2921, 36.8219], // Nairobi center
+  center = [-1.2921, 36.8219], // Nairobi
   zoom = 12,
 }: ProjectsMapProps) {
   const [isClient, setIsClient] = useState(false);
 
-  React.useEffect(() => {
+  useEffect(() => {
     setIsClient(true);
   }, []);
 
-  // Filter projects with valid coordinates
+  // Only allow valid lat/long values (including 0)
   const projectsWithCoords = projects.filter(
-    (p) => p.lat && p.long && !isNaN(p.lat) && !isNaN(p.long),
+    (p) =>
+      p.lat !== undefined &&
+      p.long !== undefined &&
+      p.lat !== null &&
+      p.long !== null &&
+      !isNaN(Number(p.lat)) &&
+      !isNaN(Number(p.long)),
   );
 
   if (!isClient) {
@@ -104,23 +127,15 @@ export default function ProjectsMap({
         scrollWheelZoom={true}
       >
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          attribution="&copy; OpenStreetMap contributors"
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
+
         {projectsWithCoords.map((project) => (
           <Marker
             key={project.id}
             position={[project.lat!, project.long!]}
-            icon={
-              new Icon({
-                iconUrl: `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><circle cx="16" cy="16" r="14" fill="${getStatusColor(
-                  project.status,
-                )}" stroke="white" stroke-width="2"/></svg>`,
-                iconSize: [32, 32],
-                iconAnchor: [16, 32],
-                popupAnchor: [0, -32],
-              })
-            }
+            icon={createSvgIcon(getStatusColor(project.status))}
           >
             <Popup>
               <div className="p-2">
