@@ -8,7 +8,8 @@ import BestPracticesList from "./BestPracticesList";
 import ProjectsMap from "./ProjectsMap";
 import StatsGrid from "./StatsGrid";
 import { Button } from "../ui/button";
-import { Download } from "lucide-react";
+import { ArrowUpRightIcon, Download } from "lucide-react";
+import Link from "next/link";
 
 interface DashboardClientProps {
   projects: any[];
@@ -41,6 +42,16 @@ export default function DashboardClient({
           <Download className="w-4 h-4 mr-2" />
           Export snapshot
         </Button>
+
+        {userEmail && userEmail === "admin@gmail.com" && (
+          <Link
+            href={`/admin`}
+            className="flex items-center gap-2 px-4 py-2 text-sm transition-all hover:bg-zinc-50 dark:hover:bg-zinc-700"
+          >
+            Admin
+            <ArrowUpRightIcon className="size-3.5 opacity-60" />
+          </Link>
+        )}
       </div>
 
       <StatsGrid projects={projects} />

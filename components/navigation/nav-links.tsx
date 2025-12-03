@@ -2,13 +2,14 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { LayoutDashboard, FolderOpen, Globe } from "lucide-react";
+import { LayoutDashboard, FolderOpen, Globe, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const links = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Projects", href: "/projects", icon: FolderOpen },
   { name: "Portal", href: "/portal", icon: Globe },
+  { name: "Settings", href: "/settings", icon: Settings },
 ];
 
 const NavLinks = ({ role }: { role?: string }) => {
