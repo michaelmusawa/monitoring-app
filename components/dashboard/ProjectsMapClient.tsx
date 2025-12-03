@@ -7,9 +7,6 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import ProjectDetailsMapModal from "@/components/maps/ProjectDetailsMapModal";
 
-// --- Fix missing default icons in Next.js ---
-delete L.Icon.Default.prototype._getIconUrl;
-
 L.Icon.Default.mergeOptions({
   iconUrl: "/leaflet/marker-icon.png",
   iconRetinaUrl: "/leaflet/marker-icon-2x.png",
