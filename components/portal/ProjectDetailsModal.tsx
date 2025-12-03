@@ -87,7 +87,7 @@ export default function ProjectDetailsModal({
           <div>
             <h4 className="text-sm font-medium">Recent updates</h4>
             <div className="mt-2 space-y-2">
-              {(project.updates || []).slice(0, 5).map((u, i) => (
+              {(project.updates || []).slice(0, 5).map((u: any, i: any) => (
                 <div key={i} className="text-sm text-muted-foreground">
                   <div>{u.title}</div>
                   <div className="text-xs">{u.date}</div>
