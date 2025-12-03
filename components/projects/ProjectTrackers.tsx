@@ -45,10 +45,12 @@ export function ProjectTrackers({
   projectId,
   trackers = [],
   projectProgress = 0,
+  userEmail,
 }: {
   projectId: string;
   projectProgress?: number;
   trackers?: any[];
+  userEmail: string;
 }) {
   // Get project from dummy data to determine sector
   const project = projects.find((p) => p.id === projectId);
@@ -389,12 +391,14 @@ export function ProjectTrackers({
       <div className="flex w-full items-center justify-between">
         <h2 className="text-lg font-semibold">Project Trackers</h2>
 
-        <div className="flex items-center gap-2">
-          <Button size="sm" onClick={() => openCreate()}>
-            <Plus className="w-4 h-4 mr-2" />
-            Add Tracker
-          </Button>
-        </div>
+        {userEmail && userEmail === "sector@gmail.com" && (
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={() => openCreate()}>
+              <Plus className="w-4 h-4 mr-2" />
+              Add Tracker
+            </Button>
+          </div>
+        )}
       </div>
 
       <div className="grid gap-4">

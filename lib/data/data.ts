@@ -22,8 +22,8 @@ export const projects: Project[] = [
       "Automation of County payment services through a unified digital platform.",
     progress: 10,
     members: ["user-ict-1", "user-finance-1"],
-    lat: -1.286389,
-    long: 36.817223,
+    lat: -1.2865,
+    long: 36.8173,
     subCounty: "Nairobi Central",
     ward: "City Hall",
   },
@@ -46,8 +46,8 @@ export const projects: Project[] = [
       "Enterprise-wide automation of County revenue processes, including billing, receipting, compliance monitoring, and analytics.",
     progress: 65,
     members: ["user-ict-2", "user-revenue-1"],
-    lat: -1.286389,
-    long: 36.817223,
+    lat: -1.28645,
+    long: 36.81718,
     subCounty: "Nairobi Central",
     ward: "City Hall",
   },
@@ -58,7 +58,7 @@ export const projects: Project[] = [
   {
     id: "proj-3",
     name: "County Enterprise Email System",
-    sector: "ICT",
+    sector: "IDE",
     budget: null, // Open Source deployed internally
     status: "ACTIVE",
     prerequisites: ["Anti-Spam Strategy", "Security Audit"],
@@ -66,8 +66,8 @@ export const projects: Project[] = [
       "Deployment of a secure enterprise email platform to all County staff; project stopped due to spamming vulnerabilities.",
     progress: 70,
     members: ["user-ict-3"],
-    lat: -1.286389,
-    long: 36.817223,
+    lat: -1.28658,
+    long: 36.81705,
     subCounty: "Nairobi Central",
     ward: "City Hall",
   },
@@ -86,8 +86,8 @@ export const projects: Project[] = [
       "Implementation of secure device management (Smartnet), server virtualization, backup systems, and enterprise storage for County systems.",
     progress: 100,
     members: ["user-ict-4", "user-datacenter-1"],
-    lat: -1.286389,
-    long: 36.817223,
+    lat: -1.28662,
+    long: 36.81744,
     subCounty: "Nairobi Central",
     ward: "City Hall",
   },
@@ -107,8 +107,8 @@ export const projects: Project[] = [
       "Development and maintenance of the official County web portal for information dissemination, services, and public engagement.",
     progress: 55,
     members: ["user-ict-5", "user-communications-1"],
-    lat: -1.286389,
-    long: 36.817223,
+    lat: -1.2868,
+    long: 36.81695,
     subCounty: "Nairobi Central",
     ward: "City Hall Headquarters",
   },
@@ -127,11 +127,13 @@ export const projects: Project[] = [
       "Maintenance and performance optimization of LAIFOMS as a legacy system prior to decommissioning and replacement with Nairobi Pay.",
     progress: 100,
     members: ["user-ict-6"],
-    lat: -1.286389,
-    long: 36.817223,
+    lat: -1.28672,
+    long: 36.8175,
     subCounty: "Nairobi Central",
     ward: "City Hall",
   },
+
+  // ------------------ STADIUMS & GROUNDS --------------------
 
   {
     id: "proj-dandora-stadium",
@@ -148,8 +150,8 @@ export const projects: Project[] = [
     description: "Completion and rehabilitation of Dandora Stadium.",
     progress: 0,
     members: [],
-    lat: -1.245, // approx. lat from open-map data :contentReference[oaicite:1]{index=1}
-    long: 36.90579, // approx. long from same source :contentReference[oaicite:2]{index=2}
+    lat: -1.2399,
+    long: 36.9038, // approx. long from same source :contentReference[oaicite:2]{index=2}
     subCounty: "Embakasi North", // Dandora belongs to Embakasi North sub-county :contentReference[oaicite:3]{index=3}
     ward: "Dandora Area I", // one of the Dandora wards under Embakasi North :contentReference[oaicite:4]{index=4}
   },
@@ -165,8 +167,8 @@ export const projects: Project[] = [
     description: "Establishment and upgrade of Mwiki Stadium facilities.",
     progress: 0,
     members: [],
-    lat: null, // approximate lat/long not found
-    long: null,
+    lat: -1.1912,
+    long: 36.9261,
     subCounty: "Kasarani", // Mwiki area lies within Kasarani sub-county :contentReference[oaicite:5]{index=5}
     ward: "Mwiki", // ward name matches the neighbourhood per official listing :contentReference[oaicite:6]{index=6}
   },
@@ -186,8 +188,8 @@ export const projects: Project[] = [
     description: "Rehabilitation and modernization of Woodley Stadium.",
     progress: 0,
     members: [],
-    lat: null,
-    long: null,
+    lat: -1.3037,
+    long: 36.7839,
     subCounty: "Kibra", // Woodley estate is in Kibra sub-county per Nairobi ward map :contentReference[oaicite:7]{index=7}
     ward: "Woodley/Kenyatta Golf Course", // official ward name in Kibra :contentReference[oaicite:8]{index=8}
   },
@@ -204,10 +206,10 @@ export const projects: Project[] = [
     description: "Upgrade and rehabilitation of BP community sports grounds.",
     progress: 0,
     members: [],
-    lat: null,
-    long: null,
-    subCounty: null,
-    ward: null,
+    lat: -1.2911,
+    long: 36.8732,
+    subCounty: "Embakasi West",
+    ward: "Umoja I",
   },
   {
     id: "proj-calvary-grounds",
@@ -221,10 +223,10 @@ export const projects: Project[] = [
       "Development and improvement of Calvary Grounds sports facilities.",
     progress: 0,
     members: [],
-    lat: null,
-    long: null,
-    subCounty: null,
-    ward: null,
+    lat: -1.2805,
+    long: 36.8954,
+    subCounty: "Embakasi West",
+    ward: "Mowlem",
   },
   {
     id: "proj-camp-toyoyo",
@@ -242,10 +244,10 @@ export const projects: Project[] = [
       "Upgrading Camp Toyoyo Stadium to improve community sports infrastructure.",
     progress: 0,
     members: [],
-    lat: null,
-    long: null,
-    subCounty: null,
-    ward: null,
+    lat: -1.2832,
+    long: 36.8616,
+    subCounty: "Makadara",
+    ward: "Makongeni",
   },
   {
     id: "proj-hamza-grounds",
@@ -258,8 +260,8 @@ export const projects: Project[] = [
     description: "Upgrade and maintenance of Hamza recreational grounds.",
     progress: 0,
     members: [],
-    lat: null,
-    long: null,
+    lat: -1.2994,
+    long: 36.8719,
     subCounty: "Makadara", // Hamza is listed under Makadara sub-county wards. :contentReference[oaicite:9]{index=9}
     ward: "Maringo/Hamza", // ward name as per official ward directory. :contentReference[oaicite:10]{index=10}
   },
@@ -278,8 +280,8 @@ export const projects: Project[] = [
     description: "Rehabilitation of Huruma public sports grounds.",
     progress: 0,
     members: [],
-    lat: null,
-    long: null,
+    lat: -1.2539,
+    long: 36.8583,
     subCounty: "Mathare", // Huruma is part of Mathare sub-county per ward mapping. :contentReference[oaicite:11]{index=11}
     ward: "Huruma", // official ward name as per listing. :contentReference[oaicite:12]{index=12}
   },
@@ -299,10 +301,10 @@ export const projects: Project[] = [
       "Major upgrade of Joe Kadenge Stadium to international standards.",
     progress: 0,
     members: [],
-    lat: null,
-    long: null,
-    subCounty: null,
-    ward: null,
+    lat: -1.3178,
+    long: 36.838,
+    subCounty: "Nairobi West",
+    ward: "South C",
   },
   {
     id: "proj-kahawa-west",
@@ -316,8 +318,8 @@ export const projects: Project[] = [
       "Development and rehabilitation of Kahawa West public sports grounds.",
     progress: 0,
     members: [],
-    lat: null,
-    long: null,
+    lat: -1.1865,
+    long: 36.8927,
     subCounty: "Roysambu", // Kahawa West is under Roysambu sub-county ward list :contentReference[oaicite:13]{index=13}
     ward: "Kahawa West", // ward as per official record. :contentReference[oaicite:14]{index=14}
   },
@@ -333,10 +335,10 @@ export const projects: Project[] = [
       "Upgrade of Kihumbuini Stadium to support community sporting events.",
     progress: 0,
     members: [],
-    lat: null,
-    long: null,
-    subCounty: null,
-    ward: null,
+    lat: -1.2563,
+    long: 36.822,
+    subCounty: "Westlands",
+    ward: "Kangemi",
   },
   {
     id: "proj-mukuru-grounds",
@@ -350,10 +352,10 @@ export const projects: Project[] = [
       "Rehabilitation of Mukuru community sports and recreational grounds.",
     progress: 0,
     members: [],
-    lat: null,
-    long: null,
-    subCounty: null,
-    ward: null,
+    lat: -1.3085,
+    long: 36.8617,
+    subCounty: "Embakasi South",
+    ward: "Mukuru Kwa Njenga",
   },
   {
     id: "proj-pandpieri",
@@ -366,10 +368,10 @@ export const projects: Project[] = [
     description: "Improvement of Pandpieri public recreational grounds.",
     progress: 0,
     members: [],
-    lat: null,
-    long: null,
-    subCounty: null,
-    ward: null,
+    lat: -1.2662,
+    long: 36.8914,
+    subCounty: "Embakasi Central",
+    ward: "Kayole Central",
   },
 ];
 

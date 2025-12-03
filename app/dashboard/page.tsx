@@ -88,10 +88,20 @@ function calculateDashboardStats(projects: typeof dummyProjects) {
 
 export default async function DashboardPage() {
   const session = await auth();
-  const userEmail = session?.user?.email || session?.user?.name || "";
+
+  const userEmail = session?.user?.email || "";
+
+  console.log("user email", userEmail);
+
+  let projects;
+  if (userEmail && userEmail === "sector@gmail.com") {
+    projects = dummyProjects.filter((p) => p.sector === "IDE");
+  } else {
+    projects = dummyProjects;
+  }
 
   // Use dummy data instead of server-side fetching
-  const projects = dummyProjects;
+
   const stats = calculateDashboardStats(projects);
   const comments = publicComments;
 

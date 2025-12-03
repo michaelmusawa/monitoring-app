@@ -27,6 +27,7 @@ import {
   checklistParamsIDE,
   checklistParamsMobility,
 } from "@/lib/data/data";
+import { auth } from "@/auth";
 
 // Import dummy data
 
@@ -39,6 +40,12 @@ export default async function ProjectDetail(props: {
 
   const projectId = params?.projectId || "";
   const tab = searchParams?.tab || "checklist";
+
+  const session = await auth();
+
+  const userEmail = session?.user?.email || "";
+
+  console.log("User email", userEmail);
 
   // Use dummy data instead of server actions
   const p = projects.find((project) => project.id === projectId);
@@ -252,14 +259,16 @@ export default async function ProjectDetail(props: {
             Reports
             <ArrowUpRightIcon className="size-3.5 opacity-60" />
           </Link>
-          <Link
-            href={`/projects/${projectId}/evaluation`}
-            className="flex items-center gap-2 px-4 py-2 text-sm transition-all hover:bg-zinc-50 dark:hover:bg-zinc-700"
-          >
-            <FileTextIcon className="size-3.5" />
-            Evaluation
-            <ArrowUpRightIcon className="size-3.5 opacity-60" />
-          </Link>
+          {userEmail && userEmail === "meofficer@gmail.com" && (
+            <Link
+              href={`/projects/${projectId}/evaluation`}
+              className="flex items-center gap-2 px-4 py-2 text-sm transition-all hover:bg-zinc-50 dark:hover:bg-zinc-700"
+            >
+              <FileTextIcon className="size-3.5" />
+              Evaluation
+              <ArrowUpRightIcon className="size-3.5 opacity-60" />
+            </Link>
+          )}
         </div>
 
         {/* TAB CONTENT */}
@@ -273,10 +282,15 @@ export default async function ProjectDetail(props: {
                   ? checklistParamsMobility
                   : checklistParamsIDE
               }
+              userEmail={userEmail}
             />
           )}
           {tab === "trackers" && (
-            <ProjectTrackers projectId={p.id} trackers={projectTrackers} />
+            <ProjectTrackers
+              projectId={p.id}
+              trackers={projectTrackers}
+              userEmail={userEmail}
+            />
           )}
           {tab === "calendar" && <ProjectCalendar projectId={p.id} />}
           {tab === "comments" && <PublicComments projectId={p.id} />}

@@ -160,6 +160,7 @@ export default function ProjectChecklistClient({
   projectId,
   checklist: initialChecklist,
   standardParams: initialStandardParams,
+  userEmail,
 }: any) {
   const [loading, setLoading] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
@@ -1041,14 +1042,16 @@ export default function ProjectChecklistClient({
                   </Button>
                 )}
 
-                {checklist?.status === ChecklistStatus.WeightsAssignment && (
-                  <Button
-                    onClick={() => handleSave(ChecklistStatus.WeightsReview)}
-                    disabled={saving}
-                  >
-                    Submit for Weights Review
-                  </Button>
-                )}
+                {userEmail &&
+                  userEmail === "sector@gmail.com" &&
+                  checklist?.status === ChecklistStatus.WeightsAssignment && (
+                    <Button
+                      onClick={() => handleSave(ChecklistStatus.WeightsReview)}
+                      disabled={saving}
+                    >
+                      Submit for Weights Review
+                    </Button>
+                  )}
 
                 {checklist?.status === ChecklistStatus.WeightsReview && (
                   <Button

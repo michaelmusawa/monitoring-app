@@ -7,6 +7,8 @@ import StatsCharts from "./StatsCharts";
 import BestPracticesList from "./BestPracticesList";
 import ProjectsMap from "./ProjectsMap";
 import StatsGrid from "./StatsGrid";
+import { Button } from "../ui/button";
+import { Download } from "lucide-react";
 
 interface DashboardClientProps {
   projects: any[];
@@ -35,6 +37,10 @@ export default function DashboardClient({
             Your project insights at a glance
           </p>
         </div>
+        <Button variant="outline" size="sm">
+          <Download className="w-4 h-4 mr-2" />
+          Export snapshot
+        </Button>
       </div>
 
       <StatsGrid projects={projects} />
