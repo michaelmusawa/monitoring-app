@@ -43,7 +43,7 @@ export default function ReportsClient({
   trackerProgress,
   timeline,
   attachments,
-}) {
+}: any) {
   // =============================================================
   // CHART CONFIGS
   // =============================================================
