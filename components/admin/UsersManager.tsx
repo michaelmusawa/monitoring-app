@@ -31,7 +31,7 @@ type FormState = {
   role: string;
 };
 
-export default function UsersManager(): JSX.Element {
+export default function UsersManager() {
   const [users, setUsers] = useState<AppUserType[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -427,7 +427,7 @@ export default function UsersManager(): JSX.Element {
  * imported alongside UsersManager if desired.
  */
 
-export function ChecklistEditor(): JSX.Element {
+export function ChecklistEditor() {
   type Task = { id: string; label: string };
   type Category = { id: string; name: string; tasks: Task[] };
 
