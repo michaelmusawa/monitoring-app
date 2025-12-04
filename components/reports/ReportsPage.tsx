@@ -153,12 +153,7 @@ export default function ReportsClient({
               <ChartTooltip content={<ChartTooltipContent />} />
               <ChartLegend content={<ChartLegendContent />} />
 
-              <Bar
-                dataKey="value"
-                radius={5}
-                fillOpacity={0.9}
-                shape="rectangle"
-              >
+              <Bar dataKey="value" radius={5} fillOpacity={0.9}>
                 {trackerProgress.map((entry: any, index: any) => (
                   <Cell key={index} fill={progressConfig[entry.name].color} />
                 ))}
