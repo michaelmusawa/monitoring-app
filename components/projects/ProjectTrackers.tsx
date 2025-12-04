@@ -20,6 +20,8 @@ import {
   checklistParamsIDE,
 } from "@/lib/data/data";
 import { projects } from "@/lib/data/data";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
 /* Basic tracker and item shapes (compatible with lib types) */
 type TrackerItem = {
@@ -55,6 +57,7 @@ export function ProjectTrackers({
   // Get project from dummy data to determine sector
   const project = projects.find((p) => p.id === projectId);
   const projectSector = project?.sector;
+  const router = useRouter();
 
   // Convert dummy trackers to component format
   const convertDummyTracker = (dummyTracker: any): Tracker => {
@@ -78,7 +81,7 @@ export function ProjectTrackers({
 
   // Get initial trackers from dummy data (filtered by projectId)
   const initialTrackers = dummyTrackers
-    .filter((t) => t.projectId === projectId)
+    .filter((t: any) => t.projectId === projectId)
     .map(convertDummyTracker);
 
   const [list, setList] = useState<Tracker[]>(() => [
@@ -225,6 +228,14 @@ export function ProjectTrackers({
     setDialogOpen(false);
     setCurrent(null);
     setMode("view");
+    toast.success("Tracker saved successfully (Demo Mode)");
+
+    if (projectId === "proj-huruma-grounds") {
+      router.push(`/projects/proj-hamza-grounds?tab=trackers`);
+    } else if (projectId === "proj-hamza-grounds") {
+      router.push(`/projects/proj-pandpieri?tab=trackers`);
+    }
+
     return savedTracker;
   }
 
@@ -391,23 +402,25 @@ export function ProjectTrackers({
       <div className="flex w-full items-center justify-between">
         <h2 className="text-lg font-semibold">Project Trackers</h2>
 
-        {userEmail && userEmail === "sector@gmail.com" && (
-          <div className="flex items-center gap-2">
-            <Button size="sm" onClick={() => openCreate()}>
-              <Plus className="w-4 h-4 mr-2" />
-              Add Tracker
-            </Button>
-          </div>
-        )}
+        {userEmail &&
+          (userEmail === "mw@gmail.com" || userEmail === "ide@gmail.com") &&
+          projectId !== "proj-pandpieri" && (
+            <div className="flex items-center gap-2">
+              <Button size="sm" onClick={() => openCreate()}>
+                <Plus className="w-4 h-4 mr-2" />
+                Add Tracker
+              </Button>
+            </div>
+          )}
       </div>
 
       <div className="grid gap-4">
-        {list.map((tr) => {
+        {list.map((tr: any, index: any) => {
           const trackerShare = getTrackerShare(tr.overallPercent);
 
           return (
             <div
-              key={tr.id}
+              key={tr.id + index}
               className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition cursor-pointer"
               onClick={() => openView(tr)}
             >
@@ -459,16 +472,19 @@ export function ProjectTrackers({
                       <Eye className="w-4 h-4" />
                       View
                     </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openEdit(tr);
-                      }}
-                      className="px-2 py-1 border rounded flex items-center gap-2 hover:bg-zinc-100 transition"
-                    >
-                      <Edit3 className="w-4 h-4" />
-                      Edit
-                    </button>
+                    {userEmail && userEmail === "meofficer@gmail.com" && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openEdit(tr);
+                        }}
+                        className="px-2 py-1 border rounded flex items-center gap-2 hover:bg-zinc-100 transition"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                        Edit
+                      </button>
+                    )}
+
                     <Link
                       href={`/projects/${projectId}/trackers/${tr.id}`}
                       onClick={(e) => e.stopPropagation()}

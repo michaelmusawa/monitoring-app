@@ -692,7 +692,7 @@ export default function ProjectChecklistClient({
                     allowed. Visit the Trackers section to monitor progress.
                   </p>
                   <Button variant="outline" asChild>
-                    <a href={`/projects/${projectId}?tab=trackers`}>
+                    <a href={`/projects/proj-huruma-grounds?tab=trackers`}>
                       Go to Trackers
                     </a>
                   </Button>
