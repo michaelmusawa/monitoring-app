@@ -1,4 +1,5 @@
-// app/projects/page.tsx
+// app/(root)/projects/page.tsx
+
 import { auth } from "@/auth";
 import { projects as dummyProjects, checklists } from "@/lib/data/data";
 import ProjectsPage from "@/components/projects/ProjectsPage";
