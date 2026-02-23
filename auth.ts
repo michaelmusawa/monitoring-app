@@ -3,6 +3,7 @@ import { authConfig } from "./auth.config";
 import Credentials from "next-auth/providers/credentials";
 import { z } from "zod";
 import { getUser } from "./lib/actions/loginActions";
+import bcrypt from "bcryptjs";
 
 interface User {
   email: string;
@@ -22,9 +23,9 @@ export const { auth, signIn, signOut } = NextAuth({
           const { email, password } = parsedCredentials.data;
           const user = (await getUser(email)) as User;
           if (!user) return null;
-          // const passwordsMatch = await bcrypt.compare(password, user?.password);
-          const passwordsMatch = password === user?.password;
-          if (passwordsMatch) return user;
+          const passwordsMatch = await bcrypt.compare(password, user?.password);
+
+          if (!passwordsMatch) return user;
         }
 
         console.log("Invalid credentials");

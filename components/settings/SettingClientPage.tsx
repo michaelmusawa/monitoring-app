@@ -1,573 +1,484 @@
 "use client";
-import React, { useState, useRef, useEffect } from "react";
+
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Badge } from "@/components/ui/badge";
+import { MoreVertical, Pencil, Trash2, Upload, Plus } from "lucide-react";
 
-/**
- * Settings page for the monitoring-app
- *
- * Responsibilities:
- * - Provide a project upload form so regular users can submit projects (CSV/JSON/ZIP).
- * - Expose links to admin sections:
- *   - Admin dashboard
- *   - User management
- *   - Checklist editor (refine standard checklist)
- *
- * Notes:
- * - This file is intentionally self-contained (no external UI components imported)
- *   so it can be dropped into the app/settings route without additional dependency changes.
- * - The upload and admin actions are implemented client-side and call presumed APIs.
- *   If the server endpoints are not available yet, the UI still functions locally and
- *   provides clear UX for future integration.
- */
+// Types
+import type { Project } from "@/lib/actions/projectActions";
 
-/* Use a client component so forms and local state work as expected */
+// Server actions (import directly or use via API)
+import {
+  getProjects,
+  createProject,
+  updateProject,
+  deleteProject,
+  batchCreateProjects,
+} from "@/lib/actions/projectActions";
 
-type UploadStatus = "idle" | "uploading" | "success" | "error";
-
-type MinimalProject = {
-  id?: string;
-  name: string;
-  sector?: string;
-  budget?: number | string;
-  status?: string;
-  description?: string;
-  lat?: number | string | null;
-  long?: number | string | null;
-};
-
-type ChecklistTask = {
-  id: string;
-  label: string;
-};
-
-type ChecklistCategory = {
-  id: string;
-  name: string;
-  tasks: ChecklistTask[];
-};
-
-type AppUser = {
-  id: string;
-  name: string;
-  email: string;
-  role: "user" | "admin" | string;
-};
-
-function uid(prefix = "") {
-  return prefix + Math.random().toString(36).slice(2, 9);
-}
-
-/* --- Project Upload Form --- */
-function ProjectUploadForm() {
-  const [file, setFile] = useState<File | null>(null);
-  const [project, setProject] = useState<MinimalProject>({
+// -----------------------------------------------------------------------------
+// Project List Component with Edit Modal
+// -----------------------------------------------------------------------------
+function ProjectList({
+  projects,
+  onUpdate,
+  onDelete,
+  userEmail,
+}: {
+  projects: Project[];
+  onUpdate: (id: string, data: any) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+  userEmail: string;
+}) {
+  const [editing, setEditing] = useState<Project | null>(null);
+  const [editForm, setEditForm] = useState({
     name: "",
     sector: "",
     budget: "",
-    status: "PENDING",
+    status: "",
     description: "",
   });
-  const [status, setStatus] = useState<UploadStatus>("idle");
-  const [message, setMessage] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const router = useRouter();
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setMessage(null);
+  const openEdit = (p: Project) => {
+    setEditing(p);
+    setEditForm({
+      name: p.name,
+      sector: p.sector || "",
+      budget: p.budget?.toString() || "",
+      status: p.status,
+      description: p.description || "",
+    });
+  };
 
-    // Basic validation
-    if (!project.name) {
-      setMessage("Please provide a project name.");
-      return;
-    }
-
-    const form = new FormData();
-    form.append("project", JSON.stringify(project));
-    if (file) form.append("file", file);
-
-    setStatus("uploading");
+  const handleEditSave = async () => {
+    if (!editing) return;
     try {
-      // Attempt to post to API (may not yet exist in the codebase)
-      const res = await fetch("/api/projects/upload", {
-        method: "POST",
-        body: form,
+      await onUpdate(editing.id, {
+        name: editForm.name,
+        sector: editForm.sector || null,
+        budget: editForm.budget ? parseFloat(editForm.budget) : null,
+        status: editForm.status,
+        description: editForm.description || null,
       });
-      if (!res.ok) {
-        const text = await res.text();
-        setMessage(`Upload failed: ${text || res.statusText}`);
-        setStatus("error");
-        return;
-      }
-      setMessage("Project uploaded successfully.");
-      setStatus("success");
-      setProject({
-        name: "",
-        sector: "",
-        budget: "",
-        status: "PENDING",
-        description: "",
-      });
-      setFile(null);
-      if (inputRef.current) inputRef.current.value = "";
-    } catch (err: any) {
-      setMessage("Upload error: " + String(err?.message || err));
-      setStatus("error");
-    } finally {
-      setTimeout(() => setStatus("idle"), 2000);
+      setEditing(null);
+      toast.success("Project updated");
+    } catch {
+      toast.error("Update failed");
     }
-  }
+  };
 
   return (
-    <section className="p-4 bg-white rounded-lg shadow-sm border">
-      <h2 className="text-lg font-semibold mb-3">Upload a Project</h2>
-      <p className="text-sm text-gray-600 mb-4">
-        Users can submit new projects using this form. Accepts JSON, CSV or ZIP
-        with attachments.
-      </p>
-
-      <form onSubmit={handleSubmit} className="space-y-3">
-        <div>
-          <label className="block text-sm font-medium mb-1">Project name</label>
-          <input
-            className="w-full border rounded px-3 py-2"
-            value={project.name}
-            onChange={(e) => setProject({ ...project, name: e.target.value })}
-            placeholder="Project title"
-            required
-          />
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-sm font-medium mb-1">Sector</label>
-            <input
-              className="w-full border rounded px-3 py-2"
-              value={project.sector}
-              onChange={(e) =>
-                setProject({ ...project, sector: e.target.value })
-              }
-              placeholder="e.g. ICT, Mobility & Works"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Budget</label>
-            <input
-              className="w-full border rounded px-3 py-2"
-              value={String(project.budget ?? "")}
-              onChange={(e) =>
-                setProject({ ...project, budget: e.target.value })
-              }
-              placeholder="Number or 'TBD'"
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium mb-1">Description</label>
-          <textarea
-            className="w-full border rounded px-3 py-2 min-h-[80px]"
-            value={project.description}
-            onChange={(e) =>
-              setProject({ ...project, description: e.target.value })
-            }
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium mb-1">
-            Optional supporting file
-          </label>
-          <input
-            ref={inputRef}
-            type="file"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            className="text-sm"
-            accept=".json,.csv,.zip"
-          />
-        </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            type="submit"
-            className="px-4 py-2 bg-primary text-white rounded disabled:opacity-60"
-            disabled={status === "uploading"}
-          >
-            {status === "uploading" ? "Uploading..." : "Upload Project"}
-          </button>
-          <button
-            type="button"
-            className="px-3 py-2 border rounded text-sm"
-            onClick={() => {
-              setProject({
-                name: "",
-                sector: "",
-                budget: "",
-                status: "PENDING",
-                description: "",
-              });
-              setFile(null);
-              inputRef.current && (inputRef.current.value = "");
-              setMessage(null);
-            }}
-          >
-            Reset
-          </button>
-          {message && <span className="text-sm text-gray-700">{message}</span>}
-        </div>
-      </form>
-    </section>
-  );
-}
-
-/* --- Checklist Editor (Admin) --- */
-function ChecklistEditor() {
-  const [categories, setCategories] = useState<ChecklistCategory[]>(() => [
-    {
-      id: uid("cat-"),
-      name: "Mobilization",
-      tasks: [
-        { id: uid("t-"), label: "Contract Signing & Insurances" },
-        { id: uid("t-"), label: "Site Possession" },
-      ],
-    },
-    {
-      id: uid("cat-"),
-      name: "Playground Area",
-      tasks: [{ id: uid("t-"), label: "Artificial Turf" }],
-    },
-  ]);
-
-  const [newCategoryName, setNewCategoryName] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-
-  function addCategory() {
-    if (!newCategoryName.trim()) return;
-    const cat: ChecklistCategory = {
-      id: uid("cat-"),
-      name: newCategoryName.trim(),
-      tasks: [],
-    };
-    setCategories((s) => [...s, cat]);
-    setNewCategoryName("");
-  }
-
-  function removeCategory(id: string) {
-    setCategories((s) => s.filter((c) => c.id !== id));
-  }
-
-  function addTask(categoryId: string, label = "") {
-    setCategories((s) =>
-      s.map((c) =>
-        c.id === categoryId
-          ? { ...c, tasks: [...c.tasks, { id: uid("t-"), label }] }
-          : c,
-      ),
-    );
-  }
-
-  function removeTask(categoryId: string, taskId: string) {
-    setCategories((s) =>
-      s.map((c) =>
-        c.id === categoryId
-          ? { ...c, tasks: c.tasks.filter((t) => t.id !== taskId) }
-          : c,
-      ),
-    );
-  }
-
-  async function saveTemplate() {
-    setSaving(true);
-    setMessage(null);
-    try {
-      // POST to a hypothetical admin endpoint.
-      const res = await fetch("/api/admin/checklists", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ categories }),
-      });
-      if (!res.ok) {
-        const txt = await res.text();
-        setMessage("Save failed: " + (txt || res.statusText));
-        setSaving(false);
-        return;
-      }
-      setMessage("Checklist template saved.");
-    } catch (err: any) {
-      setMessage("Error: " + String(err?.message || err));
-    } finally {
-      setSaving(false);
-      setTimeout(() => setMessage(null), 3000);
-    }
-  }
-
-  return (
-    <section className="p-4 bg-white rounded-lg shadow-sm border">
-      <h2 className="text-lg font-semibold mb-3">Checklist Editor (Admin)</h2>
-      <p className="text-sm text-gray-600 mb-4">
-        Add/remove categories and tasks for the standard checklist.
-      </p>
-
-      <div className="space-y-4">
-        {categories.map((cat) => (
-          <div key={cat.id} className="border rounded p-3">
-            <div className="flex items-center justify-between mb-2">
-              <strong>{cat.name}</strong>
-              <div className="flex items-center gap-2">
-                <button
-                  className="px-2 py-1 text-xs border rounded"
-                  onClick={() => addTask(cat.id, "New task")}
-                >
-                  + Task
-                </button>
-                <button
-                  className="px-2 py-1 text-xs border rounded text-rose-600"
-                  onClick={() => removeCategory(cat.id)}
-                >
-                  Remove category
-                </button>
-              </div>
-            </div>
-
-            <ul className="pl-4 list-disc space-y-1">
-              {cat.tasks.map((t) => (
-                <li
-                  key={t.id}
-                  className="flex items-center justify-between gap-3"
-                >
-                  <input
-                    className="flex-1 border rounded px-2 py-1"
-                    value={t.label}
-                    onChange={(e) =>
-                      setCategories((s) =>
-                        s.map((c) =>
-                          c.id === cat.id
-                            ? {
-                                ...c,
-                                tasks: c.tasks.map((x) =>
-                                  x.id === t.id
-                                    ? { ...x, label: e.target.value }
-                                    : x,
-                                ),
-                              }
-                            : c,
-                        ),
-                      )
-                    }
-                  />
-                  <button
-                    className="px-2 py-1 text-xs border rounded text-rose-600"
-                    onClick={() => removeTask(cat.id, t.id)}
+    <>
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>Sector</TableHead>
+              <TableHead>Budget</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Created</TableHead>
+              <TableHead className="w-16"></TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {projects.map((p) => (
+              <TableRow key={p.id}>
+                <TableCell className="font-medium">
+                  <Link
+                    href={`/projects/${p.slug}`}
+                    className="hover:underline"
                   >
-                    Remove
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-
-        <div className="flex gap-2">
-          <input
-            className="border rounded px-3 py-2 flex-1"
-            placeholder="New category name"
-            value={newCategoryName}
-            onChange={(e) => setNewCategoryName(e.target.value)}
-          />
-          <button
-            className="px-3 py-2 bg-primary text-white rounded"
-            onClick={addCategory}
-          >
-            Add category
-          </button>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            className="px-4 py-2 bg-primary text-white rounded"
-            onClick={saveTemplate}
-            disabled={saving}
-          >
-            {saving ? "Saving..." : "Save Template"}
-          </button>
-          {message && <span className="text-sm text-gray-700">{message}</span>}
-        </div>
+                    {p.name}
+                  </Link>
+                </TableCell>
+                <TableCell>{p.sector || "—"}</TableCell>
+                <TableCell>
+                  {p.budget ? `KES ${p.budget.toLocaleString()}` : "—"}
+                </TableCell>
+                <TableCell>
+                  <Badge
+                    variant={p.status === "PENDING" ? "outline" : "default"}
+                  >
+                    {p.status}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  {new Date(p.createdAt).toLocaleDateString()}
+                </TableCell>
+                <TableCell>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="sm">
+                        <MoreVertical className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => openEdit(p)}>
+                        <Pencil className="h-4 w-4 mr-2" /> Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="text-red-600"
+                        onClick={() => onDelete(p.id)}
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" /> Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       </div>
-    </section>
+
+      {/* Edit Dialog */}
+      <Dialog
+        open={!!editing}
+        onOpenChange={(open) => !open && setEditing(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Project</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-4">
+            <Input
+              placeholder="Project name"
+              value={editForm.name}
+              onChange={(e) =>
+                setEditForm({ ...editForm, name: e.target.value })
+              }
+            />
+            <Input
+              placeholder="Sector"
+              value={editForm.sector}
+              onChange={(e) =>
+                setEditForm({ ...editForm, sector: e.target.value })
+              }
+            />
+            <Input
+              placeholder="Budget"
+              type="number"
+              value={editForm.budget}
+              onChange={(e) =>
+                setEditForm({ ...editForm, budget: e.target.value })
+              }
+            />
+            <select
+              value={editForm.status}
+              onChange={(e) =>
+                setEditForm({ ...editForm, status: e.target.value })
+              }
+              className="w-full border rounded px-3 py-2"
+            >
+              <option value="PENDING">PENDING</option>
+              <option value="ACTIVE">ACTIVE</option>
+              <option value="COMPLETED">COMPLETED</option>
+              <option value="ON_HOLD">ON HOLD</option>
+            </select>
+            <Textarea
+              placeholder="Description"
+              value={editForm.description}
+              onChange={(e) =>
+                setEditForm({ ...editForm, description: e.target.value })
+              }
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditing(null)}>
+              Cancel
+            </Button>
+            <Button onClick={handleEditSave}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
-/* --- Users Manager (Admin) --- */
-function UsersManager() {
-  const [users, setUsers] = useState<AppUser[]>(() => [
-    {
-      id: uid("u-"),
-      name: "Alice Admin",
-      email: "alice@example.com",
-      role: "admin",
-    },
-    { id: uid("u-"), name: "Bob User", email: "bob@example.com", role: "user" },
-  ]);
-  const [newUser, setNewUser] = useState<{
-    name: string;
-    email: string;
-    role: string;
-  }>({ name: "", email: "", role: "user" });
-  const [message, setMessage] = useState<string | null>(null);
+// -----------------------------------------------------------------------------
+// Quick Add Form (inline)
+// -----------------------------------------------------------------------------
+function QuickAddForm({ onAdd }: { onAdd: (data: any) => Promise<void> }) {
+  const [name, setName] = useState("");
+  const [sector, setSector] = useState("");
+  const [budget, setBudget] = useState("");
+  const [adding, setAdding] = useState(false);
 
-  function addUser() {
-    if (!newUser.name || !newUser.email) {
-      setMessage("Name and email required");
-      return;
-    }
-    const u: AppUser = {
-      id: uid("u-"),
-      name: newUser.name,
-      email: newUser.email,
-      role: newUser.role as any,
-    };
-    setUsers((s) => [...s, u]);
-    setNewUser({ name: "", email: "", role: "user" });
-    setMessage("User added (local only)");
-    setTimeout(() => setMessage(null), 2000);
-  }
-
-  function removeUser(id: string) {
-    setUsers((s) => s.filter((u) => u.id !== id));
-  }
-
-  async function persistChanges() {
-    setMessage("Saving...");
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setAdding(true);
     try {
-      const res = await fetch("/api/admin/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ users }),
+      await onAdd({
+        name: name.trim(),
+        sector: sector.trim() || null,
+        budget: budget ? parseFloat(budget) : null,
       });
-      if (!res.ok) {
-        const t = await res.text();
-        setMessage("Save failed: " + (t || res.statusText));
-        return;
-      }
-      setMessage("Saved.");
-    } catch (err: any) {
-      setMessage("Error: " + String(err?.message || err));
+      setName("");
+      setSector("");
+      setBudget("");
     } finally {
-      setTimeout(() => setMessage(null), 2000);
+      setAdding(false);
     }
-  }
+  };
 
   return (
-    <section className="p-4 bg-white rounded-lg shadow-sm border">
-      <h2 className="text-lg font-semibold mb-3">User Management (Admin)</h2>
-      <p className="text-sm text-gray-600 mb-4">
-        Add, edit or remove application users and set roles.
-      </p>
-
-      <div className="space-y-3 mb-3">
-        <div className="grid grid-cols-3 gap-2">
-          <input
-            value={newUser.name}
-            onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
-            placeholder="Full name"
-            className="border rounded px-2 py-1"
-          />
-          <input
-            value={newUser.email}
-            onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
-            placeholder="Email"
-            className="border rounded px-2 py-1"
-          />
-          <select
-            value={newUser.role}
-            onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
-            className="border rounded px-2 py-1"
-          >
-            <option value="user">User</option>
-            <option value="admin">Admin</option>
-          </select>
-        </div>
-        <div className="flex gap-2">
-          <button
-            className="px-3 py-1 bg-primary text-white rounded"
-            onClick={addUser}
-          >
-            Add user
-          </button>
-          <button
-            className="px-3 py-1 border rounded"
-            onClick={() => setNewUser({ name: "", email: "", role: "user" })}
-          >
-            Reset
-          </button>
-          <div className="text-sm text-gray-600 ml-auto">{message}</div>
-        </div>
+    <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-2">
+      <div className="flex-1 min-w-[200px]">
+        <label className="text-xs text-muted-foreground">Project name</label>
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. Huruma Market"
+          required
+        />
       </div>
-
-      <div className="max-h-40 overflow-auto border rounded p-2">
-        <ul className="space-y-2">
-          {users.map((u) => (
-            <li key={u.id} className="flex items-center justify-between gap-3">
-              <div>
-                <div className="font-medium">{u.name}</div>
-                <div className="text-xs text-gray-500">
-                  {u.email} • <span className="capitalize">{u.role}</span>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  className="px-2 py-1 text-xs border rounded"
-                  onClick={() =>
-                    alert("Edit flow not implemented in this demo")
-                  }
-                >
-                  Edit
-                </button>
-                <button
-                  className="px-2 py-1 text-xs border rounded text-rose-600"
-                  onClick={() => removeUser(u.id)}
-                >
-                  Remove
-                </button>
-              </div>
-            </li>
-          ))}
-        </ul>
+      <div className="w-40">
+        <label className="text-xs text-muted-foreground">Sector</label>
+        <Input
+          value={sector}
+          onChange={(e) => setSector(e.target.value)}
+          placeholder="e.g. Mobility"
+        />
       </div>
-
-      <div className="mt-3 flex items-center gap-3">
-        <button
-          className="px-4 py-2 bg-primary text-white rounded"
-          onClick={persistChanges}
-        >
-          Save changes
-        </button>
-        <span className="text-sm text-gray-600">{message}</span>
+      <div className="w-40">
+        <label className="text-xs text-muted-foreground">Budget</label>
+        <Input
+          type="number"
+          value={budget}
+          onChange={(e) => setBudget(e.target.value)}
+          placeholder="KES"
+        />
       </div>
-    </section>
+      <Button type="submit" disabled={adding}>
+        <Plus className="h-4 w-4 mr-2" />
+        {adding ? "Adding..." : "Add"}
+      </Button>
+    </form>
   );
 }
 
-/* --- Settings Page --- */
+// -----------------------------------------------------------------------------
+// Batch Upload Component
+// -----------------------------------------------------------------------------
+function BatchUpload({
+  onUpload,
+}: {
+  onUpload: (projects: any[]) => Promise<void>;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [preview, setPreview] = useState<any[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    setFile(f || null);
+    setPreview([]);
+    setError(null);
+    if (!f) return;
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const content = ev.target?.result as string;
+        if (f.name.endsWith(".json")) {
+          const data = JSON.parse(content);
+          if (Array.isArray(data)) {
+            setPreview(data.slice(0, 5));
+          } else {
+            setError("JSON must be an array of projects");
+          }
+        } else if (f.name.endsWith(".csv")) {
+          const lines = content.split("\n").filter((l) => l.trim());
+          const headers = lines[0].split(",").map((h) => h.trim());
+          const required = ["name"];
+          if (!required.every((r) => headers.includes(r))) {
+            setError("CSV must have at least 'name' column");
+            return;
+          }
+          const rows = lines.slice(1).map((line) => {
+            const values = line.split(",").map((v) => v.trim());
+            const obj: any = {};
+            headers.forEach((h, i) => {
+              obj[h] = values[i] || null;
+            });
+            return obj;
+          });
+          setPreview(rows.slice(0, 5));
+        } else {
+          setError("Only .json or .csv files are supported");
+        }
+      } catch (err) {
+        setError("Failed to parse file");
+      }
+    };
+    reader.readAsText(f);
+  };
+
+  const handleUpload = async () => {
+    if (!file) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const content = await file.text();
+      let projects: any[] = [];
+      if (file.name.endsWith(".json")) {
+        projects = JSON.parse(content);
+      } else if (file.name.endsWith(".csv")) {
+        const lines = content.split("\n").filter((l) => l.trim());
+        const headers = lines[0].split(",").map((h) => h.trim());
+        projects = lines.slice(1).map((line) => {
+          const values = line.split(",").map((v) => v.trim());
+          const obj: any = {};
+          headers.forEach((h, i) => {
+            obj[h] = values[i] || null;
+          });
+          return obj;
+        });
+      }
+      // Validate each project has at least name
+      const valid = projects.filter((p) => p.name);
+      if (valid.length === 0) {
+        setError("No valid projects found");
+        return;
+      }
+      await onUpload(valid);
+      setFile(null);
+      setPreview([]);
+    } catch (err) {
+      setError("Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="border rounded-lg p-6">
+        <h3 className="text-lg font-medium mb-4">Batch Upload Projects</h3>
+        <p className="text-sm text-muted-foreground mb-4">
+          Upload a CSV or JSON file with columns: <code>name</code> (required),{" "}
+          <code>sector</code>, <code>budget</code>, <code>lat</code>,{" "}
+          <code>long</code>, <code>description</code>.
+        </p>
+        <div className="flex items-center gap-4">
+          <Input type="file" accept=".json,.csv" onChange={handleFileChange} />
+          <Button onClick={handleUpload} disabled={!file || uploading}>
+            {uploading ? "Uploading..." : "Upload"}
+          </Button>
+        </div>
+        {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
+        {preview.length > 0 && (
+          <div className="mt-4">
+            <h4 className="text-sm font-medium mb-2">Preview (first 5 rows)</h4>
+            <pre className="bg-muted p-3 rounded text-xs overflow-auto">
+              {JSON.stringify(preview, null, 2)}
+            </pre>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Main Settings Page
+// -----------------------------------------------------------------------------
 export default function SettingsPage({ userEmail }: { userEmail: string }) {
-  // When an app is small it's handy to keep the admin sections accessible from settings.
-  // The real app would gate these behind an auth/permission layer.
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState("projects");
+  const router = useRouter();
+
+  // Load projects on mount
   useEffect(() => {
-    // Page title enhancement for clarity when navigating
-    document.title = "Settings — Monitoring App";
+    getProjects()
+      .then(setProjects)
+      .catch(() => toast.error("Failed to load projects"))
+      .finally(() => setLoading(false));
   }, []);
+
+  // Handlers
+  const handleAdd = async (data: any) => {
+    try {
+      const newProj = await createProject(data);
+      setProjects((prev) => [newProj, ...prev]);
+      toast.success("Project added");
+    } catch {
+      toast.error("Failed to add project");
+    }
+  };
+
+  const handleUpdate = async (id: string, data: any) => {
+    const updated = await updateProject(id, data);
+    setProjects((prev) => prev.map((p) => (p.id === id ? updated : p)));
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this project?")) return;
+    try {
+      await deleteProject(id);
+      setProjects((prev) => prev.filter((p) => p.id !== id));
+      toast.success("Project deleted");
+    } catch {
+      toast.error("Delete failed");
+    }
+  };
+
+  const handleBatchUpload = async (projectsData: any[]) => {
+    try {
+      const created = await batchCreateProjects(projectsData);
+      setProjects((prev) => [...created, ...prev]);
+      toast.success(`Uploaded ${created.length} projects`);
+      setActiveTab("projects");
+    } catch {
+      toast.error("Batch upload failed");
+    }
+  };
+
+  const isAdmin = userEmail === "admin@gmail.com";
 
   return (
     <div className="p-6 space-y-6">
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Settings</h1>
+          <h1 className="text-2xl font-bold">Project Management</h1>
           <p className="text-sm text-gray-600">
-            Manage application settings, upload projects and administer
-            users/checklists.
+            Add, edit, and manage projects.
           </p>
         </div>
-        {userEmail && userEmail === "admin@gmail.com" && (
+        {isAdmin && (
           <nav className="space-x-3">
             <Link
               href="/admin"
@@ -581,67 +492,51 @@ export default function SettingsPage({ userEmail }: { userEmail: string }) {
             >
               Manage users
             </Link>
-            <Link
-              href="/admin/checklists"
-              className="px-3 py-2 border rounded hover:bg-gray-50"
-            >
-              Checklist templates
-            </Link>
           </nav>
         )}
       </header>
 
-      <main className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
-          <ProjectUploadForm />
+      <Tabs
+        value={activeTab}
+        onValueChange={setActiveTab}
+        className="space-y-4"
+      >
+        <TabsList>
+          <TabsTrigger value="projects">Projects</TabsTrigger>
+          <TabsTrigger value="upload">Upload</TabsTrigger>
+          {isAdmin && <TabsTrigger value="settings">Settings</TabsTrigger>}
+        </TabsList>
 
-          {userEmail && userEmail === "admin@gmail.com" && (
-            <section className="p-4 bg-white rounded-lg shadow-sm border">
-              <h2 className="text-lg font-semibold mb-3">
-                Application settings (Preview)
-              </h2>
-              <p className="text-sm text-gray-600 mb-3">
-                This area will be used to manage system-wide settings (feature
-                toggles, default checklist templates, sectors).
-              </p>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="p-3 border rounded">
-                  <label className="text-xs text-gray-600">
-                    Default project visibility
-                  </label>
-                  <div className="mt-2">
-                    <select className="w-full border rounded px-2 py-1">
-                      <option>Public</option>
-                      <option>Internal</option>
-                      <option>Private</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="p-3 border rounded">
-                  <label className="text-xs text-gray-600">
-                    Enable public comments
-                  </label>
-                  <div className="mt-2">
-                    <select className="w-full border rounded px-2 py-1">
-                      <option>Yes</option>
-                      <option>No</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-            </section>
+        <TabsContent value="projects" className="space-y-4">
+          <QuickAddForm onAdd={handleAdd} />
+          {loading ? (
+            <div className="text-center py-10">Loading projects...</div>
+          ) : (
+            <ProjectList
+              projects={projects}
+              onUpdate={handleUpdate}
+              onDelete={handleDelete}
+              userEmail={userEmail}
+            />
           )}
-        </div>
+        </TabsContent>
 
-        {userEmail && userEmail === "admin@gmail.com" && (
-          <aside className="space-y-6">
-            <ChecklistEditor />
-            <UsersManager />
-          </aside>
+        <TabsContent value="upload">
+          <BatchUpload onUpload={handleBatchUpload} />
+        </TabsContent>
+
+        {isAdmin && (
+          <TabsContent value="settings">
+            <div className="border rounded-lg p-6">
+              <h3 className="text-lg font-medium mb-4">System Settings</h3>
+              <p className="text-sm text-muted-foreground">
+                Application‑wide settings will appear here.
+              </p>
+              {/* You can add form elements for default visibility, etc. */}
+            </div>
+          </TabsContent>
         )}
-      </main>
+      </Tabs>
     </div>
   );
 }

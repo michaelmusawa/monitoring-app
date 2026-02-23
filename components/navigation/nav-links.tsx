@@ -2,7 +2,13 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { LayoutDashboard, FolderOpen, Globe, Settings } from "lucide-react";
+import {
+  LayoutDashboard,
+  FolderOpen,
+  Globe,
+  Settings,
+  User,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const links = [
@@ -10,6 +16,7 @@ const links = [
   { name: "Projects", href: "/projects", icon: FolderOpen },
   { name: "Portal", href: "/portal", icon: Globe },
   { name: "Settings", href: "/settings", icon: Settings },
+  { name: "Profile", href: "/profile", icon: User },
 ];
 
 const NavLinks = ({ role }: { role?: string }) => {

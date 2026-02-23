@@ -172,21 +172,6 @@ export interface Tracker {
   [key: string]: unknown;
 }
 
-/**
- * Users and comments
- */
-export interface User {
-  id: string;
-  name: string;
-  email?: string;
-  role?: string;
-  department?: string;
-  avatar?: string | null;
-  phone?: string | null;
-  createdAt?: string;
-  [key: string]: unknown;
-}
-
 export interface CommentReply {
   id: string;
   commentId?: string;

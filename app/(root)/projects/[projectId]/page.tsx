@@ -1,35 +1,129 @@
-// app/projects/[projectId]/page.tsx
-
 import {
   ArrowLeftIcon,
   CalendarIcon,
   CheckIcon,
   ClipboardListIcon,
   FileTextIcon,
-  ZapIcon,
-  GroupIcon,
   ArrowUpRightIcon,
+  UsersIcon,
+  MessageSquareIcon,
+  TrendingUpIcon,
+  LayersIcon,
+  CheckCircle2Icon,
+  CircleDotIcon,
+  ClockIcon,
+  BarChart3Icon,
 } from "lucide-react";
-
 import Link from "next/link";
+import { notFound } from "next/navigation";
+import { auth } from "@/auth";
 
 import PublicComments from "@/components/projects/PublicComments";
 import { ProjectCalendar } from "@/components/projects/ProjectCalendar";
 import ProjectChecklistClient from "@/components/projects/ProjectChecklistClient";
 import { ProjectTrackers } from "@/components/projects/ProjectTrackers";
 import ProjectMembers from "@/components/projects/ProjectMembers";
-
+import { getProject } from "@/lib/actions/projectActions";
 import {
-  projects,
-  trackers,
-  checklists,
-  users,
-  checklistParamsIDE,
-  checklistParamsMobility,
-} from "@/lib/data/data";
-import { auth } from "@/auth";
+  getChecklist,
+  getTemplateBySector,
+} from "@/lib/actions/checklistActions";
+import { getTrackerSubmissions } from "@/lib/actions/trackerActions";
 
-// Import dummy data
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const ME_OFFICER = "meofficer@gmail.com";
+const SECTOR_OFFICER = "sectorofficer@gmail.com";
+
+const STATUS_META: Record<
+  string,
+  { label: string; dot: string; badge: string }
+> = {
+  PLANNING: {
+    label: "Planning",
+    dot: "bg-zinc-400",
+    badge:
+      "bg-zinc-100 text-zinc-700 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700",
+  },
+  ACTIVE: {
+    label: "Active",
+    dot: "bg-emerald-500",
+    badge:
+      "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800",
+  },
+  ON_HOLD: {
+    label: "On Hold",
+    dot: "bg-amber-400",
+    badge:
+      "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800",
+  },
+  STALLED: {
+    label: "Stalled",
+    dot: "bg-violet-400",
+    badge:
+      "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/40 dark:text-violet-400 dark:border-violet-800",
+  },
+  COMPLETED: {
+    label: "Completed",
+    dot: "bg-blue-500",
+    badge:
+      "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800",
+  },
+  CANCELLED: {
+    label: "Cancelled",
+    dot: "bg-red-400",
+    badge:
+      "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-400 dark:border-red-800",
+  },
+  PENDING: {
+    label: "Pending",
+    dot: "bg-yellow-400",
+    badge:
+      "bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-950/40 dark:text-yellow-400 dark:border-yellow-800",
+  },
+  RETIRED: {
+    label: "Retired",
+    dot: "bg-gray-400",
+    badge:
+      "bg-gray-50 text-gray-600 border-gray-200 dark:bg-gray-900 dark:text-gray-400 dark:border-gray-700",
+  },
+};
+
+const STAGES = [
+  { id: "initialization", label: "Init", full: "Initialization" },
+  { id: "checklist", label: "Checklist", full: "Checklist" },
+  { id: "tracking", label: "Tracking", full: "Tracking" },
+  { id: "completed", label: "Completed", full: "Completed" },
+  { id: "evaluation", label: "Evaluation", full: "Evaluation" },
+];
+
+function getStageFromChecklist(status: string): string {
+  switch (status) {
+    case "Draft":
+    case "DraftReview":
+    case "WeightsAssignment":
+    case "WeightsReview":
+      return "checklist";
+    case "Approved":
+      return "tracking";
+    case "Completed":
+      return "completed";
+    default:
+      return "initialization";
+  }
+}
+
+// ─── Checklist phase label ────────────────────────────────────────────────────
+
+const CHECKLIST_PHASE_LABEL: Record<string, string> = {
+  Draft: "Draft",
+  DraftReview: "Draft Review",
+  WeightsAssignment: "Weights",
+  WeightsReview: "Wt. Review",
+  Approved: "Approved",
+};
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function ProjectDetail(props: {
   searchParams?: Promise<{ tab?: string }>;
@@ -37,262 +131,374 @@ export default async function ProjectDetail(props: {
 }) {
   const searchParams = await props.searchParams;
   const params = await props.params;
-
   const projectId = params?.projectId || "";
   const tab = searchParams?.tab || "checklist";
-
   const session = await auth();
-
   const userEmail = session?.user?.email || "";
 
-  // Use dummy data instead of server actions
-  const p = projects.find((project) => project.id === projectId);
+  // Derive role once, pass everywhere
+  const userRole =
+    userEmail === ME_OFFICER
+      ? "me"
+      : userEmail === SECTOR_OFFICER
+        ? "sector"
+        : "viewer";
 
-  // Get trackers for this project
-  const projectTrackers = trackers.filter(
-    (tracker) => tracker.projectId === projectId,
+  const project = await getProject(projectId);
+  if (!project) notFound();
+
+  const checklist = await getChecklist(projectId);
+  const template = await getTemplateBySector(project.sector);
+
+  const standardParams = template.flatMap((cat: any) =>
+    cat.tasks.map((task: any) => ({
+      id: task.id,
+      label: task.label,
+      category: cat.name,
+      description: task.description || "",
+    })),
   );
 
-  // Get checklist for this project
-  const checklist = checklists.find((c) => c.projectId === projectId) || {
-    id: `cl-${projectId}`,
-    projectId,
-    status: "draft",
-    items: [],
-  };
+  const selectedItems = checklist?.items.filter((i) => i.weight > 0) ?? [];
+  const totalChecklistItems = standardParams.length;
+  const currentStage = getStageFromChecklist(checklist?.status || "");
+  const currentStageIndex = STAGES.findIndex((s) => s.id === currentStage);
 
-  // Get users for this project (members)
-  const projectUsers =
-    p?.members
-      ?.map((memberId) => users.find((user) => user.id === memberId))
-      .filter(Boolean) || [];
+  const hasApprovedChecklist = checklist?.status === "Approved";
+  const submissions = await getTrackerSubmissions(projectId);
 
-  // Calculate checklist stats
-  const completedChecklistItems = checklist.items.filter(
-    (i) => i.parameterId,
-  ).length;
-  const totalChecklistItems = checklist.items.length;
+  const latestSubmission =
+    submissions.length > 0 ? submissions[submissions.length - 1] : null;
+  const overallProgress = latestSubmission?.overallPercent ?? 0;
 
-  const statusColors = {
-    PLANNING: "bg-zinc-200 text-zinc-900 dark:bg-zinc-600 dark:text-zinc-200",
-    ACTIVE:
-      "bg-emerald-200 text-emerald-900 dark:bg-emerald-500 dark:text-emerald-900",
-    ON_HOLD:
-      "bg-amber-200 text-amber-900 dark:bg-amber-500 dark:text-amber-900",
-    STALLED:
-      "bg-violet-200 text-violet-900 dark:bg-violet-500 dark:text-violet-900",
-    COMPLETED: "bg-blue-200 text-blue-900 dark:bg-blue-500 dark:text-blue-900",
-    CANCELLED: "bg-red-200 text-red-900 dark:bg-red-500 dark:text-red-900",
-    PENDING:
-      "bg-yellow-200 text-yellow-900 dark:bg-yellow-500 dark:text-yellow-900",
-    RETIRED: "bg-gray-200 text-gray-900 dark:bg-gray-500 dark:text-gray-900",
-  };
+  const checklistItemsForWorkplan = selectedItems.map((i) => ({
+    parameterId: i.parameterId,
+    label: i.label,
+    category: i.category,
+    weight: i.weight,
+  }));
 
-  if (!p) {
-    return (
-      <div className="p-6 text-center text-zinc-900 dark:text-zinc-200">
-        <p className="text-3xl md:text-5xl mt-40 mb-10">Project not found</p>
-        <Link
-          href="/projects"
-          className="mt-4 inline-block px-4 py-2 rounded bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white hover:bg-zinc-300 dark:hover:bg-zinc-600"
-        >
-          Back to Projects
-        </Link>
-      </div>
-    );
-  }
+  const statusMeta = STATUS_META[project.status] ?? STATUS_META.PLANNING;
 
-  // PHASE PROGRESS BAR - Added stage field to handle this
-  const stageOrder = [
-    "initialization",
-    "checklist",
-    "tracking",
-    "completed",
-    "evaluation",
+  const checklistPhaseLabel =
+    CHECKLIST_PHASE_LABEL[checklist?.status ?? ""] ?? "—";
+
+  // ─── Tab definitions ─────────────────────────────────────────────────────
+
+  const mainTabs = [
+    { key: "checklist", label: "Checklist", icon: CheckIcon },
+    { key: "trackers", label: "Trackers", icon: BarChart3Icon },
+    { key: "calendar", label: "Calendar", icon: CalendarIcon },
+    { key: "comments", label: "Comments", icon: MessageSquareIcon },
+    { key: "members", label: "Members", icon: UsersIcon },
   ];
-  // For dummy data, determine stage based on checklist status
-  const getStageFromChecklist = (status: string) => {
-    switch (status) {
-      case "draft":
-      case "draft_review":
-        return "checklist";
-      case "weight_assignment":
-      case "weights_review":
-        return "checklist";
-      case "approved":
-        return "tracking";
-      case "completed":
-        return "completed";
-      default:
-        return "initialization";
-    }
-  };
-
-  const currentStage = getStageFromChecklist(checklist.status);
-  const currentStageIndex = stageOrder.indexOf(currentStage);
 
   return (
-    <div className="mt-10 space-y-5 max-w-6xl mx-auto text-zinc-900 dark:text-white px-6 pt-20 lg:pt-6">
-      {/* HEADER */}
-      <div className="flex max-md:flex-col gap-4 flex-wrap items-start justify-between">
-        <div className="flex items-center gap-4">
+    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-16 pt-20 lg:pt-8 space-y-0">
+        {/* ── Back nav ──────────────────────────────────────────────────────── */}
+        <div className="py-4">
           <Link
             href="/projects"
-            className="p-1 rounded hover:bg-zinc-200
-            dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-400"
+            className="inline-flex items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 transition-colors"
           >
-            <ArrowLeftIcon className="w-4 h-4" />
+            <ArrowLeftIcon className="w-3.5 h-3.5" />
+            All projects
           </Link>
-
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl font-medium">{p.name}</h1>
-            <span
-              className={`px-2 py-1 rounded text-xs capitalize ${
-                statusColors[p.status as keyof typeof statusColors] ||
-                statusColors.PLANNING
-              }`}
-            >
-              {p.status.replace("_", " ")}
-            </span>
-          </div>
         </div>
-      </div>
 
-      {/* STAGE PROGRESS BAR */}
-      <div className="w-full bg-zinc-200 dark:bg-zinc-800 h-2 rounded">
-        <div
-          className="h-2 bg-blue-500 rounded transition-all"
-          style={{
-            width: `${(currentStageIndex + 1) * 20}%`,
-          }}
-        ></div>
-      </div>
-
-      <div className="flex justify-between text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-        {stageOrder.map((stage, i) => (
-          <span
-            key={i}
-            className={
-              i <= currentStageIndex ? "font-semibold text-blue-500" : ""
-            }
-          >
-            {stage}
-          </span>
-        ))}
-      </div>
-
-      {/* CARDS */}
-      <div className="grid grid-cols-2 sm:flex flex-wrap gap-6">
-        {[
-          {
-            label: "Filled Trackers",
-            value: projectTrackers.length,
-            color: "text-blue-700 dark:text-blue-400",
-          },
-          {
-            label: "Checklist Completed",
-            value: `${completedChecklistItems}/${totalChecklistItems}`,
-            color: "text-emerald-700 dark:text-emerald-400",
-          },
-          {
-            label: "Project Stage",
-            value: currentStage,
-            color: "text-amber-700 dark:text-amber-400",
-          },
-          {
-            label: "Team Members",
-            value: projectUsers.length,
-            color: "text-purple-700 dark:text-purple-400",
-          },
-        ].map((card, idx) => (
-          <div
-            key={idx}
-            className="dark:bg-gradient-to-br dark:from-zinc-800/70 dark:to-zinc-900/50
-            border border-zinc-200 dark:border-zinc-800
-            flex justify-between sm:min-w-60 p-4 py-2.5 rounded"
-          >
-            <div>
-              <div className="text-sm text-zinc-600 dark:text-zinc-400">
-                {card.label}
+        {/* ── Header ────────────────────────────────────────────────────────── */}
+        <div className="py-4 border-b border-zinc-200 dark:border-zinc-800">
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+            <div className="space-y-2">
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-2xl font-bold tracking-tight leading-none">
+                  {project.name}
+                </h1>
+                {/* Status badge */}
+                <span
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${statusMeta.badge}`}
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${statusMeta.dot} animate-pulse`}
+                  />
+                  {statusMeta.label}
+                </span>
               </div>
-              <div className={`text-2xl font-bold ${card.color}`}>
-                {card.value}
+              <div className="flex items-center gap-3 text-sm text-zinc-500 dark:text-zinc-400 flex-wrap">
+                <span className="flex items-center gap-1.5">
+                  <LayersIcon className="w-3.5 h-3.5" />
+                  {project.sector}
+                </span>
+                <span className="text-zinc-300 dark:text-zinc-600">·</span>
+                <span className="flex items-center gap-1.5">
+                  <CircleDotIcon className="w-3.5 h-3.5" />
+                  {checklistPhaseLabel}
+                </span>
+                {submissions.length > 0 && (
+                  <>
+                    <span className="text-zinc-300 dark:text-zinc-600">·</span>
+                    <span className="flex items-center gap-1.5">
+                      <TrendingUpIcon className="w-3.5 h-3.5" />
+                      {overallProgress.toFixed(1)}% progress
+                    </span>
+                  </>
+                )}
               </div>
             </div>
-            <ZapIcon className={`size-4 ${card.color}`} />
+
+            {/* Quick-link to reports */}
+            <Link
+              href={`/projects/${projectId}/reports`}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm
+                         border border-zinc-200 dark:border-zinc-700
+                         bg-white dark:bg-zinc-900
+                         text-zinc-600 dark:text-zinc-300
+                         hover:border-zinc-400 dark:hover:border-zinc-500
+                         hover:text-zinc-900 dark:hover:text-white
+                         transition-all shrink-0"
+            >
+              <FileTextIcon className="w-3.5 h-3.5" />
+              Reports
+              <ArrowUpRightIcon className="w-3 h-3 opacity-50" />
+            </Link>
           </div>
-        ))}
-      </div>
-
-      {/* TABS */}
-      <div>
-        <div className="inline-flex flex-wrap max-sm:grid grid-cols-3 gap-2 border border-zinc-200 dark:border-zinc-800 rounded overflow-hidden">
-          {[
-            { key: "checklist", label: "Checklist", icon: CheckIcon },
-            { key: "trackers", label: "Trackers", icon: ClipboardListIcon },
-            { key: "calendar", label: "Calendar", icon: CalendarIcon },
-            { key: "comments", label: "Public Comments", icon: FileTextIcon },
-            { key: "members", label: "Members", icon: GroupIcon },
-          ].map((tabItem) => (
-            <Link
-              key={tabItem.key}
-              href={`/projects/${projectId}?tab=${tabItem.key}`}
-              className={`flex items-center gap-2 px-4 py-2 text-sm transition-all ${
-                tab === tabItem.key
-                  ? "bg-zinc-100 dark:bg-zinc-800/80"
-                  : "hover:bg-zinc-50 dark:hover:bg-zinc-700"
-              }`}
-            >
-              <tabItem.icon className="size-3.5" />
-              {tabItem.label}
-            </Link>
-          ))}
-
-          {/* SPECIAL REPORTS TAB */}
-          <Link
-            href={`/projects/${projectId}/reports`}
-            className="flex items-center gap-2 px-4 py-2 text-sm transition-all hover:bg-zinc-50 dark:hover:bg-zinc-700"
-          >
-            <FileTextIcon className="size-3.5" />
-            Reports
-            <ArrowUpRightIcon className="size-3.5 opacity-60" />
-          </Link>
-          {userEmail && userEmail === "meofficer@gmail.com" && (
-            <Link
-              href={`/projects/${projectId}/evaluation`}
-              className="flex items-center gap-2 px-4 py-2 text-sm transition-all hover:bg-zinc-50 dark:hover:bg-zinc-700"
-            >
-              <FileTextIcon className="size-3.5" />
-              Evaluation
-              <ArrowUpRightIcon className="size-3.5 opacity-60" />
-            </Link>
-          )}
         </div>
 
-        {/* TAB CONTENT */}
-        <div className="mt-6">
-          {tab === "checklist" && (
-            <ProjectChecklistClient
-              projectId={p.id}
-              checklist={checklist}
-              standardParams={
-                p.sector === "Mobility & Works"
-                  ? checklistParamsMobility
-                  : checklistParamsIDE
-              }
-              userEmail={userEmail}
+        {/* ── Stage progress ─────────────────────────────────────────────────── */}
+        <div className="py-5 border-b border-zinc-200 dark:border-zinc-800">
+          <div className="relative">
+            {/* Track line */}
+            <div className="absolute top-[13px] left-0 right-0 h-px bg-zinc-200 dark:bg-zinc-800" />
+            {/* Filled portion */}
+            <div
+              className="absolute top-[13px] left-0 h-px bg-zinc-900 dark:bg-zinc-200 transition-all duration-700"
+              style={{
+                width:
+                  currentStageIndex >= 0
+                    ? `${(currentStageIndex / (STAGES.length - 1)) * 100}%`
+                    : "0%",
+              }}
             />
-          )}
-          {tab === "trackers" && (
-            <ProjectTrackers
-              projectId={p.id}
-              trackers={projectTrackers}
-              userEmail={userEmail}
-            />
-          )}
-          {tab === "calendar" && <ProjectCalendar projectId={p.id} />}
-          {tab === "comments" && <PublicComments projectId={p.id} />}
-          {tab === "members" && <ProjectMembers projectId={p.id} />}
+            {/* Stage dots + labels */}
+            <div className="relative flex justify-between">
+              {STAGES.map((stage, i) => {
+                const isDone = i < currentStageIndex;
+                const isCurrent = i === currentStageIndex;
+                const isFuture = i > currentStageIndex;
+                return (
+                  <div
+                    key={stage.id}
+                    className="flex flex-col items-center gap-2"
+                  >
+                    <div
+                      className={`
+                        w-[26px] h-[26px] rounded-full flex items-center justify-center
+                        border-2 transition-all duration-300 z-10
+                        ${isDone ? "bg-zinc-900 dark:bg-zinc-100 border-zinc-900 dark:border-zinc-100" : ""}
+                        ${isCurrent ? "bg-white dark:bg-zinc-950 border-zinc-900 dark:border-zinc-100 ring-4 ring-zinc-900/10 dark:ring-zinc-100/10" : ""}
+                        ${isFuture ? "bg-white dark:bg-zinc-950 border-zinc-300 dark:border-zinc-700" : ""}
+                      `}
+                    >
+                      {isDone ? (
+                        <CheckIcon className="w-3 h-3 text-white dark:text-zinc-900" />
+                      ) : isCurrent ? (
+                        <div className="w-2 h-2 rounded-full bg-zinc-900 dark:bg-zinc-100" />
+                      ) : null}
+                    </div>
+                    <span
+                      className={`
+                        text-[11px] font-medium hidden sm:block
+                        ${isDone || isCurrent ? "text-zinc-700 dark:text-zinc-300" : "text-zinc-400 dark:text-zinc-600"}
+                        ${isCurrent ? "font-semibold text-zinc-900 dark:text-white" : ""}
+                      `}
+                    >
+                      {stage.full}
+                    </span>
+                    {/* Mobile: only show current */}
+                    <span
+                      className={`
+                        text-[11px] font-medium sm:hidden
+                        ${isCurrent ? "text-zinc-900 dark:text-white font-semibold" : "text-zinc-300 dark:text-zinc-700"}
+                      `}
+                    >
+                      {stage.label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Stat cards ─────────────────────────────────────────────────────── */}
+        <div className="py-5 grid grid-cols-2 lg:grid-cols-4 gap-3 border-b border-zinc-200 dark:border-zinc-800">
+          {/* Tracker submissions */}
+          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-zinc-500 dark:text-zinc-400 font-medium">
+                Submissions
+              </span>
+              <ClipboardListIcon className="w-3.5 h-3.5 text-blue-500" />
+            </div>
+            <div className="text-2xl font-bold tabular-nums text-blue-600 dark:text-blue-400">
+              {submissions.length}
+            </div>
+            <div className="text-xs text-zinc-400">
+              {submissions.length === 0
+                ? "No trackers yet"
+                : `Latest: ${new Date(latestSubmission!.submittedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`}
+            </div>
+          </div>
+
+          {/* Checklist items */}
+          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-zinc-500 dark:text-zinc-400 font-medium">
+                Checklist
+              </span>
+              <CheckCircle2Icon className="w-3.5 h-3.5 text-emerald-500" />
+            </div>
+            <div className="text-2xl font-bold tabular-nums text-emerald-600 dark:text-emerald-400">
+              {selectedItems.length}
+              <span className="text-sm font-normal text-zinc-400 ml-1">
+                / {totalChecklistItems}
+              </span>
+            </div>
+            <div className="text-xs text-zinc-400">items selected</div>
+          </div>
+
+          {/* Overall progress */}
+          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-zinc-500 dark:text-zinc-400 font-medium">
+                Progress
+              </span>
+              <TrendingUpIcon className="w-3.5 h-3.5 text-amber-500" />
+            </div>
+            <div className="text-2xl font-bold tabular-nums text-amber-600 dark:text-amber-400">
+              {overallProgress.toFixed(0)}
+              <span className="text-sm font-normal text-zinc-400">%</span>
+            </div>
+            {/* Mini progress bar */}
+            <div className="w-full h-1 rounded-full bg-zinc-100 dark:bg-zinc-800 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-amber-400 transition-all duration-700"
+                style={{ width: `${overallProgress}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Stage */}
+          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-zinc-500 dark:text-zinc-400 font-medium">
+                Stage
+              </span>
+              <ClockIcon className="w-3.5 h-3.5 text-violet-500" />
+            </div>
+            <div className="text-lg font-bold capitalize text-violet-600 dark:text-violet-400 leading-tight">
+              {currentStage}
+            </div>
+            <div className="text-xs text-zinc-400">
+              Step {currentStageIndex + 1} of {STAGES.length}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Tabs ───────────────────────────────────────────────────────────── */}
+        <div className="pt-4">
+          {/* Tab bar — scrollable on mobile, no wrapping */}
+          <div
+            className="flex items-center gap-0.5 overflow-x-auto scrollbar-none
+                          border-b border-zinc-200 dark:border-zinc-800 pb-0"
+          >
+            {mainTabs.map((tabItem) => {
+              const isActive = tab === tabItem.key;
+              return (
+                <Link
+                  key={tabItem.key}
+                  href={`/projects/${projectId}?tab=${tabItem.key}`}
+                  className={`
+                    inline-flex items-center gap-1.5 px-3.5 py-2.5 text-sm font-medium
+                    whitespace-nowrap border-b-2 -mb-px transition-all
+                    ${
+                      isActive
+                        ? "border-zinc-900 dark:border-zinc-100 text-zinc-900 dark:text-zinc-100"
+                        : "border-transparent text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600"
+                    }
+                  `}
+                >
+                  <tabItem.icon className="w-3.5 h-3.5" />
+                  {tabItem.label}
+                </Link>
+              );
+            })}
+
+            {/* Spacer pushes external links to the right on wider screens */}
+            <div className="flex-1 min-w-4" />
+
+            {/* External links */}
+            <Link
+              href={`/projects/${projectId}/reports`}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 text-sm font-medium
+                         whitespace-nowrap border-b-2 border-transparent -mb-px
+                         text-zinc-500 dark:text-zinc-400
+                         hover:text-zinc-700 dark:hover:text-zinc-300
+                         hover:border-zinc-300 dark:hover:border-zinc-600
+                         transition-all"
+            >
+              <FileTextIcon className="w-3.5 h-3.5" />
+              Reports
+              <ArrowUpRightIcon className="w-3 h-3 opacity-40" />
+            </Link>
+
+            {userRole === "me" && (
+              <Link
+                href={`/projects/${projectId}/evaluation`}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2.5 text-sm font-medium
+                           whitespace-nowrap border-b-2 border-transparent -mb-px
+                           text-zinc-500 dark:text-zinc-400
+                           hover:text-zinc-700 dark:hover:text-zinc-300
+                           hover:border-zinc-300 dark:hover:border-zinc-600
+                           transition-all"
+              >
+                <FileTextIcon className="w-3.5 h-3.5" />
+                Evaluation
+                <ArrowUpRightIcon className="w-3 h-3 opacity-40" />
+              </Link>
+            )}
+          </div>
+
+          {/* ── Tab content ──────────────────────────────────────────────────── */}
+          <div className="pt-6">
+            {tab === "checklist" && (
+              <ProjectChecklistClient
+                projectId={project.id}
+                checklist={checklist}
+                standardParams={standardParams}
+                userEmail={userEmail}
+              />
+            )}
+            {tab === "trackers" && (
+              <ProjectTrackers
+                projectId={project.id}
+                submissions={submissions}
+                hasApprovedChecklist={hasApprovedChecklist}
+                userEmail={userEmail}
+              />
+            )}
+            {tab === "calendar" && (
+              <ProjectCalendar
+                projectId={project.id}
+                checklistStatus={checklist?.status ?? "Draft"}
+                userRole={userRole} // ← fixed: derived role, not raw email
+                checklistItems={checklistItemsForWorkplan}
+              />
+            )}
+            {tab === "comments" && <PublicComments projectId={project.id} />}
+            {tab === "members" && <ProjectMembers projectId={project.id} />}
+          </div>
         </div>
       </div>
     </div>

@@ -1,0 +1,15 @@
+export type Project = {
+  id: string;
+  name: string;
+  sector?: string;
+  budget?: number | null;
+  status?: string;
+  description?: string;
+  progress?: number;
+  members?: string[];
+  lat?: number | null;
+  long?: number | null;
+  subCounty?: string | null;
+  ward?: string | null;
+  prerequisites?: string[];
+};

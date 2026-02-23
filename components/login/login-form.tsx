@@ -10,7 +10,7 @@ import SubmitButton from "../ui/submitButton";
 export default function LoginForm() {
   const [errorMessage, formAction, isPending] = useActionState(
     authenticate,
-    undefined
+    undefined,
   );
   const [showPassword, setShowPassword] = useState<boolean>(false);
 
@@ -41,7 +41,7 @@ export default function LoginForm() {
               name="email"
               type="email"
               required
-              placeholder="you@example.com"
+              placeholder="janedoe@example.com"
               className="w-full pl-10 pr-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 placeholder-gray-500 dark:placeholder-gray-400 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-countyGreen transition"
             />
             <AtSign className="absolute left-3 top-1/2 h-[18px] w-[18px] transform -translate-y-1/2 text-gray-400 dark:text-gray-500" />
