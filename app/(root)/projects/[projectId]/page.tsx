@@ -29,34 +29,21 @@ import {
   getTemplateBySector,
 } from "@/lib/actions/checklistActions";
 import { getTrackerSubmissions } from "@/lib/actions/trackerActions";
+import { getUser } from "@/lib/actions/usersActions";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-
-const ME_OFFICER = "meofficer@gmail.com";
-const SECTOR_OFFICER = "sectorofficer@gmail.com";
 
 const STATUS_META: Record<
   string,
   { label: string; dot: string; badge: string }
 > = {
-  PLANNING: {
-    label: "Planning",
-    dot: "bg-zinc-400",
-    badge:
-      "bg-zinc-100 text-zinc-700 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700",
-  },
   ACTIVE: {
     label: "Active",
     dot: "bg-emerald-500",
     badge:
       "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800",
   },
-  ON_HOLD: {
-    label: "On Hold",
-    dot: "bg-amber-400",
-    badge:
-      "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800",
-  },
+
   STALLED: {
     label: "Stalled",
     dot: "bg-violet-400",
@@ -80,12 +67,6 @@ const STATUS_META: Record<
     dot: "bg-yellow-400",
     badge:
       "bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-950/40 dark:text-yellow-400 dark:border-yellow-800",
-  },
-  RETIRED: {
-    label: "Retired",
-    dot: "bg-gray-400",
-    badge:
-      "bg-gray-50 text-gray-600 border-gray-200 dark:bg-gray-900 dark:text-gray-400 dark:border-gray-700",
   },
 };
 
@@ -133,16 +114,17 @@ export default async function ProjectDetail(props: {
   const params = await props.params;
   const projectId = params?.projectId || "";
   const tab = searchParams?.tab || "checklist";
+
   const session = await auth();
   const userEmail = session?.user?.email || "";
 
+  const user = await getUser(userEmail);
+
+  console.log("user", user);
+
   // Derive role once, pass everywhere
   const userRole =
-    userEmail === ME_OFFICER
-      ? "me"
-      : userEmail === SECTOR_OFFICER
-        ? "sector"
-        : "viewer";
+    user?.sector === "me" ? "me" : user?.sector === "IDE" ? "sector" : "viewer";
 
   const project = await getProject(projectId);
   if (!project) notFound();
@@ -477,7 +459,7 @@ export default async function ProjectDetail(props: {
                 projectId={project.id}
                 checklist={checklist}
                 standardParams={standardParams}
-                userEmail={userEmail}
+                userRole={userRole}
               />
             )}
             {tab === "trackers" && (
@@ -485,7 +467,7 @@ export default async function ProjectDetail(props: {
                 projectId={project.id}
                 submissions={submissions}
                 hasApprovedChecklist={hasApprovedChecklist}
-                userEmail={userEmail}
+                userRole={userRole}
               />
             )}
             {tab === "calendar" && (

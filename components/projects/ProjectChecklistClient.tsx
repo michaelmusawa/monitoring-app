@@ -439,7 +439,7 @@ interface Props {
   projectId: string;
   checklist: Checklist | null;
   standardParams: StandardParam[];
-  userEmail: string;
+  userRole: string;
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -448,7 +448,7 @@ export default function ProjectChecklistClient({
   projectId,
   checklist: initialChecklist,
   standardParams,
-  userEmail,
+  userRole,
 }: Props) {
   const router = useRouter();
 
@@ -466,10 +466,6 @@ export default function ProjectChecklistClient({
   const [isCreating, setIsCreating] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
-
-  const user = ME_OFFICER;
-  const userRole =
-    user === ME_OFFICER ? "me" : user === SECTOR_OFFICER ? "sector" : "viewer";
 
   useEffect(() => {
     if (checklist) {

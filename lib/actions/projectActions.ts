@@ -502,7 +502,8 @@ export async function batchCreateProjects(
 }
 
 // Initialize project: update location and set status to ACTIVE
-export async function initializeProject(
+// Update project location only (does not change status)
+export async function updateProjectLocation(
   projectId: string,
   data: {
     subCounty: string;
@@ -518,18 +519,31 @@ export async function initializeProject(
     updateReq.input("ward", sql.NVarChar, data.ward);
     updateReq.input("lat", sql.Decimal(10, 8), data.lat);
     updateReq.input("long", sql.Decimal(11, 8), data.long);
-    updateReq.input("status", sql.NVarChar, "ACTIVE");
     await updateReq.query(`
       UPDATE Project
       SET subCounty = @subCounty,
           ward = @ward,
           lat = @lat,
           long = @long,
-          status = @status,
           updatedAt = GETDATE()
       WHERE id = @id
     `);
   });
-  // Revalidate the project page
+  revalidatePath(`/projects/${projectId}`);
+}
+
+// Initialize project: set status to ACTIVE
+export async function initializeProject(projectId: string): Promise<void> {
+  await withTransaction(async (trx) => {
+    const updateReq = new sql.Request(trx);
+    updateReq.input("id", sql.NVarChar, projectId);
+    updateReq.input("status", sql.NVarChar, "ACTIVE");
+    await updateReq.query(`
+      UPDATE Project
+      SET status = @status,
+          updatedAt = GETDATE()
+      WHERE id = @id
+    `);
+  });
   revalidatePath(`/projects/${projectId}`);
 }

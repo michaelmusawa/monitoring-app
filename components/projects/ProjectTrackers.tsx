@@ -891,17 +891,17 @@ export function ProjectTrackers({
   projectId,
   submissions: initialSubmissions,
   hasApprovedChecklist,
-  userEmail,
+  userRole,
 }: {
   projectId: string;
   submissions: TrackerSubmission[];
   hasApprovedChecklist: boolean;
-  userEmail: string;
+  userRole: string;
 }) {
   // TODO: swap these with real auth
-  const user = "ide@gmail.com";
-  const canCreate = user === "mw@gmail.com" || user === "ide@gmail.com";
-  const canEdit = user === "meofficer@gmail.com" || user === "ide@gmail.com";
+  const user = userRole;
+  const canCreate = user === "sector";
+  const canEdit = user === "me";
 
   const router = useRouter();
   const [submissions, setSubmissions] =

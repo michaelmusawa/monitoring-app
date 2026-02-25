@@ -29,12 +29,10 @@ export async function getUser(email: string): Promise<LoginUser | undefined> {
         u.password,
         u.role,
         u.status
-      FROM [Users_me] u
+      FROM [User] u
       WHERE u.email = @p1`;
 
     const { rows } = await safeQuery<LoginUser>(sql, [email]);
-
-    console.log("User:", rows[0]);
     return rows[0];
   } catch (error) {
     if (error instanceof DatabaseError) throw error;
@@ -61,17 +59,14 @@ export async function authenticate(_state: unknown, formData: FormData) {
       throw err;
     }
 
-    if (!user) return "Invalid credentials if user.";
+    if (!user) return "Invalid credentials.";
 
     if (!user.password) {
       return "Your account is not fully set up. Please check your email for the activation link or contact your supervisor.";
     }
 
-    const match = await bcrypt.compare(password, user.password);
-
-    if (match) return "Invalid credentials in matching.";
     if (user.status === "archived") {
-      return "Your account is disabled! Contact your admin for activation.";
+      return "Your account is disabled! Contact admin for activation.";
     }
 
     const res = await signIn("credentials", {
@@ -83,7 +78,7 @@ export async function authenticate(_state: unknown, formData: FormData) {
   } catch (error) {
     if (error instanceof AuthError) {
       return error.type === "CredentialsSignin"
-        ? "Invalid credentials authentication."
+        ? "Invalid credentials. Please try again."
         : "Something went wrong.";
     }
     throw error;
@@ -109,7 +104,7 @@ export async function forgetPassword(
 
   try {
     // Look up user
-    const sqlLookup = `SELECT TOP 1 id FROM [Users_me] WHERE email = @p1`;
+    const sqlLookup = `SELECT TOP 1 id FROM [User] WHERE email = @p1`;
     const { rows } = await safeQuery<{ id: number }>(sqlLookup, [email]);
 
     if (rows.length === 0) {
@@ -123,7 +118,7 @@ export async function forgetPassword(
 
     // Store reset token + expiry
     const sqlStore = `
-      UPDATE [Users_me]
+      UPDATE [User]
       SET password_reset_token = @p1,
           password_reset_expires = @p2
       WHERE id = @p3`;
@@ -154,7 +149,7 @@ export async function checkResetToken(
   }>(
     `
     SELECT [password_reset_expires]
-    FROM [Users_me]
+    FROM [User]
     WHERE [password_reset_token] = $1
     `,
     [token],
@@ -200,7 +195,7 @@ export default async function resetPasswordHandler(
   }>(
     `
     SELECT [id], [password_reset_expires]
-    FROM [Users_me]
+    FROM [User]
     WHERE [password_reset_token] = $1
     `,
     [token],
@@ -218,7 +213,7 @@ export default async function resetPasswordHandler(
 
   await safeQuery(
     `
-    UPDATE [Users_me]
+    UPDATE [User]
     SET [password] = $1,
         [password_reset_token] = NULL,
         [password_reset_expires] = NULL

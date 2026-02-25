@@ -33,7 +33,7 @@ export default function ResetPasswordForm({ token }: Props) {
   // Redirect on success after a short delay
   useEffect(() => {
     if (isSuccess) {
-      const timer = setTimeout(() => router.push("/login"), 1500);
+      const timer = setTimeout(() => router.push("/"), 1500);
       return () => clearTimeout(timer);
     }
   }, [isSuccess, router]);

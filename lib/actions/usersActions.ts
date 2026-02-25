@@ -1,7 +1,5 @@
 "use server";
 
-import { auth } from "@/auth";
-
 import { User, UserActionState } from "../types/userTypes";
 import { revalidatePath } from "next/cache";
 import { randomBytes } from "crypto";
@@ -23,7 +21,7 @@ export async function getUser(email: string): Promise<User | undefined> {
         u.role,
         u.sector,
         u.createdAt
-      FROM [Users_me] u
+      FROM [User] u
       WHERE u.email = @p1`;
 
     const { rows } = await safeQuery<User>(sql, [email]);
@@ -51,7 +49,7 @@ export async function fetchUsersPages(
 
   let countSql = `
     SELECT COUNT(*) AS total
-    FROM [Users_me] u
+    FROM [User] u
     WHERE (
       u.name   LIKE $1 OR
       u.email  LIKE $1 OR
@@ -111,7 +109,7 @@ export async function fetchFilteredUsers(
          u.sector,
          u.createdAt,
          ROW_NUMBER() OVER (ORDER BY u.createdAt ASC) AS RowNum
-       FROM [Users_me] u
+       FROM [User] u
        WHERE (
          u.name LIKE $1 OR
          u.email LIKE $1 OR
@@ -175,7 +173,7 @@ export async function addUser(
   try {
     // 1. Check existing
     const existing = await safeQuery<{ id: number }>(
-      `SELECT id FROM [Users_me] WHERE email = $1`,
+      `SELECT id FROM [User] WHERE email = $1`,
       [email],
     );
     if (existing.rows.length) {
@@ -201,7 +199,7 @@ export async function addUser(
 
     // 4. Insert new user (MSSQL syntax)
     const insertRes = await safeQuery<{ id: number }>(
-      `INSERT INTO [Users_me]
+      `INSERT INTO [User]
         (name, email, sector, role, password_reset_token, password_reset_expires)
        OUTPUT INSERTED.id
        VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -248,7 +246,7 @@ export async function updateUser(
 
     // 5. Execute update
     await safeQuery(
-      `UPDATE [Users_me] SET ${sets.join(", ")} WHERE id = $1`,
+      `UPDATE [User] SET ${sets.join(", ")} WHERE id = $1`,
       params,
     );
 

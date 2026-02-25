@@ -35,16 +35,16 @@ export function ProjectLocationForm({
 
   const handleGeocode = async () => {
     if (!subCounty || !ward) {
-      toast.error("Please enter both sub-county and ward");
+      toast.error("Please enter both sub‑county and ward");
       return;
     }
     setGeocoding(true);
     try {
       const query = `${ward}, ${subCounty}, Kenya`;
-      const response = await fetch(
+      const res = await fetch(
         `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`,
       );
-      const data = await response.json();
+      const data = await res.json();
       if (data && data.length > 0) {
         setLat(data[0].lat);
         setLng(data[0].lon);
@@ -52,7 +52,7 @@ export function ProjectLocationForm({
       } else {
         toast.error("Location not found. Please enter coordinates manually.");
       }
-    } catch (error) {
+    } catch {
       toast.error("Geocoding failed");
     } finally {
       setGeocoding(false);
@@ -75,11 +75,17 @@ export function ProjectLocationForm({
       });
       toast.success("Location saved");
     } catch {
-      toast.error("Failed to save");
+      toast.error("Failed to save location");
     } finally {
       setSaving(false);
     }
   };
+
+  const isDirty =
+    subCounty !== (initialData?.subCounty || "") ||
+    ward !== (initialData?.ward || "") ||
+    lat !== (initialData?.lat?.toString() || "") ||
+    lng !== (initialData?.long?.toString() || "");
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -148,7 +154,7 @@ export function ProjectLocationForm({
       </div>
 
       <div className="flex justify-end">
-        <Button type="submit" disabled={saving}>
+        <Button type="submit" disabled={saving || !isDirty}>
           {saving ? "Saving..." : "Save Location"}
         </Button>
       </div>

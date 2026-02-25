@@ -17,12 +17,17 @@ import {
   FileText,
   CheckCircle,
   AlertCircle,
+  Rocket,
+  Loader2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { ProjectLocationForm } from "@/components/projects/ProjectLocationForm";
-import { initializeProject } from "@/lib/actions/projectActions";
+import {
+  updateProjectLocation,
+  initializeProject,
+} from "@/lib/actions/projectActions";
 
 export default function InitializeClient({
   project,
@@ -32,11 +37,16 @@ export default function InitializeClient({
   isInitialized: boolean;
 }) {
   const router = useRouter();
-  const [submitting, setSubmitting] = useState(false);
+  const [savingLocation, setSavingLocation] = useState(false);
+  const [initializing, setInitializing] = useState(false);
+  const [locationSaved, setLocationSaved] = useState(
+    !!(project.subCounty && project.ward && project.lat && project.long),
+  );
 
   if (isInitialized) {
     return (
       <div className="max-w-4xl mx-auto p-4 md:p-6">
+        {/* ... already initialized view (unchanged) ... */}
         <div className="mb-6">
           <Button variant="ghost" asChild className="mb-4">
             <Link href={`/projects/${project.slug}`}>
@@ -52,7 +62,6 @@ export default function InitializeClient({
             execution.
           </p>
         </div>
-
         <Card>
           <CardHeader>
             <div className="flex items-center gap-3">
@@ -123,15 +132,28 @@ export default function InitializeClient({
     lat: number;
     long: number;
   }) => {
-    setSubmitting(true);
+    setSavingLocation(true);
     try {
-      await initializeProject(project.slug, locationData);
+      await updateProjectLocation(project.id, locationData);
+      setLocationSaved(true);
+      toast.success("Location saved");
+    } catch {
+      toast.error("Failed to save location");
+    } finally {
+      setSavingLocation(false);
+    }
+  };
+
+  const handleInitialize = async () => {
+    setInitializing(true);
+    try {
+      await initializeProject(project.id);
       toast.success("Project initialized successfully!");
-      router.push(`/projects/${project.slug}`);
+      router.push(`/projects/${project.id}`);
     } catch {
       toast.error("Failed to initialize project");
     } finally {
-      setSubmitting(false);
+      setInitializing(false);
     }
   };
 
@@ -140,7 +162,7 @@ export default function InitializeClient({
       {/* Header */}
       <div className="mb-8">
         <Button variant="ghost" asChild className="mb-4">
-          <Link href={`/projects/${project.slug}`}>
+          <Link href={`/projects/${project.id}`}>
             <ArrowLeft className="w-4 h-4 mr-2" />
             Back to Project
           </Link>
@@ -152,8 +174,7 @@ export default function InitializeClient({
               Initialize Project
             </h1>
             <p className="text-muted-foreground mt-2">
-              Provide location details and required documents to begin project
-              execution.
+              Provide location details and then initialize the project.
             </p>
           </div>
 
@@ -260,7 +281,7 @@ export default function InitializeClient({
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Project ID</p>
-                <p className="font-mono text-sm">{project.slug}</p>
+                <p className="font-mono text-sm">{project.id}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Budget</p>
@@ -335,22 +356,26 @@ export default function InitializeClient({
                     1
                   </div>
                   <div>
-                    <p className="font-medium text-sm">
-                      Complete Initialization
-                    </p>
+                    <p className="font-medium text-sm">Complete Location</p>
                     <p className="text-xs text-muted-foreground">
-                      Current step
+                      {locationSaved ? "✓ Saved" : "Fill location form"}
                     </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center text-xs font-semibold text-muted-foreground">
+                  <div
+                    className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold ${
+                      locationSaved
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground"
+                    }`}
+                  >
                     2
                   </div>
                   <div>
-                    <p className="font-medium text-sm">Checklist formulation</p>
+                    <p className="font-medium text-sm">Initialize Project</p>
                     <p className="text-xs text-muted-foreground">
-                      Choose task parameters and assign weights
+                      Click the button below
                     </p>
                   </div>
                 </div>
@@ -359,15 +384,35 @@ export default function InitializeClient({
                     3
                   </div>
                   <div>
-                    <p className="font-medium text-sm">Tracking Phase</p>
+                    <p className="font-medium text-sm">Checklist & Tracking</p>
                     <p className="text-xs text-muted-foreground">
-                      Fill trackers and monitor progress
+                      Proceed to project dashboard
                     </p>
                   </div>
                 </div>
               </div>
             </CardContent>
           </Card>
+
+          {/* Initialize Button */}
+          <Button
+            size="lg"
+            className="w-full"
+            onClick={handleInitialize}
+            disabled={!locationSaved || initializing}
+          >
+            {initializing ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Initializing...
+              </>
+            ) : (
+              <>
+                <Rocket className="w-4 h-4 mr-2" />
+                Initialize Project
+              </>
+            )}
+          </Button>
         </div>
       </div>
     </div>
