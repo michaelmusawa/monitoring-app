@@ -24,8 +24,9 @@ import {
   Paperclip,
   X,
   SlidersHorizontal,
-  LayoutList,
-  LayoutGrid,
+  FileText,
+  Sparkles,
+  Loader2,
 } from "lucide-react";
 import {
   Dialog,
@@ -53,8 +54,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import {
+  TrackerCaptureModal,
+  type TrackerCaptureData,
+} from "@/components/trackers/TrackerCaptureModal";
+import {
+  ReportEditorDialog,
+  type ReportDraft,
+} from "@/components/trackers/ReportEditorDialog";
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface TrackerItem {
   parameterId: string;
@@ -79,8 +88,6 @@ export interface TrackerSubmission {
 }
 
 type ItemStatus = "ONGOING" | "STALLED" | "COMPLETED";
-
-// Maps parameterId → minimum allowed percentComplete inherited from previous tracker
 type Baselines = Record<string, number>;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -109,7 +116,7 @@ const STATUS_CONFIG: Record<
   },
 };
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const computeOverall = (items: TrackerItem[]) => {
   const totalWeight = items.reduce((sum, it) => sum + it.weight, 0);
@@ -125,6 +132,41 @@ const getProgressColor = (pct: number) => {
   if (pct >= 50) return "bg-blue-500";
   if (pct >= 25) return "bg-amber-500";
   return "bg-red-500";
+};
+
+// Collect all attachment URLs from a tracker submission
+const collectAttachments = (submission: TrackerSubmission): string[] => {
+  const urls: string[] = [];
+  submission.items.forEach((item) => {
+    if (item.attachments && item.attachments.length > 0) {
+      urls.push(...item.attachments);
+    }
+  });
+  return urls;
+};
+
+// Build checklist items payload from tracker items for the AI prompt
+const buildChecklistPayload = (submission: TrackerSubmission) =>
+  submission.items.map((item) => ({
+    parameterId: item.parameterId,
+    weight: item.weight,
+    label: item.label,
+    category: item.category,
+    percent: item.percentComplete,
+  }));
+
+// Build categories summary for the AI prompt
+const buildCategorySummary = (submission: TrackerSubmission) => {
+  const grouped: Record<string, { total: number; sum: number }> = {};
+  submission.items.forEach((item) => {
+    if (!grouped[item.category]) grouped[item.category] = { total: 0, sum: 0 };
+    grouped[item.category].total++;
+    grouped[item.category].sum += item.percentComplete;
+  });
+  return Object.entries(grouped).map(([name, data]) => ({
+    name,
+    latestPercent: data.sum / data.total,
+  }));
 };
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -219,10 +261,8 @@ function TrackerCard({
         </div>
       </div>
 
-      {/* Progress bar */}
       <ProgressBar value={sub.overallPercent} className="mb-3" />
 
-      {/* Status pills */}
       <div className="flex items-center gap-2 mb-4 flex-wrap">
         {(Object.entries(statusCounts) as [ItemStatus, number][]).map(
           ([status, count]) =>
@@ -245,7 +285,6 @@ function TrackerCard({
         </span>
       </div>
 
-      {/* Actions */}
       <div
         className="flex items-center gap-2"
         onClick={(e) => e.stopPropagation()}
@@ -297,7 +336,6 @@ function TrackerView({ submission }: { submission: TrackerSubmission }) {
 
   return (
     <div className="space-y-5">
-      {/* Summary */}
       <div className="bg-zinc-50 dark:bg-zinc-800/50 rounded-xl p-4">
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-medium text-zinc-600">
@@ -331,7 +369,6 @@ function TrackerView({ submission }: { submission: TrackerSubmission }) {
         </div>
       </div>
 
-      {/* By Category */}
       <Accordion
         type="multiple"
         defaultValue={Object.keys(grouped)}
@@ -449,23 +486,16 @@ function TrackerForm({
   const updateItem = (index: number, patch: Partial<TrackerItem>) => {
     const item = submission.items[index];
     const minPct = baselines[item.parameterId] ?? 0;
-
-    // Clamp percentComplete to never go below the inherited baseline
     if (patch.percentComplete !== undefined) {
       patch.percentComplete = Math.max(
         minPct,
         Math.min(100, patch.percentComplete),
       );
     }
-
     const items = submission.items.map((it, i) =>
       i === index ? { ...it, ...patch } : it,
     );
-    onChange({
-      ...submission,
-      items,
-      overallPercent: computeOverall(items),
-    });
+    onChange({ ...submission, items, overallPercent: computeOverall(items) });
   };
 
   const toggleExpand = (idx: number) => {
@@ -503,7 +533,6 @@ function TrackerForm({
 
   return (
     <div className="space-y-4">
-      {/* Title */}
       <div>
         <label className="block text-sm font-medium mb-1">Title</label>
         <Input
@@ -513,7 +542,6 @@ function TrackerForm({
         />
       </div>
 
-      {/* Live summary */}
       <div className="bg-zinc-50 dark:bg-zinc-800/50 rounded-xl p-4 space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-sm text-zinc-600 dark:text-zinc-400">
@@ -534,7 +562,6 @@ function TrackerForm({
         </div>
       </div>
 
-      {/* Filters + expand controls */}
       <div className="flex flex-col sm:flex-row gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
@@ -598,7 +625,6 @@ function TrackerForm({
         </div>
       </div>
 
-      {/* Item list */}
       <div className="space-y-2">
         {filteredItems.length === 0 && (
           <div className="text-center py-8 text-zinc-400 text-sm">
@@ -607,9 +633,6 @@ function TrackerForm({
         )}
         {filteredItems.map(({ it, i }) => {
           const isExpanded = expandedItems.has(i);
-          const cfg =
-            STATUS_CONFIG[it.status as ItemStatus] ?? STATUS_CONFIG.ONGOING;
-
           return (
             <div
               key={i}
@@ -619,14 +642,10 @@ function TrackerForm({
                 it.status === "COMPLETED" && "border-emerald-200",
               )}
             >
-              {/* Collapsed header — always visible */}
               <div
-                className={cn(
-                  "flex items-center gap-3 p-3 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50",
-                )}
+                className="flex items-center gap-3 p-3 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
                 onClick={() => toggleExpand(i)}
               >
-                {/* Status dot */}
                 <span
                   className={cn(
                     "w-2 h-2 rounded-full shrink-0",
@@ -640,7 +659,6 @@ function TrackerForm({
                   <p className="text-xs text-zinc-400">{it.category}</p>
                 </div>
 
-                {/* Inline quick-edit: status + percent */}
                 <div
                   className="flex items-center gap-2 shrink-0"
                   onClick={(e) => e.stopPropagation()}
@@ -678,10 +696,8 @@ function TrackerForm({
                 />
               </div>
 
-              {/* Expanded body */}
               {isExpanded && (
                 <div className="border-t px-4 pb-4 pt-3 space-y-4 bg-zinc-50/50 dark:bg-zinc-900/30">
-                  {/* Percent slider */}
                   {(() => {
                     const minPct = baselines[it.parameterId] ?? 0;
                     const isLocked = minPct >= 100;
@@ -696,12 +712,6 @@ function TrackerForm({
                               <span className="inline-flex items-center gap-1 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
                                 <AlertCircle className="w-3 h-3" />
                                 Min {minPct}% (inherited)
-                              </span>
-                            )}
-                            {isLocked && (
-                              <span className="inline-flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
-                                <CheckCircle2 className="w-3 h-3" />
-                                Fully completed
                               </span>
                             )}
                           </div>
@@ -732,38 +742,10 @@ function TrackerForm({
                             />
                           </div>
                         </div>
-                        {/* Visual baseline marker */}
-                        {minPct > 0 && minPct < 100 && (
-                          <div className="relative h-1.5 w-full">
-                            <div className="absolute inset-0 rounded-full bg-zinc-200 dark:bg-zinc-700" />
-                            {/* Locked (inherited) segment */}
-                            <div
-                              className="absolute inset-y-0 left-0 rounded-l-full bg-amber-300"
-                              style={{ width: `${minPct}%` }}
-                            />
-                            {/* New progress segment */}
-                            <div
-                              className={cn(
-                                "absolute inset-y-0 rounded-r-full",
-                                getProgressColor(it.percentComplete),
-                              )}
-                              style={{
-                                left: `${minPct}%`,
-                                width: `${Math.max(0, it.percentComplete - minPct)}%`,
-                              }}
-                            />
-                            {/* Baseline tick */}
-                            <div
-                              className="absolute top-1/2 -translate-y-1/2 w-0.5 h-3 bg-amber-500 rounded"
-                              style={{ left: `${minPct}%` }}
-                            />
-                          </div>
-                        )}
                       </div>
                     );
                   })()}
 
-                  {/* Challenges + Recommendations side by side */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-medium text-zinc-600 mb-1">
@@ -795,7 +777,6 @@ function TrackerForm({
                     </div>
                   </div>
 
-                  {/* Attachments */}
                   <AttachmentsField
                     attachments={it.attachments ?? []}
                     onChange={(val) => updateItem(i, { attachments: val })}
@@ -820,14 +801,12 @@ function AttachmentsField({
   onChange: (val: string[]) => void;
 }) {
   const [input, setInput] = useState("");
-
   const add = () => {
     const url = input.trim();
     if (!url) return;
     onChange([...attachments, url]);
     setInput("");
   };
-
   const remove = (idx: number) =>
     onChange(attachments.filter((_, i) => i !== idx));
 
@@ -889,16 +868,21 @@ function AttachmentsField({
 
 export function ProjectTrackers({
   projectId,
+  projectName,
+  projectSector,
+  projectLocation,
   submissions: initialSubmissions,
   hasApprovedChecklist,
   userRole,
 }: {
   projectId: string;
+  projectName?: string;
+  projectSector?: string;
+  projectLocation?: string;
   submissions: TrackerSubmission[];
   hasApprovedChecklist: boolean;
   userRole: string;
 }) {
-  // TODO: swap these with real auth
   const user = userRole;
   const canCreate = user === "sector";
   const canEdit = user === "me";
@@ -911,8 +895,17 @@ export function ProjectTrackers({
   const [current, setCurrent] = useState<TrackerSubmission | null>(null);
   const [currentBaselines, setCurrentBaselines] = useState<Baselines>({});
   const [saving, setSaving] = useState(false);
+  // true  → current tracker is unsaved (only in local state); Save does POST
+  // false → current tracker already exists in DB; Save does PUT
+  const [isNewTracker, setIsNewTracker] = useState(false);
 
-  // Submissions sorted oldest → newest so index 0 = first ever tracker
+  // ── Report Generation State ──
+  const [captureOpen, setCaptureOpen] = useState(false);
+  const [reportEditorOpen, setReportEditorOpen] = useState(false);
+  const [generatingReport, setGeneratingReport] = useState(false);
+  const [currentDraft, setCurrentDraft] = useState<ReportDraft | null>(null);
+  const [currentAttachments, setCurrentAttachments] = useState<string[]>([]);
+
   const sortedSubmissions = useMemo(
     () =>
       [...submissions].sort(
@@ -922,7 +915,6 @@ export function ProjectTrackers({
     [submissions],
   );
 
-  // Build a baselines map from a given tracker's items
   const buildBaselines = (sub: TrackerSubmission): Baselines => {
     const map: Baselines = {};
     sub.items.forEach((it) => {
@@ -931,7 +923,6 @@ export function ProjectTrackers({
     return map;
   };
 
-  // The most recent (last) saved tracker
   const latestSaved = sortedSubmissions[sortedSubmissions.length - 1] ?? null;
 
   const openView = (sub: TrackerSubmission) => {
@@ -942,7 +933,6 @@ export function ProjectTrackers({
   };
 
   const openEdit = (sub: TrackerSubmission) => {
-    // Baselines come from the tracker immediately before this one (if any)
     const idx = sortedSubmissions.findIndex((s) => s.id === sub.id);
     const prev = idx > 0 ? sortedSubmissions[idx - 1] : null;
     setCurrentBaselines(prev ? buildBaselines(prev) : {});
@@ -957,93 +947,129 @@ export function ProjectTrackers({
       return;
     }
 
-    // Block creation if latest tracker still has items < 100% — project not done
-    // (This is optional UX guard; remove if you want to allow multiple in-flight trackers)
-
     setSaving(true);
     try {
-      const res = await fetch(`/api/projects/${projectId}/trackers`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: `Tracker — ${new Date().toLocaleDateString("en-GB", {
-            day: "numeric",
-            month: "short",
-            year: "numeric",
-          })}`,
-          // Pass latest tracker's items so the API can seed the new one
-          seedItems: latestSaved
-            ? latestSaved.items.map((it) => ({ ...it }))
-            : [],
+      // ── Fetch checklist items from the server to seed the form ──────────────
+      // This is a read-only GET — nothing is written to the DB yet.
+      const checklistRes = await fetch(`/api/projects/${projectId}/checklist`);
+      if (!checklistRes.ok) throw new Error("Could not load checklist");
+      const checklist = await checklistRes.json();
+      const checklistItems: TrackerItem[] = (checklist?.items ?? []).map(
+        (ci: any) => ({
+          parameterId: ci.parameterId ?? ci.id ?? String(Math.random()),
+          weight: ci.weight ?? 1,
+          label: ci.label,
+          category: ci.category,
+          status: "ONGOING",
+          percentComplete: 0,
+          challenges: "",
+          recommendations: "",
+          attachments: null,
         }),
-      });
-      if (!res.ok) throw new Error("Failed to create tracker");
-      const newSub: TrackerSubmission = await res.json();
+      );
 
-      // If the API doesn't seed items server-side, do it client-side:
-      // Carry forward all progress values from the latest tracker
-      if (latestSaved && newSub.items.length > 0) {
-        const seeded: TrackerSubmission = {
-          ...newSub,
-          items: newSub.items.map((it) => {
-            const prev = latestSaved.items.find(
-              (p) => p.parameterId === it.parameterId,
-            );
-            return prev
-              ? {
-                  ...it,
-                  percentComplete: prev.percentComplete,
-                  status: prev.status,
-                  challenges: "",
-                  recommendations: "",
-                  attachments: null,
-                }
-              : it;
-          }),
-        };
-        seeded.overallPercent = computeOverall(seeded.items);
-        setSubmissions((prev) => [seeded, ...prev]);
-        setCurrent(seeded);
-        setCurrentBaselines(buildBaselines(latestSaved));
-      } else {
-        setSubmissions((prev) => [newSub, ...prev]);
-        setCurrent(newSub);
-        setCurrentBaselines({});
+      if (checklistItems.length === 0) {
+        toast.error("Checklist has no items yet.");
+        return;
       }
 
+      // ── Build an in-memory draft — NOT persisted yet ───────────────────────
+      const title = `Tracker — ${new Date().toLocaleDateString("en-GB", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      })}`;
+
+      // Seed percentages/status from the latest saved tracker if one exists
+      const seededItems: TrackerItem[] = checklistItems.map((ci) => {
+        const prev = latestSaved?.items.find(
+          (p) => p.parameterId === ci.parameterId,
+        );
+        return prev
+          ? {
+              ...ci,
+              percentComplete: prev.percentComplete,
+              status: prev.status,
+            }
+          : ci;
+      });
+
+      const draft: TrackerSubmission = {
+        id: "__new__", // sentinel — replaced on first save
+        projectId,
+        title,
+        submittedBy: "",
+        submittedAt: new Date().toISOString(),
+        overallPercent: computeOverall(seededItems),
+        items: seededItems,
+      };
+
+      setCurrent(draft);
+      setCurrentBaselines(latestSaved ? buildBaselines(latestSaved) : {});
+      setIsNewTracker(true);
       setMode("edit");
       setDialogOpen(true);
     } catch {
-      toast.error("Could not create tracker");
+      toast.error("Could not load checklist items");
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleCancel = () => {
+    // If this was an unsaved new tracker, just discard it — nothing was written
+    setIsNewTracker(false);
+    setDialogOpen(false);
+    setCurrent(null);
   };
 
   const handleSave = async () => {
     if (!current) return;
     setSaving(true);
     try {
-      const res = await fetch(`/api/projects/${projectId}/trackers`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          submissionId: current.id,
-          title: current.title,
-          items: current.items.map((it) => ({
-            ...it,
-            percentComplete: Number(it.percentComplete),
-          })),
-        }),
-      });
-      if (!res.ok) throw new Error("Save failed");
-      const updated = await res.json();
-      setSubmissions((prev) =>
-        prev.map((s) => (s.id === updated.id ? updated : s)),
-      );
-      toast.success("Tracker saved successfully");
-      setDialogOpen(false);
-      router.refresh();
+      if (isNewTracker) {
+        // ── First save: create in DB ─────────────────────────────────────────
+        const res = await fetch(`/api/projects/${projectId}/trackers`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: current.title,
+            items: current.items.map((it) => ({
+              ...it,
+              percentComplete: Number(it.percentComplete),
+            })),
+          }),
+        });
+        if (!res.ok) throw new Error("Failed to create tracker");
+        const created: TrackerSubmission = await res.json();
+        setSubmissions((prev) => [created, ...prev]);
+        setIsNewTracker(false);
+        toast.success("Tracker created successfully");
+        setDialogOpen(false);
+        router.refresh();
+      } else {
+        // ── Subsequent saves: update existing record ─────────────────────────
+        const res = await fetch(`/api/projects/${projectId}/trackers`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            submissionId: current.id,
+            title: current.title,
+            items: current.items.map((it) => ({
+              ...it,
+              percentComplete: Number(it.percentComplete),
+            })),
+          }),
+        });
+        if (!res.ok) throw new Error("Save failed");
+        const updated: TrackerSubmission = await res.json();
+        setSubmissions((prev) =>
+          prev.map((s) => (s.id === updated.id ? updated : s)),
+        );
+        toast.success("Tracker saved successfully");
+        setDialogOpen(false);
+        router.refresh();
+      }
     } catch {
       toast.error("Failed to save tracker");
     } finally {
@@ -1051,7 +1077,93 @@ export function ProjectTrackers({
     }
   };
 
-  // Summary stats across all trackers
+  // ── Report flow: open capture modal ──────────────────────────────────────────
+
+  const handleOpenCaptureForReport = () => {
+    if (!current) return;
+    // Collect attachments from the current tracker for later preview
+    setCurrentAttachments(collectAttachments(current));
+    setDialogOpen(false); // close tracker dialog
+    setCaptureOpen(true); // open capture modal
+  };
+
+  // ── Report flow: after capture saved → generate report ────────────────────────
+
+  const handleCaptureComplete = async (captureData: TrackerCaptureData) => {
+    if (!current) return;
+    setCaptureOpen(false);
+    setGeneratingReport(true);
+
+    try {
+      // 1. Save capture metadata
+      await fetch(`/api/projects/${projectId}/tracker-capture`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(captureData),
+      });
+
+      // 2. Generate report
+      const res = await fetch(
+        `/api/projects/${projectId}/reports/status-report`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            projectName: projectName ?? "Project",
+            projectSector: projectSector ?? "General",
+            location: projectLocation ?? "Kenya",
+            trackerData: {
+              overallPercent: current.overallPercent,
+              categories: buildCategorySummary(current),
+            },
+            checklistItems: buildChecklistPayload(current),
+            // Full items so the route can derive findings, challenges & recommendations
+            trackerItems: current.items,
+          }),
+        },
+      );
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error ?? "Generation failed");
+      }
+
+      const draft: ReportDraft = await res.json();
+      setCurrentDraft(draft);
+      setReportEditorOpen(true);
+      toast.success("Report generated successfully!");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Report generation failed",
+      );
+    } finally {
+      setGeneratingReport(false);
+    }
+  };
+
+  // ── View existing draft report ────────────────────────────────────────────────
+
+  const handleViewExistingDraft = async (sub: TrackerSubmission) => {
+    try {
+      const res = await fetch(
+        `/api/projects/${projectId}/reports/status-report`,
+      );
+      if (!res.ok) return;
+      const draft = await res.json();
+      if (draft) {
+        setCurrentDraft(draft);
+        setCurrentAttachments(collectAttachments(sub));
+        setReportEditorOpen(true);
+      } else {
+        toast.info(
+          "No draft report exists yet. Generate one by reviewing the tracker.",
+        );
+      }
+    } catch {
+      toast.error("Failed to load report draft");
+    }
+  };
+
   const latestOverall = latestSaved?.overallPercent ?? null;
   const projectComplete =
     latestSaved !== null &&
@@ -1080,12 +1192,27 @@ export function ProjectTrackers({
             </p>
           )}
         </div>
-        {canCreate && !projectComplete && (
-          <Button size="sm" onClick={openCreate} disabled={saving}>
-            <Plus className="w-4 h-4 mr-2" />
-            {saving ? "Creating..." : "Add Tracker"}
-          </Button>
-        )}
+
+        <div className="flex items-center gap-2">
+          {/* ME officer: view existing report draft */}
+          {canEdit && latestSaved && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => handleViewExistingDraft(latestSaved)}
+            >
+              <FileText className="w-4 h-4 mr-2" />
+              View Draft Report
+            </Button>
+          )}
+
+          {canCreate && !projectComplete && (
+            <Button size="sm" onClick={openCreate} disabled={saving}>
+              <Plus className="w-4 h-4 mr-2" />
+              {saving ? "Creating..." : "Add Tracker"}
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Project complete banner */}
@@ -1097,21 +1224,35 @@ export function ProjectTrackers({
               Project Complete
             </p>
             <p className="text-xs text-emerald-600">
-              All checklist items have reached 100%. No further trackers are
-              needed.
+              All checklist items have reached 100%.
             </p>
           </div>
         </div>
       )}
 
-      {/* Cards grid */}
+      {/* Generating report overlay */}
+      {generatingReport && (
+        <div className="flex items-center gap-3 p-4 rounded-xl bg-blue-50 border border-blue-200 animate-pulse">
+          <Loader2 className="w-5 h-5 text-blue-600 shrink-0 animate-spin" />
+          <div>
+            <p className="text-sm font-semibold text-blue-800">
+              Generating monitoring report…
+            </p>
+            <p className="text-xs text-blue-600">
+              AI is drafting the report. This takes about 20–30 seconds.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Cards */}
       {submissions.length === 0 ? (
         <div className="border-2 border-dashed rounded-xl p-12 text-center">
           <BarChart3 className="w-10 h-10 text-zinc-300 mx-auto mb-3" />
           <p className="font-medium text-zinc-500">No trackers yet</p>
           {canCreate && hasApprovedChecklist && (
             <p className="text-sm text-zinc-400 mt-1">
-              Click &ldquo;Add Tracker&rdquo; to get started
+              Click "Add Tracker" to get started
             </p>
           )}
           {!hasApprovedChecklist && (
@@ -1135,8 +1276,13 @@ export function ProjectTrackers({
         </div>
       )}
 
-      {/* Dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      {/* ── Tracker View/Edit Dialog ── */}
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          if (!open) handleCancel();
+        }}
+      >
         <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col overflow-hidden p-0">
           <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
             <DialogTitle>
@@ -1170,7 +1316,7 @@ export function ProjectTrackers({
               <div className="flex gap-2 w-full justify-end">
                 <Button
                   variant="outline"
-                  onClick={() => setDialogOpen(false)}
+                  onClick={handleCancel}
                   disabled={saving}
                 >
                   Cancel
@@ -1180,12 +1326,25 @@ export function ProjectTrackers({
                 </Button>
               </div>
             ) : (
-              <div className="flex gap-2 w-full justify-between">
+              <div className="flex gap-2 w-full">
                 {canEdit && current && (
                   <Button variant="outline" onClick={() => openEdit(current)}>
                     <Edit3 className="w-4 h-4 mr-2" /> Edit
                   </Button>
                 )}
+
+                {/* Generate Report button — ME officer only, view mode */}
+                {canEdit && current && (
+                  <Button
+                    onClick={handleOpenCaptureForReport}
+                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                    disabled={generatingReport}
+                  >
+                    <Sparkles className="w-4 h-4 mr-2" />
+                    Generate Report
+                  </Button>
+                )}
+
                 <Button
                   variant="outline"
                   onClick={() => setDialogOpen(false)}
@@ -1198,6 +1357,30 @@ export function ProjectTrackers({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── Capture Modal ── */}
+      {captureOpen && current && (
+        <TrackerCaptureModal
+          open={captureOpen}
+          onClose={() => setCaptureOpen(false)}
+          projectId={projectId}
+          submissionId={current.id}
+          submissionTitle={current.title}
+          onComplete={handleCaptureComplete}
+        />
+      )}
+
+      {/* ── Report Editor Dialog ── */}
+      {reportEditorOpen && currentDraft && (
+        <ReportEditorDialog
+          open={reportEditorOpen}
+          onClose={() => setReportEditorOpen(false)}
+          draft={currentDraft}
+          projectId={projectId}
+          attachments={currentAttachments}
+          onSaved={(updated) => setCurrentDraft(updated)}
+        />
+      )}
     </div>
   );
 }

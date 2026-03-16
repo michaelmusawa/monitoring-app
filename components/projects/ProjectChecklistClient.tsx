@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   CheckCircle,
@@ -19,6 +19,9 @@ import {
   CheckSquare,
   Square,
   CalendarDays,
+  X,
+  Info,
+  Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -48,11 +51,20 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { randomUUID } from "crypto";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -64,6 +76,15 @@ export interface ChecklistItem {
   category: string;
 }
 
+export interface CustomParam {
+  id: string; // local uid, e.g. "custom-abc123"
+  label: string;
+  category: string;
+  isPending: true; // always true until promoted
+  addedBy: string; // user email
+  addedAt: string; // ISO date
+}
+
 export interface Checklist {
   id: string;
   projectId: string;
@@ -73,6 +94,8 @@ export interface Checklist {
   lastModifiedBy: string;
   editReason?: string;
   items: ChecklistItem[];
+  /** Task-level change annotations sent back by ME officer */
+  taskAnnotations?: TaskAnnotation[];
 }
 
 export interface StandardParam {
@@ -90,6 +113,17 @@ export interface HistoryEntry {
   createdAt: string;
 }
 
+/**
+ * A per-task annotation created by the ME officer when sending back.
+ * Stored alongside the checklist (e.g. in a JSON column or separate table).
+ */
+export interface TaskAnnotation {
+  parameterId: string;
+  oldValue: number;
+  newValue: number;
+  reason: string;
+}
+
 // ─── Phase definitions ────────────────────────────────────────────────────────
 
 const PHASES = [
@@ -101,7 +135,7 @@ const PHASES = [
     color: "bg-blue-500",
     allowsTaskSelection: true,
     allowsWeightAssignment: false,
-    requiresReasonForChanges: false,
+    isReviewPhase: false,
   },
   {
     id: "DraftReview",
@@ -111,7 +145,7 @@ const PHASES = [
     color: "bg-amber-500",
     allowsTaskSelection: true,
     allowsWeightAssignment: false,
-    requiresReasonForChanges: true,
+    isReviewPhase: true,
   },
   {
     id: "WeightsAssignment",
@@ -121,7 +155,7 @@ const PHASES = [
     color: "bg-purple-500",
     allowsTaskSelection: false,
     allowsWeightAssignment: true,
-    requiresReasonForChanges: false,
+    isReviewPhase: false,
   },
   {
     id: "WeightsReview",
@@ -131,7 +165,7 @@ const PHASES = [
     color: "bg-emerald-500",
     allowsTaskSelection: false,
     allowsWeightAssignment: true,
-    requiresReasonForChanges: true,
+    isReviewPhase: true,
   },
   {
     id: "Approved",
@@ -141,16 +175,221 @@ const PHASES = [
     color: "bg-green-500",
     allowsTaskSelection: false,
     allowsWeightAssignment: false,
-    requiresReasonForChanges: false,
+    isReviewPhase: false,
   },
 ];
 
-const SECTOR_OFFICER = "sectorofficer@gmail.com";
-const ME_OFFICER = "meofficer@gmail.com";
+function AddCustomItemForm({
+  existingCategories,
+  onAdd,
+  onCancel,
+}: {
+  existingCategories: string[];
+  onAdd: (label: string, category: string) => void;
+  onCancel: () => void;
+}) {
+  const [label, setLabel] = useState("");
+  const [category, setCategory] = useState(existingCategories[0] ?? "");
+  const [newCategory, setNewCategory] = useState("");
+  const [useNewCategory, setUseNewCategory] = useState(false);
+
+  const finalCategory = useNewCategory ? newCategory.trim() : category;
+
+  return (
+    <div className="space-y-3 pt-1 border-t border-primary/20 mt-3">
+      <div>
+        <Label className="text-xs text-muted-foreground mb-1 block">
+          Task label
+        </Label>
+        <Input
+          autoFocus
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          placeholder="e.g. Install CCTV cameras"
+          onKeyDown={(e) => {
+            if (e.key === "Escape") onCancel();
+          }}
+        />
+      </div>
+      <div>
+        <Label className="text-xs text-muted-foreground mb-1 block">
+          Category
+        </Label>
+        {!useNewCategory ? (
+          <div className="flex gap-2">
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="flex-1 text-sm border border-input rounded-md px-3 py-2 bg-background focus:outline-none focus:ring-1 focus:ring-primary/30"
+            >
+              {existingCategories.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setUseNewCategory(true)}
+            >
+              New category
+            </Button>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <Input
+              autoFocus
+              value={newCategory}
+              onChange={(e) => setNewCategory(e.target.value)}
+              placeholder="New category name..."
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setUseNewCategory(false)}
+            >
+              Use existing
+            </Button>
+          </div>
+        )}
+      </div>
+      <div className="flex gap-2 pt-1">
+        <Button
+          size="sm"
+          disabled={!label.trim() || !finalCategory}
+          onClick={() => onAdd(label.trim(), finalCategory)}
+        >
+          Add Task
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Reason Dialog ────────────────────────────────────────────────────────────
+
+function ReasonDialog({
+  open,
+  paramLabel,
+  oldValue,
+  newValue,
+  isTaskSelection,
+  onConfirm,
+  onCancel,
+}: {
+  open: boolean;
+  paramLabel: string;
+  oldValue: number;
+  newValue: number;
+  isTaskSelection: boolean;
+  onConfirm: (reason: string) => void;
+  onCancel: () => void;
+}) {
+  const [reason, setReason] = useState("");
+
+  // Reset when opened
+  useEffect(() => {
+    if (open) setReason("");
+  }, [open]);
+
+  const changeDescription = isTaskSelection
+    ? oldValue === 0
+      ? "Added task"
+      : "Removed task"
+    : `Weight changed from ${oldValue} → ${newValue}`;
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onCancel()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Info className="w-4 h-4 text-amber-500" />
+            Reason for Change
+          </DialogTitle>
+          <DialogDescription>
+            Provide a reason for your change to{" "}
+            <span className="font-medium text-foreground">{paramLabel}</span>.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm">
+            <span className="text-muted-foreground">Change: </span>
+            <span className="font-medium">{changeDescription}</span>
+          </div>
+          <Textarea
+            placeholder="Explain why you made this change..."
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            rows={3}
+            autoFocus
+          />
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() => onConfirm(reason.trim())}
+            disabled={!reason.trim()}
+          >
+            Apply Change
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Task Change Annotation Badge ─────────────────────────────────────────────
+
+function TaskChangeBadge({ annotation }: { annotation: TaskAnnotation }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="mt-1">
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 hover:underline"
+      >
+        <Info className="w-3 h-3" />
+        ME officer changed this
+        <ChevronDown
+          className={cn(
+            "w-3 h-3 transition-transform",
+            expanded && "rotate-180",
+          )}
+        />
+      </button>
+      {expanded && (
+        <div className="mt-1.5 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 px-3 py-2 text-xs space-y-1">
+          <div className="flex gap-2">
+            <span className="text-muted-foreground">Before:</span>
+            <span className="font-medium line-through text-red-600">
+              {annotation.oldValue}
+            </span>
+          </div>
+          <div className="flex gap-2">
+            <span className="text-muted-foreground">After:</span>
+            <span className="font-medium text-green-600">
+              {annotation.newValue}
+            </span>
+          </div>
+          <div className="flex gap-2">
+            <span className="text-muted-foreground">Reason:</span>
+            <span className="italic">{annotation.reason}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ─── Inline Workplan Date Editor ─────────────────────────────────────────────
-// Only rendered during WeightsAssignment phase for sector officers.
-// Items shown = checklist items that have weight > 0 (selected + weighted).
 
 function WorkplanDateEditor({
   projectId,
@@ -171,7 +410,6 @@ function WorkplanDateEditor({
   const [loaded, setLoaded] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // Load existing workplan dates on mount
   useEffect(() => {
     fetch(`/api/projects/${projectId}/workplan`)
       .then((r) => (r.ok ? r.json() : []))
@@ -271,7 +509,6 @@ function WorkplanDateEditor({
     );
   }
 
-  // Group by category — mirrors the checklist accordion
   const grouped: Record<string, typeof items> = {};
   items.forEach((it) => {
     if (!grouped[it.category]) grouped[it.category] = [];
@@ -281,12 +518,10 @@ function WorkplanDateEditor({
   const filled = items.filter(
     (it) => dates[it.parameterId]?.start && dates[it.parameterId]?.end,
   ).length;
-
   const totalErrors = Object.keys(errors).length;
 
   return (
     <div className="space-y-4">
-      {/* Header strip */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <p className="text-sm text-muted-foreground">
@@ -305,7 +540,6 @@ function WorkplanDateEditor({
         </Button>
       </div>
 
-      {/* Info callout */}
       <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 text-sm text-blue-700 dark:text-blue-300">
         <CalendarDays className="w-4 h-4 mt-0.5 shrink-0" />
         <p>
@@ -314,7 +548,6 @@ function WorkplanDateEditor({
         </p>
       </div>
 
-      {/* Category accordions */}
       <Accordion
         type="multiple"
         defaultValue={Object.keys(grouped)}
@@ -452,20 +685,54 @@ export default function ProjectChecklistClient({
 }: Props) {
   const router = useRouter();
 
-  const [loading, setLoading] = useState(false);
+  const [loading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [checklist, setChecklist] = useState<Checklist | null>(
     initialChecklist,
   );
   const [localItems, setLocalItems] = useState<Record<string, number>>({});
-  const [editReason, setEditReason] = useState("");
+
+  // Custom items added by sector officer (not yet in standardParams)
+  const [customParams, setCustomParams] = useState<CustomParam[]>([]);
+  const [showAddCustom, setShowAddCustom] = useState(false);
+
+  /** The "baseline" weights as loaded from server — used to detect diffs */
+  const baselineItems = useRef<Record<string, number>>({});
+
+  /**
+   * Per-task changes that the ME officer has annotated with reasons.
+   * key = parameterId, value = { oldValue, newValue, reason }
+   * These are "committed" (Apply clicked + reason given).
+   */
+  const [committedChanges, setCommittedChanges] = useState<
+    Record<string, TaskAnnotation>
+  >({});
+
+  /**
+   * Per-task changes that the ME officer made but hasn't applied yet
+   * (checkbox not clicked). key = parameterId.
+   */
+  const [pendingTaskChanges, setPendingTaskChanges] = useState<Set<string>>(
+    new Set(),
+  );
+
+  /** Dialog state: which parameterId is awaiting a reason */
+  const [reasonDialog, setReasonDialog] = useState<{
+    open: boolean;
+    parameterId: string;
+    paramLabel: string;
+    oldValue: number;
+    newValue: number;
+  } | null>(null);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [showIncludedOnly, setShowIncludedOnly] = useState(false);
   const [activeTab, setActiveTab] = useState("items");
-  const [pendingChanges, setPendingChanges] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+
+  // ── Init local state from checklist ──────────────────────────────────────
 
   useEffect(() => {
     if (checklist) {
@@ -474,8 +741,28 @@ export default function ProjectChecklistClient({
         map[item.parameterId] = item.weight;
       });
       setLocalItems(map);
+      baselineItems.current = { ...map };
+
+      if (checklist.customItems && checklist.customItems.length > 0) {
+        setCustomParams(checklist.customItems);
+      }
+
+      // Load existing task annotations if any (sent back by ME)
+      if (checklist.taskAnnotations && checklist.taskAnnotations.length > 0) {
+        const committed: Record<string, TaskAnnotation> = {};
+        checklist.taskAnnotations.forEach((a) => {
+          committed[a.parameterId] = a;
+        });
+        setCommittedChanges(committed);
+      } else {
+        setCommittedChanges({});
+      }
+
+      setPendingTaskChanges(new Set());
     }
   }, [checklist]);
+
+  // ── History ───────────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (activeTab === "history" && checklist) {
@@ -488,10 +775,14 @@ export default function ProjectChecklistClient({
     }
   }, [activeTab, projectId, checklist]);
 
+  // ── Derived ───────────────────────────────────────────────────────────────
+
   const currentPhase = useMemo(
     () => PHASES.find((p) => p.id === checklist?.status) || PHASES[0],
     [checklist?.status],
   );
+
+  const isReviewPhase = currentPhase.isReviewPhase;
 
   const permissions = useMemo(() => {
     const phase = currentPhase.id;
@@ -525,19 +816,14 @@ export default function ProjectChecklistClient({
   }, [currentPhase.id, userRole]);
 
   const effectiveCanEdit =
-    permissions.canEdit && currentPhase.allowsTaskSelection
-      ? true
-      : permissions.canEdit && currentPhase.allowsWeightAssignment
-        ? true
-        : false;
+    permissions.canEdit &&
+    (currentPhase.allowsTaskSelection || currentPhase.allowsWeightAssignment);
 
   const effectiveCanReview = permissions.canReview;
 
-  // Show the workplan date tab only during WeightsAssignment for sector officers
   const showWorkplanTab =
     currentPhase.id === "WeightsAssignment" && userRole === "sector";
 
-  // Items eligible for workplan = those with weight > 0
   const weightedItems = useMemo(
     () =>
       checklist?.items
@@ -550,6 +836,29 @@ export default function ProjectChecklistClient({
         })) ?? [],
     [checklist?.items],
   );
+
+  /** True if any local item differs from baseline AND is not yet committed */
+  const hasUncommittedChanges = useMemo(() => {
+    if (!isReviewPhase || userRole !== "me") return false;
+    for (const [pid, val] of Object.entries(localItems)) {
+      const baseline = baselineItems.current[pid] ?? 0;
+      if (val !== baseline && !committedChanges[pid]) return true;
+    }
+    return false;
+  }, [localItems, committedChanges, isReviewPhase, userRole]);
+
+  /** True if the ME officer has any committed changes queued to send back */
+  const hasCommittedChanges = Object.keys(committedChanges).length > 0;
+
+  /** For non-review phases: any local value different from baseline */
+  const hasPendingChanges = useMemo(() => {
+    if (isReviewPhase && userRole === "me") return false; // handled differently
+    for (const [pid, val] of Object.entries(localItems)) {
+      const baseline = baselineItems.current[pid] ?? 0;
+      if (val !== baseline) return true;
+    }
+    return false;
+  }, [localItems, isReviewPhase, userRole]);
 
   const filteredParams = useMemo(() => {
     let params = standardParams;
@@ -616,13 +925,6 @@ export default function ProjectChecklistClient({
     return Math.max(0, 100 - stats.totalWeight);
   }, [stats.totalWeight, currentPhase.id]);
 
-  const toggleTaskInclude = (paramId: string) => {
-    if (!effectiveCanEdit || !currentPhase.allowsTaskSelection) return;
-    const isIncluded = (localItems[paramId] ?? 0) > 0;
-    setLocalItems((prev) => ({ ...prev, [paramId]: isIncluded ? 0 : 1 }));
-    setPendingChanges(true);
-  };
-
   const getRemainingWeightForTask = (paramId: string) => {
     const total = Object.values(localItems).reduce(
       (sum, w) => sum + (w ?? 0),
@@ -630,6 +932,29 @@ export default function ProjectChecklistClient({
     );
     const current = localItems[paramId] ?? 0;
     return 100 - (total - current);
+  };
+
+  // ── Edit handlers ─────────────────────────────────────────────────────────
+
+  const toggleTaskInclude = (paramId: string) => {
+    if (!effectiveCanEdit || !currentPhase.allowsTaskSelection) return;
+    const isIncluded = (localItems[paramId] ?? 0) > 0;
+    const newValue = isIncluded ? 0 : 1;
+    setLocalItems((prev) => ({ ...prev, [paramId]: newValue }));
+    // Mark as pending (unapplied) for review phases
+    if (isReviewPhase && userRole === "me") {
+      setPendingTaskChanges((prev) => {
+        const next = new Set(prev);
+        next.add(paramId);
+        return next;
+      });
+      // Remove from committed if re-editing
+      setCommittedChanges((prev) => {
+        const next = { ...prev };
+        delete next[paramId];
+        return next;
+      });
+    }
   };
 
   const setTaskWeight = (paramId: string, weight: number) => {
@@ -641,19 +966,78 @@ export default function ProjectChecklistClient({
     const maxAllowed = 100 - totalWithoutCurrent;
     const newWeight = Math.max(0, Math.min(weight, maxAllowed));
     setLocalItems((prev) => ({ ...prev, [paramId]: newWeight }));
-    setPendingChanges(true);
+    if (isReviewPhase && userRole === "me") {
+      setPendingTaskChanges((prev) => {
+        const next = new Set(prev);
+        next.add(paramId);
+        return next;
+      });
+      setCommittedChanges((prev) => {
+        const next = { ...prev };
+        delete next[paramId];
+        return next;
+      });
+    }
   };
+
+  /**
+   * Called when ME officer clicks "Apply" checkbox on a changed task.
+   * Opens the reason dialog.
+   */
+  const handleApplyChange = (paramId: string, paramLabel: string) => {
+    const oldValue = baselineItems.current[paramId] ?? 0;
+    const newValue = localItems[paramId] ?? 0;
+    setReasonDialog({
+      open: true,
+      parameterId: paramId,
+      paramLabel,
+      oldValue,
+      newValue,
+    });
+  };
+
+  const handleReasonConfirm = (reason: string) => {
+    if (!reasonDialog) return;
+    const { parameterId, oldValue, newValue } = reasonDialog;
+    setCommittedChanges((prev) => ({
+      ...prev,
+      [parameterId]: { parameterId, oldValue, newValue, reason },
+    }));
+    setPendingTaskChanges((prev) => {
+      const next = new Set(prev);
+      next.delete(parameterId);
+      return next;
+    });
+    setReasonDialog(null);
+    toast.success("Change applied");
+  };
+
+  const handleReasonCancel = () => {
+    if (!reasonDialog) return;
+    // Revert local change back to baseline
+    const { parameterId, oldValue } = reasonDialog;
+    setLocalItems((prev) => ({ ...prev, [parameterId]: oldValue }));
+    setPendingTaskChanges((prev) => {
+      const next = new Set(prev);
+      next.delete(parameterId);
+      return next;
+    });
+    setReasonDialog(null);
+  };
+
+  // ── Save ──────────────────────────────────────────────────────────────────
 
   const handleSave = async (newStatus?: string) => {
     if (!checklist) return;
-    if (
-      currentPhase.requiresReasonForChanges &&
-      pendingChanges &&
-      !editReason.trim()
-    ) {
-      toast.error("Please provide a reason for your changes");
+
+    // In review phases, ME must apply (commit) all changes before sending back
+    if (isReviewPhase && userRole === "me" && hasUncommittedChanges) {
+      toast.error(
+        "Apply all your changes (click the Apply checkbox) before saving.",
+      );
       return;
     }
+
     setSaving(true);
     try {
       const items = Object.entries(localItems)
@@ -675,17 +1059,15 @@ export default function ProjectChecklistClient({
           checklistId: checklist.id,
           status: newStatus || checklist.status,
           items,
-          editReason:
-            currentPhase.requiresReasonForChanges && pendingChanges
-              ? editReason
-              : undefined,
+          taskAnnotations: Object.values(committedChanges),
+          customItems: customParams, // ← add this
         }),
       });
       if (!res.ok) throw new Error("Save failed");
       const updated = await res.json();
       setChecklist(updated);
-      setPendingChanges(false);
-      setEditReason("");
+      setCommittedChanges({});
+      setPendingTaskChanges(new Set());
       toast.success("Checklist saved");
       router.refresh();
     } catch {
@@ -706,8 +1088,9 @@ export default function ProjectChecklistClient({
         map[item.parameterId] = item.weight;
       });
       setLocalItems(map);
-      setPendingChanges(false);
-      setEditReason("");
+      baselineItems.current = { ...map };
+      setCommittedChanges({});
+      setPendingTaskChanges(new Set());
       toast.info("Reset to last saved state");
     } catch {
       toast.error("Could not refresh checklist");
@@ -746,6 +1129,7 @@ export default function ProjectChecklistClient({
       const newChecklist = await res.json();
       setChecklist(newChecklist);
       setLocalItems({});
+      baselineItems.current = {};
       toast.success("Draft checklist created");
     } catch {
       toast.error("Could not create draft");
@@ -754,7 +1138,7 @@ export default function ProjectChecklistClient({
     }
   };
 
-  // ─── Conditional renders ─────────────────────────────────────────────────────
+  // ─── Conditional renders ──────────────────────────────────────────────────
 
   if (!checklist) {
     return (
@@ -807,8 +1191,23 @@ export default function ProjectChecklistClient({
 
   const isReadOnly = currentPhase.id === "Approved";
 
+  // ─── Render ───────────────────────────────────────────────────────────────
+
   return (
     <div className="space-y-6">
+      {/* Reason dialog */}
+      {reasonDialog && (
+        <ReasonDialog
+          open={reasonDialog.open}
+          paramLabel={reasonDialog.paramLabel}
+          oldValue={reasonDialog.oldValue}
+          newValue={reasonDialog.newValue}
+          isTaskSelection={currentPhase.allowsTaskSelection}
+          onConfirm={handleReasonConfirm}
+          onCancel={handleReasonCancel}
+        />
+      )}
+
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -844,18 +1243,18 @@ export default function ProjectChecklistClient({
               variant="outline"
               size="sm"
               onClick={handleReset}
-              disabled={!pendingChanges}
+              disabled={
+                !hasPendingChanges &&
+                !hasCommittedChanges &&
+                !hasUncommittedChanges
+              }
             >
               <RefreshCw className="w-4 h-4 mr-2" /> Reset
             </Button>
-            {effectiveCanEdit && (
+            {effectiveCanEdit && !isReviewPhase && (
               <Button
                 onClick={() => handleSave()}
-                disabled={
-                  saving ||
-                  !pendingChanges ||
-                  (currentPhase.requiresReasonForChanges && !editReason.trim())
-                }
+                disabled={saving || !hasPendingChanges}
               >
                 <Save className="w-4 h-4 mr-2" />
                 {saving ? "Saving..." : "Save Changes"}
@@ -864,6 +1263,41 @@ export default function ProjectChecklistClient({
           </div>
         )}
       </div>
+
+      {/* ME officer review banner */}
+      {isReviewPhase && userRole === "me" && (
+        <div className="flex items-start gap-3 p-3 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/20 text-sm text-amber-800 dark:text-amber-300">
+          <Info className="w-4 h-4 mt-0.5 shrink-0" />
+          <div>
+            <p className="font-medium">Review mode</p>
+            <p className="text-amber-700 dark:text-amber-400">
+              Any changes you make will show an <strong>Apply</strong> checkbox
+              on that task. Click it to record your change with a reason before
+              sending back.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Uncommitted changes warning */}
+      {hasUncommittedChanges && (
+        <div className="flex items-center gap-2 p-3 rounded-lg border border-red-200 bg-red-50 dark:bg-red-950/20 text-sm text-red-700 dark:text-red-400">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          You have changes that haven't been applied yet. Click the{" "}
+          <strong>Apply</strong> checkbox on each changed task to record a
+          reason.
+        </div>
+      )}
+
+      {/* Committed changes summary for ME */}
+      {isReviewPhase && userRole === "me" && hasCommittedChanges && (
+        <div className="flex items-center gap-2 p-3 rounded-lg border border-green-200 bg-green-50 dark:bg-green-950/20 text-sm text-green-700 dark:text-green-400">
+          <CheckCircle className="w-4 h-4 shrink-0" />
+          {Object.keys(committedChanges).length} change
+          {Object.keys(committedChanges).length > 1 ? "s" : ""} applied and
+          ready to send back.
+        </div>
+      )}
 
       {/* Phase Progress Card */}
       <Card>
@@ -955,7 +1389,6 @@ export default function ProjectChecklistClient({
                   : "View Checklist"}
             </TabsTrigger>
             <TabsTrigger value="preview">Preview</TabsTrigger>
-            {/* ── Workplan dates tab — sector officer, WeightsAssignment only ── */}
             {showWorkplanTab && (
               <TabsTrigger value="workplan">
                 <CalendarDays className="w-3.5 h-3.5 mr-1.5" />
@@ -1052,100 +1485,99 @@ export default function ProjectChecklistClient({
               </CardContent>
             </Card>
           ) : (
-            <>
-              {pendingChanges && currentPhase.requiresReasonForChanges && (
-                <Card className="border-amber-200 bg-amber-50 dark:bg-amber-950/20">
-                  <CardContent className="pt-6">
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2">
-                        <AlertCircle className="w-5 h-5 text-amber-500" />
-                        <Label className="font-medium">
-                          Reason for Changes (Required)
-                        </Label>
-                      </div>
-                      <Textarea
-                        placeholder={`Explain why you ${
-                          currentPhase.allowsTaskSelection
-                            ? "added/removed tasks"
-                            : "adjusted weights"
-                        }...`}
-                        value={editReason}
-                        onChange={(e) => setEditReason(e.target.value)}
-                        rows={3}
-                        required
-                      />
-                      <p className="text-sm text-muted-foreground">
-                        All changes in this phase require a reason for review.
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              <Accordion type="multiple" className="space-y-4">
-                {Object.entries(groupedParams).map(([category, params]) => {
-                  const catStat = stats.categoryStats[category];
-                  const allIncluded = params.every(
-                    (p) => (localItems[p.id] ?? 0) > 0,
-                  );
-                  return (
-                    <AccordionItem
-                      key={category}
-                      value={category}
-                      className="border rounded-lg"
-                    >
-                      <AccordionTrigger className="px-6 hover:no-underline">
-                        <div className="flex items-center justify-between w-full pr-4">
-                          <div className="flex items-center gap-4">
-                            {currentPhase.allowsTaskSelection &&
-                              effectiveCanEdit && (
-                                <Checkbox
-                                  checked={allIncluded}
-                                  onCheckedChange={() => {
-                                    const newItems = { ...localItems };
-                                    const newValue = allIncluded ? 0 : 1;
+            <Accordion type="multiple" className="space-y-4">
+              {Object.entries(groupedParams).map(([category, params]) => {
+                const catStat = stats.categoryStats[category];
+                const allIncluded = params.every(
+                  (p) => (localItems[p.id] ?? 0) > 0,
+                );
+                return (
+                  <AccordionItem
+                    key={category}
+                    value={category}
+                    className="border rounded-lg"
+                  >
+                    <AccordionTrigger className="px-6 hover:no-underline">
+                      <div className="flex items-center justify-between w-full pr-4">
+                        <div className="flex items-center gap-4">
+                          {currentPhase.allowsTaskSelection &&
+                            effectiveCanEdit && (
+                              <Checkbox
+                                checked={allIncluded}
+                                onCheckedChange={() => {
+                                  const newValue = allIncluded ? 0 : 1;
+                                  const newItems = { ...localItems };
+                                  params.forEach((p) => {
+                                    newItems[p.id] = newValue;
+                                  });
+                                  setLocalItems(newItems);
+                                  if (isReviewPhase && userRole === "me") {
                                     params.forEach((p) => {
-                                      newItems[p.id] = newValue;
+                                      const baseline =
+                                        baselineItems.current[p.id] ?? 0;
+                                      if (newValue !== baseline) {
+                                        setPendingTaskChanges((prev) => {
+                                          const next = new Set(prev);
+                                          next.add(p.id);
+                                          return next;
+                                        });
+                                      }
                                     });
-                                    setLocalItems(newItems);
-                                    setPendingChanges(true);
-                                  }}
-                                  onClick={(e) => e.stopPropagation()}
-                                  disabled={!effectiveCanEdit}
-                                />
-                              )}
-                            <div className="text-left">
-                              <div className="font-semibold">{category}</div>
-                              <div className="text-sm text-muted-foreground">
-                                {params.length} items
-                                {currentPhase.allowsTaskSelection &&
-                                  ` • ${catStat.included} selected`}
-                              </div>
+                                  }
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                disabled={!effectiveCanEdit}
+                              />
+                            )}
+                          <div className="text-left">
+                            <div className="font-semibold">{category}</div>
+                            <div className="text-sm text-muted-foreground">
+                              {params.length} items
+                              {currentPhase.allowsTaskSelection &&
+                                ` • ${catStat.included} selected`}
                             </div>
                           </div>
-                          <div className="flex items-center gap-4">
-                            {currentPhase.allowsWeightAssignment && (
-                              <Badge variant="outline" className="font-mono">
-                                {catStat.weight} pts
-                              </Badge>
-                            )}
-                            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200" />
-                          </div>
                         </div>
-                      </AccordionTrigger>
-                      <AccordionContent>
-                        <div className="px-6 pb-4 space-y-3">
-                          {params.map((param) => {
-                            const weight = localItems[param.id] ?? 0;
-                            const included = weight > 0;
-                            const maxWeight = getRemainingWeightForTask(
-                              param.id,
+                        <div className="flex items-center gap-4">
+                          {currentPhase.allowsWeightAssignment && (
+                            <Badge variant="outline" className="font-mono">
+                              {catStat.weight} pts
+                            </Badge>
+                          )}
+                          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200" />
+                        </div>
+                      </div>
+                    </AccordionTrigger>
+                    <AccordionContent>
+                      <div className="px-6 pb-4 space-y-3">
+                        {params.map((param) => {
+                          const weight = localItems[param.id] ?? 0;
+                          const included = weight > 0;
+                          const maxWeight = getRemainingWeightForTask(param.id);
+                          const baseline = baselineItems.current[param.id] ?? 0;
+                          const isDirty = weight !== baseline;
+                          const isApplied = !!committedChanges[param.id];
+                          const isPending =
+                            pendingTaskChanges.has(param.id) && isDirty;
+                          const annotation =
+                            // Show annotation for sector officer when checklist was sent back
+                            userRole === "sector" &&
+                            checklist.taskAnnotations?.find(
+                              (a) => a.parameterId === param.id,
                             );
-                            return (
-                              <div
-                                key={param.id}
-                                className="flex items-center justify-between gap-4 p-3 border rounded-lg"
-                              >
+
+                          return (
+                            <div
+                              key={param.id}
+                              className={cn(
+                                "flex flex-col gap-2 p-3 border rounded-lg transition-colors",
+                                isPending &&
+                                  "border-amber-300 bg-amber-50 dark:bg-amber-950/20",
+                                isApplied &&
+                                  "border-green-300 bg-green-50 dark:bg-green-950/20",
+                              )}
+                            >
+                              <div className="flex items-center justify-between gap-4">
                                 <div className="flex items-start gap-3 flex-1">
                                   {currentPhase.allowsTaskSelection &&
                                     effectiveCanEdit && (
@@ -1168,15 +1600,32 @@ export default function ProjectChecklistClient({
                                     >
                                       {param.id} — {param.label}
                                     </Label>
+                                    {standardParams.find(
+                                      (p) => p.id === param.id,
+                                    ) === undefined && (
+                                      <Badge
+                                        variant="outline"
+                                        className="text-xs text-primary border-primary/30 ml-2"
+                                      >
+                                        Custom
+                                      </Badge>
+                                    )}
                                     {param.description && (
                                       <p className="text-sm text-muted-foreground">
                                         {param.description}
                                       </p>
                                     )}
+                                    {/* Annotation visible to sector officer */}
+                                    {annotation && (
+                                      <TaskChangeBadge
+                                        annotation={annotation}
+                                      />
+                                    )}
                                   </div>
                                 </div>
 
-                                <div className="flex items-center gap-4">
+                                <div className="flex items-center gap-3">
+                                  {/* Weight controls */}
                                   {currentPhase.allowsWeightAssignment &&
                                   included ? (
                                     <div className="flex items-center gap-3">
@@ -1245,17 +1694,146 @@ export default function ProjectChecklistClient({
                                       Selected
                                     </Badge>
                                   ) : null}
+
+                                  {/* Apply checkbox — only shown in review phases for ME on changed tasks */}
+                                  {isReviewPhase &&
+                                    userRole === "me" &&
+                                    isDirty &&
+                                    !isApplied && (
+                                      <div className="flex items-center gap-1.5 ml-2">
+                                        <Checkbox
+                                          id={`apply-${param.id}`}
+                                          checked={false}
+                                          onCheckedChange={() =>
+                                            handleApplyChange(
+                                              param.id,
+                                              param.label,
+                                            )
+                                          }
+                                          className="border-amber-400 data-[state=checked]:bg-amber-500"
+                                        />
+                                        <Label
+                                          htmlFor={`apply-${param.id}`}
+                                          className="text-xs font-medium text-amber-700 dark:text-amber-400 cursor-pointer"
+                                        >
+                                          Apply
+                                        </Label>
+                                      </div>
+                                    )}
+
+                                  {/* Applied indicator */}
+                                  {isReviewPhase &&
+                                    userRole === "me" &&
+                                    isApplied && (
+                                      <Badge
+                                        variant="outline"
+                                        className="ml-2 text-green-700 border-green-300 bg-green-50 dark:bg-green-950/20 text-xs"
+                                      >
+                                        <CheckCircle className="w-3 h-3 mr-1" />
+                                        Applied
+                                      </Badge>
+                                    )}
                                 </div>
                               </div>
-                            );
-                          })}
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-                  );
-                })}
-              </Accordion>
-            </>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                );
+              })}
+            </Accordion>
+          )}
+          {currentPhase.id === "Draft" && userRole === "sector" && (
+            <div className="mt-4 border border-dashed border-primary/30 rounded-xl p-4 bg-primary/5">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <p className="text-sm font-semibold text-primary">
+                    Add Custom Task
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Tasks added here are project-specific. They become permanent
+                    once the ME officer approves this draft.
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowAddCustom((v) => !v)}
+                >
+                  <Plus className="w-3.5 h-3.5 mr-1.5" /> Add Custom Task
+                </Button>
+              </div>
+
+              {showAddCustom && (
+                <AddCustomItemForm
+                  existingCategories={[
+                    ...Object.keys(groupedParams), // template categories
+                    ...Array.from(new Set(customParams.map((p) => p.category))), // already-added custom categories
+                  ]}
+                  onAdd={(label, category) => {
+                    const newParam: CustomParam = {
+                      id: `custom-${randomUUID()}`,
+                      label,
+                      category,
+                      isPending: true,
+                      addedBy: "", // fill from session in real app
+                      addedAt: new Date().toISOString(),
+                    };
+                    setCustomParams((prev) => [...prev, newParam]);
+                    // Also add to localItems so it participates in weight assignment
+                    setLocalItems((prev) => ({ ...prev, [newParam.id]: 1 }));
+                    setShowAddCustom(false);
+                    toast.success(`Custom task "${label}" added`);
+                  }}
+                  onCancel={() => setShowAddCustom(false)}
+                />
+              )}
+
+              {customParams.length > 0 && (
+                <div className="space-y-2 mt-3">
+                  {customParams.map((cp) => (
+                    <div
+                      key={cp.id}
+                      className="flex items-center gap-3 p-2.5 rounded-lg border border-primary/20 bg-white dark:bg-card"
+                    >
+                      <Badge
+                        variant="outline"
+                        className="text-xs text-primary border-primary/30 shrink-0"
+                      >
+                        Custom
+                      </Badge>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">
+                          {cp.label}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {cp.category}
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setCustomParams((prev) =>
+                            prev.filter((p) => p.id !== cp.id),
+                          );
+                          setLocalItems((prev) => {
+                            const next = { ...prev };
+                            delete next[cp.id];
+                            return next;
+                          });
+                        }}
+                        className="shrink-0 hover:text-destructive hover:bg-destructive/10"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
         </TabsContent>
 
@@ -1318,7 +1896,7 @@ export default function ProjectChecklistClient({
           </Card>
         </TabsContent>
 
-        {/* ── Workplan Dates Tab ─────────────────────────────────────────────── */}
+        {/* Workplan Dates Tab */}
         {showWorkplanTab && (
           <TabsContent value="workplan" className="space-y-4">
             <Card>
@@ -1394,32 +1972,12 @@ export default function ProjectChecklistClient({
         <Card>
           <CardContent className="pt-6">
             <div className="space-y-4">
-              {checklist.editReason && (
-                <div className="p-4 border rounded-lg bg-amber-50 dark:bg-amber-950/20">
-                  <div className="flex items-start gap-3">
-                    <AlertCircle className="w-5 h-5 text-amber-500 mt-0.5" />
-                    <div>
-                      <p className="font-medium text-amber-800 dark:text-amber-200">
-                        Sent back with reason:
-                      </p>
-                      <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
-                        {checklist.editReason}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
               <div className="flex flex-col sm:flex-row gap-3">
-                {effectiveCanEdit && (
+                {/* Non-review phase: standard save */}
+                {effectiveCanEdit && !isReviewPhase && (
                   <Button
                     onClick={() => handleSave()}
-                    disabled={
-                      saving ||
-                      !pendingChanges ||
-                      (currentPhase.requiresReasonForChanges &&
-                        !editReason.trim())
-                    }
+                    disabled={saving || !hasPendingChanges}
                     className="sm:flex-1"
                   >
                     <Save className="w-4 h-4 mr-2" />
@@ -1427,6 +1985,7 @@ export default function ProjectChecklistClient({
                   </Button>
                 )}
 
+                {/* Draft → DraftReview */}
                 {userRole === "sector" && checklist.status === "Draft" && (
                   <Button
                     variant="outline"
@@ -1437,26 +1996,31 @@ export default function ProjectChecklistClient({
                   </Button>
                 )}
 
+                {/* DraftReview: ME sends back */}
                 {userRole === "me" && checklist.status === "DraftReview" && (
                   <Button
                     variant="outline"
                     onClick={() => handleSave("Draft")}
-                    disabled={saving || !pendingChanges || !editReason.trim()}
+                    disabled={
+                      saving || hasUncommittedChanges || !hasCommittedChanges
+                    }
                   >
                     Send Back to Draft
                   </Button>
                 )}
 
+                {/* DraftReview: ME approves */}
                 {userRole === "me" && checklist.status === "DraftReview" && (
                   <Button
                     variant="default"
                     onClick={() => handleSave("WeightsAssignment")}
-                    disabled={saving || pendingChanges}
+                    disabled={saving || hasUncommittedChanges}
                   >
                     Approve Draft → Weights
                   </Button>
                 )}
 
+                {/* WeightsAssignment → WeightsReview */}
                 {userRole === "sector" &&
                   checklist.status === "WeightsAssignment" && (
                     <Button
@@ -1468,21 +2032,25 @@ export default function ProjectChecklistClient({
                     </Button>
                   )}
 
+                {/* WeightsReview: ME sends back */}
                 {userRole === "me" && checklist.status === "WeightsReview" && (
                   <Button
                     variant="outline"
                     onClick={() => handleSave("WeightsAssignment")}
-                    disabled={saving || !pendingChanges || !editReason.trim()}
+                    disabled={
+                      saving || hasUncommittedChanges || !hasCommittedChanges
+                    }
                   >
                     Send Back to Weights
                   </Button>
                 )}
 
+                {/* WeightsReview: ME approves */}
                 {userRole === "me" && checklist.status === "WeightsReview" && (
                   <Button
                     variant="default"
                     onClick={() => handleSave("Approved")}
-                    disabled={saving || pendingChanges}
+                    disabled={saving || hasUncommittedChanges}
                     className="bg-green-600 hover:bg-green-700"
                   >
                     <CheckCircle className="w-4 h-4 mr-2" /> Approve & Finalize
@@ -1490,22 +2058,23 @@ export default function ProjectChecklistClient({
                 )}
               </div>
 
-              {pendingChanges &&
-                currentPhase.requiresReasonForChanges &&
-                !editReason.trim() && (
-                  <div className="flex items-center gap-2 text-sm text-amber-600">
-                    <AlertCircle className="w-4 h-4" />
-                    Please provide a reason for your changes before saving
-                  </div>
-                )}
+              {/* Helper messages */}
+              {hasUncommittedChanges && (
+                <div className="flex items-center gap-2 text-sm text-amber-600">
+                  <AlertCircle className="w-4 h-4" />
+                  Click <strong>Apply</strong> on each changed task before
+                  proceeding
+                </div>
+              )}
 
-              {pendingChanges &&
-                (checklist.status === "DraftReview" ||
-                  checklist.status === "WeightsReview") && (
-                  <div className="flex items-center gap-2 text-sm text-blue-600">
-                    <AlertCircle className="w-4 h-4" />
-                    You have unsaved changes — save or reset them before
-                    approving
+              {isReviewPhase &&
+                userRole === "me" &&
+                !hasCommittedChanges &&
+                !hasUncommittedChanges && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Info className="w-4 h-4" />
+                    No changes made. You can approve directly or make changes
+                    and apply them.
                   </div>
                 )}
             </div>

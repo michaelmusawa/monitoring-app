@@ -35,8 +35,6 @@ export async function getTrackerSubmissions(
   projectId: string,
 ): Promise<TrackerSubmission[]> {
   try {
-    // Resolve project ID from slug
-
     const sqlQuery = `
       SELECT
         ts.id,
@@ -99,46 +97,76 @@ export async function getTrackerSubmissions(
 }
 
 // -----------------------------------------------------------------------------
-// Create a new tracker submission based on the latest approved checklist
+// Create a new tracker submission.
+//
+// If `data.items` is provided and non-empty, those items are used directly
+// (the client already built them from the checklist + previous tracker values).
+// Otherwise, falls back to fetching the latest approved checklist from the DB.
 // -----------------------------------------------------------------------------
 export async function createTrackerSubmission(
   projectId: string,
   data: {
     title: string;
     submittedBy: string;
+    /** Pre-built items from the client. When present, no DB checklist fetch needed. */
+    items?: TrackerSubmissionItem[];
   },
 ): Promise<TrackerSubmission> {
-  // Resolve project ID
+  // ── Resolve items ─────────────────────────────────────────────────────────
+  let items: TrackerSubmissionItem[];
 
-  // Get the latest approved checklist items
-  const checklistRes = await safeQuery<any>(
-    `SELECT ci.parameterId, ci.weight, ci.label, ci.category
-     FROM Checklist c
-     JOIN ChecklistItem ci ON ci.checklistId = c.id
-     WHERE c.projectId = @p1 AND c.status = 'Approved'
-     ORDER BY ci.id`,
-    [projectId],
-  );
-  const items = checklistRes.rows;
+  if (data.items && data.items.length > 0) {
+    items = data.items;
+  } else {
+    // Fallback: fetch approved checklist from DB
+    const checklistRes = await safeQuery<any>(
+      `SELECT ci.parameterId, ci.weight, ci.label, ci.category
+       FROM Checklist c
+       JOIN ChecklistItem ci ON ci.checklistId = c.id
+       WHERE c.projectId = @p1 AND c.status = 'Approved'
+       ORDER BY ci.id`,
+      [projectId],
+    );
 
-  if (items.length === 0) {
-    throw new Error("No approved checklist found for this project");
+    if (checklistRes.rows.length === 0) {
+      throw new Error("No approved checklist found for this project");
+    }
+
+    items = checklistRes.rows.map((ci: any) => ({
+      parameterId: ci.parameterId,
+      weight: ci.weight,
+      label: ci.label,
+      category: ci.category,
+      status: "ONGOING",
+      percentComplete: 0,
+      challenges: "",
+      recommendations: "",
+      attachments: null,
+    }));
   }
 
+  // ── Compute weighted overall ──────────────────────────────────────────────
+  const totalWeight = items.reduce((s, it) => s + it.weight, 0);
+  const overallPercent =
+    totalWeight > 0
+      ? items.reduce((s, it) => s + it.weight * it.percentComplete, 0) /
+        totalWeight
+      : 0;
+
+  // ── Persist ───────────────────────────────────────────────────────────────
   return await withTransaction(async (trx) => {
-    // Insert submission header
     const insertSub = new sql.Request(trx);
     insertSub.input("projectId", sql.NVarChar, projectId);
     insertSub.input("title", sql.NVarChar, data.title);
     insertSub.input("submittedBy", sql.NVarChar, data.submittedBy);
+    insertSub.input("overallPercent", sql.Float, overallPercent);
     const subResult = await insertSub.query(`
       INSERT INTO TrackerSubmission (projectId, title, submittedBy, overallPercent)
-      OUTPUT INSERTED.id
-      VALUES (@projectId, @title, @submittedBy, 0)
+      OUTPUT INSERTED.id, INSERTED.submittedAt
+      VALUES (@projectId, @title, @submittedBy, @overallPercent)
     `);
-    const submissionId = subResult.recordset[0].id;
+    const { id: submissionId, submittedAt } = subResult.recordset[0];
 
-    // Insert items (initial percentComplete = 0)
     for (const item of items) {
       const insertItem = new sql.Request(trx);
       insertItem.input("submissionId", sql.Int, submissionId);
@@ -146,34 +174,36 @@ export async function createTrackerSubmission(
       insertItem.input("weight", sql.Int, item.weight);
       insertItem.input("label", sql.NVarChar, item.label);
       insertItem.input("category", sql.NVarChar, item.category);
-      insertItem.input("status", sql.NVarChar, "ONGOING");
-      insertItem.input("percentComplete", sql.Int, 0);
+      insertItem.input("status", sql.NVarChar, item.status ?? "ONGOING");
+      insertItem.input("percentComplete", sql.Int, item.percentComplete ?? 0);
+      insertItem.input("challenges", sql.NVarChar, item.challenges || null);
+      insertItem.input(
+        "recommendations",
+        sql.NVarChar,
+        item.recommendations || null,
+      );
+      insertItem.input(
+        "attachments",
+        sql.NVarChar,
+        item.attachments ? JSON.stringify(item.attachments) : null,
+      );
       await insertItem.query(`
         INSERT INTO TrackerSubmissionItem
-          (submissionId, parameterId, weight, label, category, status, percentComplete)
-        VALUES (@submissionId, @parameterId, @weight, @label, @category, @status, @percentComplete)
+          (submissionId, parameterId, weight, label, category, status, percentComplete, challenges, recommendations, attachments)
+        VALUES (@submissionId, @parameterId, @weight, @label, @category, @status, @percentComplete, @challenges, @recommendations, @attachments)
       `);
     }
 
-    // Return the new submission with items
+    revalidatePath(`/projects/${projectId}`);
+
     return {
       id: submissionId.toString(),
-      projectId: projectId,
+      projectId,
       title: data.title,
       submittedBy: data.submittedBy,
-      submittedAt: new Date().toISOString(),
-      overallPercent: 0,
-      items: items.map((item) => ({
-        parameterId: item.parameterId,
-        weight: item.weight,
-        label: item.label,
-        category: item.category,
-        status: "ONGOING",
-        percentComplete: 0,
-        challenges: "",
-        recommendations: "",
-        attachments: null,
-      })),
+      submittedAt: submittedAt?.toISOString() ?? new Date().toISOString(),
+      overallPercent,
+      items,
     };
   });
 }
@@ -192,7 +222,6 @@ export async function updateTrackerSubmission(
   const numericId = parseInt(submissionId, 10);
   if (isNaN(numericId)) throw new Error("Invalid submission ID");
 
-  // Compute overall percent (weighted average)
   const totalWeight = data.items.reduce((sum, it) => sum + it.weight, 0);
   const weightedSum = data.items.reduce(
     (sum, it) => sum + it.weight * it.percentComplete,
@@ -201,7 +230,6 @@ export async function updateTrackerSubmission(
   const overallPercent = totalWeight > 0 ? weightedSum / totalWeight : 0;
 
   await withTransaction(async (trx) => {
-    // Update header
     const updateHeader = new sql.Request(trx);
     updateHeader.input("id", sql.Int, numericId);
     updateHeader.input("title", sql.NVarChar, data.title);
@@ -216,14 +244,12 @@ export async function updateTrackerSubmission(
       WHERE id = @id
     `);
 
-    // Delete old items
     const deleteItems = new sql.Request(trx);
     deleteItems.input("submissionId", sql.Int, numericId);
     await deleteItems.query(
       "DELETE FROM TrackerSubmissionItem WHERE submissionId = @submissionId",
     );
 
-    // Insert new items
     for (const item of data.items) {
       const insertItem = new sql.Request(trx);
       insertItem.input("submissionId", sql.Int, numericId);

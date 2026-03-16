@@ -16,6 +16,7 @@ const links = [
   { name: "Projects", href: "/projects", icon: FolderOpen },
   { name: "Portal", href: "/portal", icon: Globe },
   { name: "Settings", href: "/settings", icon: Settings },
+  { name: "Project category", href: "/projectCategory", icon: Settings },
   { name: "Profile", href: "/profile", icon: User },
 ];
 

@@ -6,8 +6,6 @@ const Page = async () => {
 
   const userEmail = session?.user?.email || "";
 
-  console.log("user email", userEmail);
-
   return <SettingsPage userEmail={userEmail} />;
 };
 
