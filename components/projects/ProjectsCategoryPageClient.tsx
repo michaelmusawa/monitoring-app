@@ -6,30 +6,7 @@ import { useCallback } from "react";
 import { useDebouncedCallback } from "use-debounce";
 import { Search, X, FolderKanban, Plus, ChevronDown } from "lucide-react";
 import Link from "next/link";
-
-const SECTORS = [
-  "ALL",
-  "Mobility And Works",
-  "Health, Wellness And Nutrition",
-  "Talent, Skills Development And Care",
-  "Green Nairobi",
-  "Business And Hustler Opportunities",
-  "Built Environment And Urban Planning",
-  "Boroughs, Sub County Administration And Personnel",
-  "Public Service Management",
-  "Innovation And Digital Economy",
-  "Finance And Economic Planning",
-  "Inclusivity, Public Participation And Customer Service",
-  "Office Of The Governor & Deputy Governor",
-  "County Secretary & Head Of County Public Service",
-  "Security And Compliance",
-  "Office Of The County Attorney",
-  "Disaster & Emergency Management",
-  "Internal Audit And Risk Management",
-  "Ward Development Programme",
-  "County Public Service Board",
-  "County Assembly",
-];
+import { SECTORS } from "@/lib/data/data";
 
 export default function ProjectsCategoryPageClient({
   userRole,
@@ -79,13 +56,15 @@ export default function ProjectsCategoryPageClient({
         </div>
 
         {/* Primary action */}
-        <Link
-          href="/projects/new"
-          className="shrink-0 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
-        >
-          <Plus className="w-4 h-4" />
-          New Project
-        </Link>
+        {userRole === "sector" && (
+          <Link
+            href="/projects/new"
+            className="shrink-0 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
+          >
+            <Plus className="w-4 h-4" />
+            New Project
+          </Link>
+        )}
       </div>
 
       {/* Filter bar */}

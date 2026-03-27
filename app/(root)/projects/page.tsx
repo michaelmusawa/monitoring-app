@@ -16,7 +16,12 @@ const Page = async (props: {
   const session = await auth();
   const userEmail = session?.user?.email || "";
   const user = await getUser(userEmail);
-  const userRole = user?.sector === "me" ? "me" : "sector";
+  const userRole =
+    user?.sector === "me"
+      ? "me"
+      : user?.sector === "sector" || user?.sector === "IDE"
+        ? "sector"
+        : "viewer";
 
   const query = searchParams?.query || "";
   const sector = searchParams?.sector || "ALL";

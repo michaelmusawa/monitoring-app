@@ -13,7 +13,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ThumbsUp, MessageSquare, Filter, Send, Star } from "lucide-react";
-import { users } from "@/lib/data/data";
+
+const publicComments = []; // Replace with actual data import
+const users = []; // Replace with actual data import
 
 interface Comment {
   id: string;

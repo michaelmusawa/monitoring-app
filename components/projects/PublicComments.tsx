@@ -1,8 +1,11 @@
 "use client";
 
 import React, { useState } from "react";
-import { publicComments, users } from "@/lib/data/data"; // Adjust path as needed
+// Adjust path as needed
 import Image from "next/image";
+
+const publicComments = []; // Replace with actual data import
+const users = []; // Replace with actual data import
 
 type Attachment = {
   id: string;

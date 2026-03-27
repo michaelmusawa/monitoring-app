@@ -62,6 +62,7 @@ import {
   ReportEditorDialog,
   type ReportDraft,
 } from "@/components/trackers/ReportEditorDialog";
+import { AttachmentsField } from "../trackers/AttachmentsField";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -786,79 +787,6 @@ function TrackerForm({
             </div>
           );
         })}
-      </div>
-    </div>
-  );
-}
-
-// ─── Attachments Field ────────────────────────────────────────────────────────
-
-function AttachmentsField({
-  attachments,
-  onChange,
-}: {
-  attachments: string[];
-  onChange: (val: string[]) => void;
-}) {
-  const [input, setInput] = useState("");
-  const add = () => {
-    const url = input.trim();
-    if (!url) return;
-    onChange([...attachments, url]);
-    setInput("");
-  };
-  const remove = (idx: number) =>
-    onChange(attachments.filter((_, i) => i !== idx));
-
-  return (
-    <div>
-      <label className="block text-xs font-medium text-zinc-600 mb-1">
-        Attachments
-      </label>
-      {attachments.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mb-2">
-          {attachments.map((url, idx) => (
-            <div
-              key={idx}
-              className="inline-flex items-center gap-1.5 bg-white dark:bg-zinc-800 border rounded-full px-2 py-0.5 text-xs"
-            >
-              <Paperclip className="w-3 h-3 text-zinc-400" />
-              <a
-                href={url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-600 hover:underline max-w-[140px] truncate"
-              >
-                {url.split("/").pop() || url}
-              </a>
-              <button
-                type="button"
-                onClick={() => remove(idx)}
-                className="text-zinc-400 hover:text-red-500 ml-0.5"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="flex gap-2">
-        <Input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), add())}
-          placeholder="Paste URL and press Enter..."
-          className="text-xs h-8"
-        />
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-8 text-xs shrink-0"
-          onClick={add}
-        >
-          Add
-        </Button>
       </div>
     </div>
   );

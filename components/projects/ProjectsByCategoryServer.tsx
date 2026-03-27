@@ -365,11 +365,13 @@ function CategoryCard({
             </span>
           </div>
         )}
-        <AddProjectButton
-          categoryId={category.id}
-          categoryName={category.name}
-          sector={category.sector}
-        />
+        {userRole === "sector" && (
+          <AddProjectButton
+            categoryId={category.id}
+            categoryName={category.name}
+            sector={category.sector}
+          />
+        )}
       </div>
     </details>
   );

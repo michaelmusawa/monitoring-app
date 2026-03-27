@@ -12,7 +12,11 @@ const Page = async () => {
 
   // Derive role once, pass everywhere
   const userRole =
-    user?.sector === "me" ? "me" : user?.sector === "IDE" ? "sector" : "viewer";
+    user?.sector === "me"
+      ? "me"
+      : user?.sector === "sector" || user?.sector === "IDE"
+        ? "sector"
+        : "viewer";
 
   return <CIDPCategoriesPage userRole={userRole} />;
 };

@@ -20,7 +20,8 @@ export async function getUser(email: string): Promise<User | undefined> {
         u.password,
         u.role,
         u.sector,
-        u.createdAt
+        u.createdAt,
+        u.name
       FROM [User] u
       WHERE u.email = @p1`;
 

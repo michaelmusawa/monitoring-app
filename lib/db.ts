@@ -36,9 +36,15 @@ export async function safeQuery<T>(
     await poolConnect; // Ensure the pool is connected
 
     const request = pool.request();
-    params.forEach((param, i) => {
-      request.input(`p${i + 1}`, param);
-    });
+    if (Array.isArray(params)) {
+      params.forEach((param, i) => {
+        request.input(`p${i + 1}`, param);
+      });
+    } else if (params && typeof params === "object") {
+      Object.entries(params).forEach(([key, value]) => {
+        request.input(key, value);
+      });
+    }
 
     // Execute the query, replacing $1, $2 with @p1, @p2 for parameterized queries
     const result = await request.query<T>(

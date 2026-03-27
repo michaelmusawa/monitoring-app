@@ -1,7 +1,9 @@
 // monitoring-app/app/portal/page.tsx
 import React from "react";
 import PortalClient from "@/components/portal/PortalPage";
-import { projects, publicComments } from "@/lib/data/data";
+
+const publicComments = []; // Replace with actual data import
+const users = []; // Replace with actual data import
 
 export const metadata = {
   title: "Public Projects Portal - Nairobi County",

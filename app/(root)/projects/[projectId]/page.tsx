@@ -120,11 +120,13 @@ export default async function ProjectDetail(props: {
 
   const user = await getUser(userEmail);
 
-  console.log("user", user);
-
   // Derive role once, pass everywhere
   const userRole =
-    user?.sector === "me" ? "me" : user?.sector === "IDE" ? "sector" : "viewer";
+    user?.sector === "me"
+      ? "me"
+      : user?.sector === "IDE" || user?.sector === "sector"
+        ? "sector"
+        : "viewer";
 
   const project = await getProject(projectId);
   if (!project) notFound();

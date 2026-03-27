@@ -2,6 +2,7 @@
 
 import sql from "mssql";
 import { DatabaseError, pool, poolConnect, safeQuery } from "@/lib/db";
+import { revalidatePath } from "next/cache";
 
 export async function withTransaction<T>(
   callback: (trx: sql.Transaction) => Promise<T>,
@@ -40,6 +41,15 @@ export interface TaskAnnotation {
   reason: string;
 }
 
+export interface CustomParam {
+  id: string;
+  label: string;
+  category: string;
+  isPending: true;
+  addedBy: string;
+  addedAt: string;
+}
+
 export interface Checklist {
   id: string;
   projectId: string;
@@ -50,6 +60,8 @@ export interface Checklist {
   editReason?: string;
   items: ChecklistItem[];
   taskAnnotations: TaskAnnotation[];
+  /** Custom items added by sector officer, stored in ChecklistCustomItem */
+  customItems?: CustomParam[];
 }
 
 // ─── Fetch checklist for a project ───────────────────────────────────────────
@@ -89,8 +101,10 @@ export async function getChecklist(
       }
     }
 
+    const checklistId = rows[0].id.toString();
+
     const checklist: Checklist = {
-      id: rows[0].id.toString(),
+      id: checklistId,
       projectId,
       status: rows[0].status,
       version: rows[0].version,
@@ -100,6 +114,7 @@ export async function getChecklist(
       editReason: rows[0].editReason,
       taskAnnotations,
       items: [],
+      customItems: [],
     };
 
     for (const row of rows) {
@@ -113,6 +128,25 @@ export async function getChecklist(
         });
       }
     }
+
+    // ── Load custom items ──────────────────────────────────────────────────
+    const { rows: customRows } = await safeQuery<any>(
+      `SELECT id, label, category, addedBy, addedAt
+       FROM ChecklistCustomItem
+       WHERE checklistId = @p1
+       ORDER BY addedAt`,
+      [checklistId],
+    );
+
+    checklist.customItems = customRows.map((r: any) => ({
+      id: r.id,
+      label: r.label,
+      category: r.category,
+      isPending: true as const,
+      addedBy: r.addedBy ?? "",
+      addedAt: r.addedAt?.toISOString() ?? new Date().toISOString(),
+    }));
+
     return checklist;
   } catch (error) {
     console.error("getChecklist error:", error);
@@ -216,12 +250,12 @@ export async function saveChecklist(
       category: string;
     }[];
     lastModifiedBy: string;
-    /**
-     * Per-task annotations from the ME officer.
-     * Only present when sending back (status goes to a previous phase).
-     * Cleared (empty array) when the ME approves forward.
-     */
+    /** Per-task annotations from the ME officer. */
     taskAnnotations?: TaskAnnotation[];
+    /** Custom items to promote to the Template on Approved transition. */
+    customItemsToPromote?: CustomParam[];
+    /** The sector name (= Template.name) needed for promotion. */
+    sector?: string;
   },
 ): Promise<Checklist> {
   const numericId = parseInt(checklistId, 10);
@@ -287,12 +321,90 @@ export async function saveChecklist(
       }
     }
 
-    // 6. Record history
+    // 6. Promote custom items to Template on final approval ──────────────────
+    //
+    // Trigger: WeightsReview → Approved (ME's final sign-off).
+    // For each custom item:
+    //   a) Find or create the Category in the sector Template.
+    //   b) Insert the Task if it doesn't already exist (idempotent).
+    //   c) Delete from ChecklistCustomItem — now a permanent template task.
+
+    const isApproving =
+      oldStatus === "WeightsReview" && data.status === "Approved";
+
+    if (
+      isApproving &&
+      data.sector &&
+      data.customItemsToPromote &&
+      data.customItemsToPromote.length > 0
+    ) {
+      const tplReq = new sql.Request(trx);
+      tplReq.input("sector", sql.NVarChar, data.sector);
+      const tplResult = await tplReq.query(
+        "SELECT id FROM Template WHERE name = @sector",
+      );
+      const templateId: number | null = tplResult.recordset[0]?.id ?? null;
+
+      if (templateId !== null) {
+        for (const cp of data.customItemsToPromote) {
+          // a) Find or create Category
+          const catLookup = new sql.Request(trx);
+          catLookup.input("templateId", sql.Int, templateId);
+          catLookup.input("catName", sql.NVarChar, cp.category);
+          const catResult = await catLookup.query(
+            "SELECT id FROM Category WHERE templateId = @templateId AND name = @catName",
+          );
+
+          let categoryId: number;
+          if (catResult.recordset.length > 0) {
+            categoryId = catResult.recordset[0].id;
+          } else {
+            const catInsert = new sql.Request(trx);
+            catInsert.input("templateId", sql.Int, templateId);
+            catInsert.input("catName", sql.NVarChar, cp.category);
+            const catInsertResult = await catInsert.query(`
+              INSERT INTO Category (templateId, name)
+              OUTPUT INSERTED.id
+              VALUES (@templateId, @catName)
+            `);
+            categoryId = catInsertResult.recordset[0].id;
+          }
+
+          // b) Insert Task only if name doesn't already exist in this category
+          const taskCheck = new sql.Request(trx);
+          taskCheck.input("categoryId", sql.Int, categoryId);
+          taskCheck.input("taskName", sql.NVarChar, cp.label);
+          const taskExists = await taskCheck.query(
+            "SELECT id FROM Task WHERE categoryId = @categoryId AND name = @taskName",
+          );
+
+          if (taskExists.recordset.length === 0) {
+            const taskInsert = new sql.Request(trx);
+            taskInsert.input("categoryId", sql.Int, categoryId);
+            taskInsert.input("taskName", sql.NVarChar, cp.label);
+            await taskInsert.query(
+              "INSERT INTO Task (categoryId, name) VALUES (@categoryId, @taskName)",
+            );
+          }
+
+          // c) Remove from ChecklistCustomItem — now a real template task
+          const delCustom = new sql.Request(trx);
+          delCustom.input("customId", sql.NVarChar, cp.id);
+          await delCustom.query(
+            "DELETE FROM ChecklistCustomItem WHERE id = @customId",
+          );
+        }
+      }
+    }
+
+    // 7. Record history
     if (oldStatus !== data.status) {
       const historyReason =
         annotationsToStore.length > 0
           ? `Sent back with ${annotationsToStore.length} task change(s)`
-          : undefined;
+          : isApproving && (data.customItemsToPromote?.length ?? 0) > 0
+            ? `Approved — ${data.customItemsToPromote!.length} custom task(s) promoted to template`
+            : undefined;
 
       await addHistoryEntry(
         trx,
@@ -307,7 +419,7 @@ export async function saveChecklist(
       );
     }
 
-    // 7. Return updated checklist
+    // 7. Return updated checklist (including custom items)
     const fetchReq = new sql.Request(trx);
     fetchReq.input("id", sql.Int, numericId);
     const fetchResult = await fetchReq.query(`
@@ -342,6 +454,7 @@ export async function saveChecklist(
       editReason: rows[0].editReason,
       taskAnnotations: parsedAnnotations,
       items: [],
+      customItems: [],
     };
 
     for (const row of rows) {
@@ -355,6 +468,25 @@ export async function saveChecklist(
         });
       }
     }
+
+    // Fetch custom items within the same transaction so the caller
+    // immediately gets the up-to-date list without a second round-trip.
+    const customReq = new sql.Request(trx);
+    customReq.input("customChecklistId", sql.Int, numericId);
+    const customResult = await customReq.query(`
+      SELECT id, label, category, addedBy, addedAt
+      FROM ChecklistCustomItem
+      WHERE checklistId = @customChecklistId
+      ORDER BY addedAt
+    `);
+    updated.customItems = customResult.recordset.map((r: any) => ({
+      id: r.id,
+      label: r.label,
+      category: r.category,
+      isPending: true as const,
+      addedBy: r.addedBy ?? "",
+      addedAt: r.addedAt?.toISOString() ?? new Date().toISOString(),
+    }));
 
     return updated;
   });

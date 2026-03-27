@@ -60,6 +60,14 @@ import {
   type ProjectCategory,
   type ReviewNote,
 } from "@/lib/actions/categoryActions";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
+import { SECTORS } from "@/lib/data/data";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -645,7 +653,7 @@ function CategoryRow({
   onReviewOpen,
 }: {
   category: ProjectCategory;
-  role: Role;
+  role: string;
   isSelected: boolean;
   onSelect: () => void;
   onUpdate: (data: Partial<ProjectCategory>) => Promise<void>;
@@ -746,7 +754,7 @@ function CategoryRow({
         {/* Status + actions */}
         <div className="flex items-center gap-2 shrink-0">
           <StatusBadge status={category.status} />
-          {role === "ME" && category.status === "PENDING_REVIEW" && (
+          {role === "me" && category.status === "PENDING_REVIEW" && (
             <Button
               size="sm"
               variant="outline"
@@ -769,7 +777,7 @@ function CategoryRow({
       {expanded && (
         <div className="border-t border-border px-4 py-4 space-y-4 bg-muted/20">
           {/* Review notes for SECTOR */}
-          {userRole === "sector" &&
+          {role === "sector" &&
             category.reviewNotes &&
             category.reviewNotes.length > 0 && (
               <ReviewNotesPanel
@@ -951,7 +959,7 @@ function AddCategoryForm({
 }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
-  const [sector, setSector] = useState("");
+  const [sector, setSector] = useState(""); // empty string = no sector
   const [target, setTarget] = useState("");
   const [budget, setBudget] = useState("");
   const [saving, setSaving] = useState(false);
@@ -962,7 +970,7 @@ function AddCategoryForm({
     try {
       await onAdd({
         name: name.trim(),
-        sector: sector.trim() || undefined,
+        sector: sector.trim() === "" ? undefined : sector.trim(),
         target: target ? Number(target) : undefined,
         budget: budget ? Number(budget) : undefined,
       });
@@ -987,6 +995,9 @@ function AddCategoryForm({
     );
   }
 
+  // Filter out "ALL" from sector options for category assignment
+  const sectorOptions = SECTORS.filter((s) => s !== "ALL");
+
   return (
     <div className="border border-primary/30 rounded-xl p-4 space-y-3 bg-primary/3">
       <p className="text-sm font-semibold">New Category</p>
@@ -1007,12 +1018,18 @@ function AddCategoryForm({
           <label className="text-xs text-muted-foreground font-medium">
             Sector
           </label>
-          <Input
-            value={sector}
-            onChange={(e) => setSector(e.target.value)}
-            className="mt-1 h-8 text-sm"
-            placeholder="e.g. Health"
-          />
+          <Select value={sector} onValueChange={setSector}>
+            <SelectTrigger className="mt-1 h-8 text-sm">
+              <SelectValue placeholder="Select sector" />
+            </SelectTrigger>
+            <SelectContent>
+              {sectorOptions.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {s}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div>
           <label className="text-xs text-muted-foreground font-medium">
@@ -1061,7 +1078,7 @@ function AddCategoryForm({
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 interface CIDPCategoriesPageProps {
-  userRole?: Role;
+  userRole: string;
   userEmail?: string;
   // Server-loaded initial categories (optional, for SSR usage)
   initialCategories?: ProjectCategory[];

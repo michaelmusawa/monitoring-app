@@ -64,7 +64,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { randomUUID } from "crypto";
+import { v4 as uuid } from "uuid";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -96,6 +96,8 @@ export interface Checklist {
   items: ChecklistItem[];
   /** Task-level change annotations sent back by ME officer */
   taskAnnotations?: TaskAnnotation[];
+  /** Custom items added by sector officer — persisted in ChecklistCustomItem */
+  customItems?: CustomParam[];
 }
 
 export interface StandardParam {
@@ -178,6 +180,8 @@ const PHASES = [
     isReviewPhase: false,
   },
 ];
+
+// ─── Add Custom Item Form ─────────────────────────────────────────────────────
 
 function AddCustomItemForm({
   existingCategories,
@@ -692,7 +696,7 @@ export default function ProjectChecklistClient({
   );
   const [localItems, setLocalItems] = useState<Record<string, number>>({});
 
-  // Custom items added by sector officer (not yet in standardParams)
+  // Custom items added by sector officer
   const [customParams, setCustomParams] = useState<CustomParam[]>([]);
   const [showAddCustom, setShowAddCustom] = useState(false);
 
@@ -740,12 +744,21 @@ export default function ProjectChecklistClient({
       checklist.items.forEach((item) => {
         map[item.parameterId] = item.weight;
       });
-      setLocalItems(map);
-      baselineItems.current = { ...map };
 
+      console.log("custom items", checklist.customItems);
+
+      // Load custom items and ensure they have a weight entry
       if (checklist.customItems && checklist.customItems.length > 0) {
         setCustomParams(checklist.customItems);
+        checklist.customItems.forEach((cp) => {
+          if (!(cp.id in map)) map[cp.id] = 1;
+        });
+      } else {
+        setCustomParams([]);
       }
+
+      setLocalItems(map);
+      baselineItems.current = { ...map };
 
       // Load existing task annotations if any (sent back by ME)
       if (checklist.taskAnnotations && checklist.taskAnnotations.length > 0) {
@@ -861,7 +874,14 @@ export default function ProjectChecklistClient({
   }, [localItems, isReviewPhase, userRole]);
 
   const filteredParams = useMemo(() => {
-    let params = standardParams;
+    // Merge standard params with custom params (shaped as StandardParam)
+    const customAsStandard: StandardParam[] = customParams.map((cp) => ({
+      id: cp.id,
+      label: cp.label,
+      category: cp.category,
+    }));
+    let params: StandardParam[] = [...standardParams, ...customAsStandard];
+
     if (
       currentPhase.id === "WeightsAssignment" ||
       currentPhase.id === "WeightsReview" ||
@@ -882,7 +902,14 @@ export default function ProjectChecklistClient({
       params = params.filter((p) => (localItems[p.id] ?? 0) > 0);
     }
     return params;
-  }, [standardParams, currentPhase, searchQuery, showIncludedOnly, localItems]);
+  }, [
+    standardParams,
+    customParams,
+    currentPhase,
+    searchQuery,
+    showIncludedOnly,
+    localItems,
+  ]);
 
   const groupedParams = useMemo(() => {
     const groups: Record<string, StandardParam[]> = {};
@@ -1043,12 +1070,14 @@ export default function ProjectChecklistClient({
       const items = Object.entries(localItems)
         .filter(([, w]) => w > 0)
         .map(([parameterId, weight]) => {
-          const param = standardParams.find((p) => p.id === parameterId);
+          // Look up label/category in standard params first, then custom params
+          const std = standardParams.find((p) => p.id === parameterId);
+          const custom = customParams.find((p) => p.id === parameterId);
           return {
             parameterId,
             weight,
-            label: param?.label || "",
-            category: param?.category || "",
+            label: std?.label || custom?.label || "",
+            category: std?.category || custom?.category || "",
           };
         });
 
@@ -1060,7 +1089,7 @@ export default function ProjectChecklistClient({
           status: newStatus || checklist.status,
           items,
           taskAnnotations: Object.values(committedChanges),
-          customItems: customParams, // ← add this
+          customItems: customParams, // ← always send so server keeps them in sync
         }),
       });
       if (!res.ok) throw new Error("Save failed");
@@ -1600,9 +1629,10 @@ export default function ProjectChecklistClient({
                                     >
                                       {param.id} — {param.label}
                                     </Label>
-                                    {standardParams.find(
+                                    {/* Custom badge — shown when this param is not in standardParams */}
+                                    {!standardParams.find(
                                       (p) => p.id === param.id,
-                                    ) === undefined && (
+                                    ) && (
                                       <Badge
                                         variant="outline"
                                         className="text-xs text-primary border-primary/30 ml-2"
@@ -1745,6 +1775,8 @@ export default function ProjectChecklistClient({
               })}
             </Accordion>
           )}
+
+          {/* ── Add Custom Task (sector officer, Draft phase only) ── */}
           {currentPhase.id === "Draft" && userRole === "sector" && (
             <div className="mt-4 border border-dashed border-primary/30 rounded-xl p-4 bg-primary/5">
               <div className="flex items-center justify-between mb-3">
@@ -1769,20 +1801,19 @@ export default function ProjectChecklistClient({
               {showAddCustom && (
                 <AddCustomItemForm
                   existingCategories={[
-                    ...Object.keys(groupedParams), // template categories
-                    ...Array.from(new Set(customParams.map((p) => p.category))), // already-added custom categories
+                    ...Object.keys(groupedParams),
+                    ...Array.from(new Set(customParams.map((p) => p.category))),
                   ]}
                   onAdd={(label, category) => {
                     const newParam: CustomParam = {
-                      id: `custom-${randomUUID()}`,
+                      id: `custom-${uuid()}`,
                       label,
                       category,
                       isPending: true,
-                      addedBy: "", // fill from session in real app
+                      addedBy: "",
                       addedAt: new Date().toISOString(),
                     };
                     setCustomParams((prev) => [...prev, newParam]);
-                    // Also add to localItems so it participates in weight assignment
                     setLocalItems((prev) => ({ ...prev, [newParam.id]: 1 }));
                     setShowAddCustom(false);
                     toast.success(`Custom task "${label}" added`);
