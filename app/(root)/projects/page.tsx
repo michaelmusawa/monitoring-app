@@ -16,12 +16,8 @@ const Page = async (props: {
   const session = await auth();
   const userEmail = session?.user?.email || "";
   const user = await getUser(userEmail);
-  const userRole =
-    user?.sector === "me"
-      ? "me"
-      : user?.sector === "sector" || user?.sector === "IDE"
-        ? "sector"
-        : "viewer";
+  const userRole = user?.role;
+  const userSector = user?.sector;
 
   const query = searchParams?.query || "";
   const sector = searchParams?.sector || "ALL";
@@ -29,11 +25,14 @@ const Page = async (props: {
   return (
     <main className="min-h-screen bg-[#F7F8FC] dark:bg-[#0E1117] p-4 md:p-6 lg:p-8">
       <div className="max-w-7xl mx-auto space-y-6">
-        <ProjectsCategoryPageClient userRole={userRole} />
+        <ProjectsCategoryPageClient
+          userRole={userRole}
+          userSector={userSector}
+        />
         <Suspense key={query + sector} fallback={<ProjectsTableSkeleton />}>
           <ProjectsByCategoryServer
             query={query}
-            sector={sector}
+            sector={userSector}
             userRole={userRole}
             userEmail={userEmail}
           />

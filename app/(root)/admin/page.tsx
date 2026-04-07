@@ -1,276 +1,393 @@
+// app/(root)/admin/page.tsx
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { DatabaseError, safeQuery } from "@/lib/db";
 import { getUser } from "@/lib/actions/usersActions";
+import {
+  getAdminStats,
+  getRecentActivity,
+  type AdminActivity,
+} from "@/lib/actions/adminActions";
+import {
+  Users,
+  FolderOpen,
+  CheckSquare,
+  Layers,
+  ClipboardList,
+  Bell,
+  ArrowUpRight,
+  Activity,
+  UserPlus,
+  TrendingUp,
+  Settings,
+  Shield,
+  Database,
+  ChevronRight,
+  BarChart3,
+} from "lucide-react";
+import { User } from "@/lib/types/userTypes";
 
-// Types for the data we fetch
-interface User {
-  id: string;
-  name: string;
-  email: string;
-  role: string;
-  createdAt: Date;
+// ─── Activity meta ────────────────────────────────────────────────────────────
+
+const ACTIVITY_META: Record<
+  AdminActivity["type"],
+  { icon: React.ReactNode; cls: string }
+> = {
+  user_created: {
+    icon: <UserPlus className="w-3.5 h-3.5" />,
+    cls: "bg-violet-50 text-violet-600 border-violet-100 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-900",
+  },
+  project_created: {
+    icon: <FolderOpen className="w-3.5 h-3.5" />,
+    cls: "bg-blue-50 text-blue-600 border-blue-100 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-900",
+  },
+  checklist_approved: {
+    icon: <CheckSquare className="w-3.5 h-3.5" />,
+    cls: "bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-900",
+  },
+  tracker_submitted: {
+    icon: <Activity className="w-3.5 h-3.5" />,
+    cls: "bg-amber-50 text-amber-600 border-amber-100 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-900",
+  },
+};
+
+function timeAgo(iso: string) {
+  const d = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (d < 60) return `${d}m ago`;
+  if (d < 1440) return `${Math.floor(d / 60)}h ago`;
+  return `${Math.floor(d / 1440)}d ago`;
 }
 
-interface Template {
-  id: string;
-  name: string;
-  updatedAt: Date;
-}
-
-export default async function AdminPage() {
-  const session = await auth();
-  // Protect the page: only users with role 'admin' can view
-
-  const user = await getUser(session?.user?.email || "");
-  if (!session || user?.role !== "admin") {
-    redirect("/");
-  }
-
-  // Fetch counts
-  let totalProjects = 0;
-  let totalUsers = 0;
-  let totalTemplates = 0;
-  let recentUsers: User[] = [];
-  let recentTemplates: Template[] = [];
-
-  try {
-    // Total projects
-    const projectsRes = await safeQuery<{ count: number }>(
-      "SELECT COUNT(*) as count FROM Project",
-      [],
-    );
-    totalProjects = projectsRes.rows[0]?.count || 0;
-
-    // Total users
-    const usersRes = await safeQuery<{ count: number }>(
-      "SELECT COUNT(*) as count FROM [User]",
-      [],
-    );
-    totalUsers = usersRes.rows[0]?.count || 0;
-
-    // Total checklist templates
-    const templatesRes = await safeQuery<{ count: number }>(
-      "SELECT COUNT(*) as count FROM [Template]",
-      [],
-    );
-    totalTemplates = templatesRes.rows[0]?.count || 0;
-
-    // Recent users (last 5)
-    const recentUsersRes = await safeQuery<User>(
-      "SELECT TOP 5 id, name, email, role, createdAt FROM [User] ORDER BY createdAt DESC",
-      [],
-    );
-    recentUsers = recentUsersRes.rows;
-
-    // Recent templates (last 5)
-    const recentTemplatesRes = await safeQuery<Template>(
-      "SELECT TOP 5 id, name, updatedAt FROM [Template] ORDER BY updatedAt DESC",
-      [],
-    );
-    recentTemplates = recentTemplatesRes.rows;
-  } catch (error) {
-    console.error("Admin page data fetch error:", error);
-    // You could show an error message in the UI
-  }
-
-  return (
-    <div className="p-6 space-y-6">
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Admin Dashboard</h1>
-          <p className="text-sm text-gray-600">
-            Overview and quick access to administration functions.
-          </p>
-        </div>
-      </header>
-
-      <main className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <section className="lg:col-span-2 space-y-6">
-          {/* Statistics cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <StatCard
-              title="Projects"
-              value={totalProjects}
-              link="/projects"
-              linkText="View projects"
-            />
-            <StatCard
-              title="Users"
-              value={totalUsers}
-              link="/admin/users"
-              linkText="Manage users"
-            />
-            <StatCard
-              title="Checklist Templates"
-              value={totalTemplates}
-              link="/admin/checklists"
-              linkText="Edit templates"
-            />
-          </div>
-
-          {/* Quick actions */}
-          <div className="p-4 border rounded bg-white">
-            <h2 className="text-lg font-semibold mb-3">Quick admin actions</h2>
-            <div className="flex flex-wrap gap-3">
-              <ActionButton href="/settings">System settings</ActionButton>
-              <ActionButton href="/admin/users">Add / edit users</ActionButton>
-              <ActionButton href="/admin/checklists">
-                Manage checklist templates
-              </ActionButton>
-              <ActionButton href="/projects">Browse projects</ActionButton>
-            </div>
-          </div>
-
-          {/* Recent users and templates */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <RecentUsersCard users={recentUsers} />
-            <RecentTemplatesCard templates={recentTemplates} />
-          </div>
-        </section>
-
-        <aside className="space-y-6">
-          <InfoCard title="Admin notes">
-            <p className="text-sm text-gray-600">
-              This dashboard provides an overview of key metrics. Use the links
-              above to manage users, checklist templates, and system settings.
-            </p>
-          </InfoCard>
-
-          <InfoCard title="System endpoints">
-            <ul className="text-sm space-y-1 font-mono">
-              <li>/api/admin/users</li>
-              <li>/api/admin/checklists</li>
-              <li>/api/projects/upload</li>
-            </ul>
-            <p className="mt-2 text-xs text-gray-500">
-              These endpoints are available for programmatic access.
-            </p>
-          </InfoCard>
-        </aside>
-      </main>
-    </div>
-  );
-}
-
-// Helper components
+// ─── Components ───────────────────────────────────────────────────────────────
 
 function StatCard({
-  title,
+  label,
   value,
-  link,
-  linkText,
-}: {
-  title: string;
-  value: number;
-  link: string;
-  linkText: string;
-}) {
-  return (
-    <div className="p-4 border rounded bg-white">
-      <div className="text-xs text-gray-500">{title}</div>
-      <div className="text-2xl font-semibold mt-2">{value}</div>
-      <div className="mt-3 text-sm">
-        <Link href={link} className="text-primary hover:underline">
-          {linkText}
-        </Link>
-      </div>
-    </div>
-  );
-}
-
-function ActionButton({
+  sub,
+  icon,
   href,
-  children,
+  accentBorder,
+  accentIcon,
 }: {
+  label: string;
+  value: string | number;
+  sub?: string;
+  icon: React.ReactNode;
   href: string;
-  children: React.ReactNode;
+  accentBorder: string;
+  accentIcon: string;
 }) {
   return (
     <Link
       href={href}
-      className="px-3 py-2 border rounded text-sm hover:bg-gray-50 transition"
+      className={`group relative overflow-hidden rounded-2xl border bg-white dark:bg-zinc-900 p-5 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 ${accentBorder} dark:border-zinc-800`}
     >
-      {children}
+      <div className="flex items-start justify-between mb-3">
+        <div
+          className={`w-10 h-10 rounded-xl flex items-center justify-center ${accentIcon}`}
+        >
+          {icon}
+        </div>
+        <ArrowUpRight className="w-4 h-4 text-zinc-300 dark:text-zinc-600 group-hover:text-zinc-500 dark:group-hover:text-zinc-400 transition-colors" />
+      </div>
+      <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
+        {value}
+      </p>
+      <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mt-0.5">
+        {label}
+      </p>
+      {sub && (
+        <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">{sub}</p>
+      )}
     </Link>
   );
 }
 
-function RecentUsersCard({ users }: { users: User[] }) {
-  return (
-    <div className="p-4 border rounded bg-white">
-      <h3 className="font-medium mb-2">Recent users</h3>
-      {users.length === 0 ? (
-        <p className="text-sm text-gray-500">No users found.</p>
-      ) : (
-        <ul className="text-sm space-y-2">
-          {users.map((user) => (
-            <li key={user.id} className="flex items-center justify-between">
-              <div>
-                <div className="font-medium">{user.name}</div>
-                <div className="text-xs text-gray-500">{user.email}</div>
-              </div>
-              <div className="text-xs text-gray-400">{user.role}</div>
-            </li>
-          ))}
-        </ul>
-      )}
-      <div className="mt-3">
-        <Link
-          href="/admin/users"
-          className="text-primary text-sm hover:underline"
-        >
-          Manage users →
-        </Link>
-      </div>
-    </div>
-  );
-}
-
-function RecentTemplatesCard({ templates }: { templates: Template[] }) {
-  return (
-    <div className="p-4 border rounded bg-white">
-      <h3 className="font-medium mb-2">Recent checklist templates</h3>
-      {templates.length === 0 ? (
-        <p className="text-sm text-gray-500">No templates found.</p>
-      ) : (
-        <ul className="text-sm space-y-2">
-          {templates.map((tmpl) => (
-            <li key={tmpl.id} className="flex items-center justify-between">
-              <div>
-                <div className="font-medium truncate">{tmpl.name}</div>
-                <div className="text-xs text-gray-500">
-                  Updated {new Date(tmpl.updatedAt).toLocaleDateString()}
-                </div>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-      <div className="mt-3">
-        <Link
-          href="/admin/checklists"
-          className="text-primary text-sm hover:underline"
-        >
-          Edit templates →
-        </Link>
-      </div>
-    </div>
-  );
-}
-
-function InfoCard({
-  title,
-  children,
+function QuickAction({
+  href,
+  icon,
+  label,
+  description,
+  accent,
 }: {
-  title: string;
-  children: React.ReactNode;
+  href: string;
+  icon: React.ReactNode;
+  label: string;
+  description: string;
+  accent: string;
 }) {
   return (
-    <div className="p-4 border rounded bg-white">
-      <h3 className="font-medium mb-2">{title}</h3>
-      {children}
+    <Link
+      href={href}
+      className="group flex items-center gap-4 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:shadow-md hover:border-zinc-300 dark:hover:border-zinc-700 hover:-translate-y-0.5 transition-all duration-200"
+    >
+      <div
+        className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${accent}`}
+      >
+        {icon}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+          {label}
+        </p>
+        <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5 truncate">
+          {description}
+        </p>
+      </div>
+      <ChevronRight className="w-4 h-4 text-zinc-300 dark:text-zinc-600 group-hover:text-zinc-500 dark:group-hover:text-zinc-400 transition-colors shrink-0" />
+    </Link>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
+export default async function AdminPage() {
+  const session = await auth();
+  const user = await getUser(session?.user?.email ?? "");
+
+  const role = user?.role || "";
+  const sector = user?.sector || "";
+
+  const hasAccess = (role: string) => ["system admin", "admin"].includes(role);
+
+  if (!user || !hasAccess(role)) {
+    redirect("/");
+  }
+
+  const [stats, activity] = await Promise.all([
+    getAdminStats(),
+    getRecentActivity(),
+  ]);
+
+  const userName = session?.user?.name ?? session?.user?.email ?? "Admin";
+
+  return (
+    <div className="min-h-screen bg-[#F7F8FC] dark:bg-[#0E1117] p-4 md:p-6 lg:p-8">
+      <div className="max-w-7xl mx-auto space-y-7">
+        {/* ── Header ─────────────────────────────────────────────────────── */}
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <Shield className="w-4 h-4 text-blue-600" />
+              <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">
+                Administration
+              </span>
+            </div>
+            <h1 className="text-3xl font-black text-zinc-900 dark:text-zinc-100 tracking-tight">
+              Admin Console
+            </h1>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
+              Welcome back,{" "}
+              <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                {userName.split(" ")[0]}
+              </span>
+              .
+              {stats.pendingReviews > 0 && (
+                <>
+                  {" "}
+                  <span className="text-amber-600 dark:text-amber-400 font-medium">
+                    {stats.pendingReviews} checklist
+                    {stats.pendingReviews !== 1 ? "s" : ""}
+                  </span>{" "}
+                  awaiting review.
+                </>
+              )}
+            </p>
+          </div>
+
+          {/* Alert badge */}
+          {stats.pendingReviews > 0 && (
+            <Link
+              href="/projects?attention=needs_draft_review"
+              className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400 text-xs font-semibold hover:bg-amber-100 dark:hover:bg-amber-950/50 transition-colors shrink-0"
+            >
+              <Bell className="w-3.5 h-3.5" />
+              {stats.pendingReviews} Pending
+            </Link>
+          )}
+        </div>
+
+        {/* ── Stat cards ─────────────────────────────────────────────────── */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard
+            label="Total Users"
+            value={stats.totalUsers}
+            sub={`${stats.activeUsers} active · ${stats.recentSignups} new this week`}
+            icon={<Users className="w-5 h-5 text-violet-600" />}
+            href="/admin/users"
+            accentBorder="border-violet-100"
+            accentIcon="bg-violet-50 dark:bg-violet-950/30"
+          />
+          <StatCard
+            label="Projects"
+            value={stats.totalProjects}
+            sub={`${stats.activeProjects} active`}
+            icon={<FolderOpen className="w-5 h-5 text-blue-600" />}
+            href="/projects"
+            accentBorder="border-blue-100"
+            accentIcon="bg-blue-50 dark:bg-blue-950/30"
+          />
+          <StatCard
+            label="Templates"
+            value={stats.totalTemplates}
+            sub={`${stats.totalCategories} categories total`}
+            icon={<Layers className="w-5 h-5 text-emerald-600" />}
+            href="/admin/checklists"
+            accentBorder="border-emerald-100"
+            accentIcon="bg-emerald-50 dark:bg-emerald-950/30"
+          />
+          <StatCard
+            label="Pending Reviews"
+            value={stats.pendingReviews}
+            sub="Checklists awaiting ME review"
+            icon={<ClipboardList className="w-5 h-5 text-amber-600" />}
+            href="/projects?attention=needs_draft_review"
+            accentBorder="border-amber-100"
+            accentIcon="bg-amber-50 dark:bg-amber-950/30"
+          />
+        </div>
+
+        {/* ── Main grid ──────────────────────────────────────────────────── */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Quick actions */}
+          <div className="lg:col-span-1 space-y-4">
+            <div>
+              <h2 className="text-xs font-bold text-zinc-800 dark:text-zinc-200 uppercase tracking-widest mb-3">
+                Quick Actions
+              </h2>
+              <div className="space-y-2">
+                {role === "system admin" && (
+                  <QuickAction
+                    href="/admin/users"
+                    icon={<Users className="w-5 h-5 text-violet-600" />}
+                    label="Manage Users"
+                    description="Add, edit or archive user accounts"
+                    accent="bg-violet-50 dark:bg-violet-950/30"
+                  />
+                )}
+
+                <QuickAction
+                  href="/admin/checklists"
+                  icon={<CheckSquare className="w-5 h-5 text-emerald-600" />}
+                  label="Checklist Templates"
+                  description="Edit sector checklist templates"
+                  accent="bg-emerald-50 dark:bg-emerald-950/30"
+                />
+                <QuickAction
+                  href="/projects"
+                  icon={<FolderOpen className="w-5 h-5 text-blue-600" />}
+                  label="All Projects"
+                  description="Browse and manage all projects"
+                  accent="bg-blue-50 dark:bg-blue-950/30"
+                />
+                <QuickAction
+                  href="/cidp"
+                  icon={<BarChart3 className="w-5 h-5 text-teal-600" />}
+                  label="CIDP Categories"
+                  description="Review and approve CIDP key outputs"
+                  accent="bg-teal-50 dark:bg-teal-950/30"
+                />
+                <QuickAction
+                  href="/dashboard"
+                  icon={<TrendingUp className="w-5 h-5 text-amber-600" />}
+                  label="Performance Dashboard"
+                  description="CIDP target vs actual delivery"
+                  accent="bg-amber-50 dark:bg-amber-950/30"
+                />
+                <QuickAction
+                  href="/settings"
+                  icon={<Settings className="w-5 h-5 text-zinc-600" />}
+                  label="System Settings"
+                  description="Application configuration"
+                  accent="bg-zinc-100 dark:bg-zinc-800"
+                />
+              </div>
+            </div>
+
+            {/* System info */}
+            <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <Database className="w-4 h-4 text-zinc-400" />
+                <h3 className="text-xs font-bold text-zinc-800 dark:text-zinc-200 uppercase tracking-widest">
+                  System Endpoints
+                </h3>
+              </div>
+              <div className="space-y-2">
+                {[
+                  "/api/admin/users",
+                  "/api/admin/checklists",
+                  "/api/projects/upload",
+                  "/api/report/pptx",
+                ].map((ep) => (
+                  <div
+                    key={ep}
+                    className="flex items-center justify-between px-3 py-2 rounded-lg bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-100 dark:border-zinc-800"
+                  >
+                    <span className="text-xs font-mono text-zinc-600 dark:text-zinc-400">
+                      {ep}
+                    </span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Recent activity */}
+          <div className="lg:col-span-2">
+            <h2 className="text-xs font-bold text-zinc-800 dark:text-zinc-200 uppercase tracking-widest mb-3">
+              Recent Activity
+            </h2>
+            <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden">
+              {activity.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-center">
+                  <Activity className="w-10 h-10 text-zinc-300 dark:text-zinc-600 mb-3" />
+                  <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
+                    No recent activity
+                  </p>
+                </div>
+              ) : (
+                <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                  {activity.slice(0, 12).map((ev) => {
+                    const meta = ACTIVITY_META[ev.type];
+                    return (
+                      <div
+                        key={ev.id}
+                        className="flex items-start gap-3 px-5 py-3.5 hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors"
+                      >
+                        <div
+                          className={`shrink-0 w-7 h-7 rounded-lg border flex items-center justify-center mt-0.5 ${meta.cls}`}
+                        >
+                          {meta.icon}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 truncate">
+                            {ev.label}
+                          </p>
+                          <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
+                            {ev.detail}
+                          </p>
+                        </div>
+                        <span className="text-xs text-zinc-400 dark:text-zinc-500 shrink-0 mt-0.5 tabular-nums">
+                          {timeAgo(ev.date)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <div className="px-5 py-3 border-t border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/20">
+                <Link
+                  href="/projects"
+                  className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors flex items-center gap-1"
+                >
+                  View all projects <ArrowUpRight className="w-3 h-3" />
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

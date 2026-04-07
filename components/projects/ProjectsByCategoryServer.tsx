@@ -447,13 +447,13 @@ export default async function ProjectsByCategoryServer({
   query,
   sector,
   userRole,
-  userEmail,
 }: {
   query: string;
   sector: string;
   userRole: string;
   userEmail: string;
 }) {
+  console.log("sector, query", sector, query);
   const [categories, uncategorized] = await Promise.all([
     fetchCategoriesWithProjects({
       sector: sector !== "ALL" ? sector : undefined,

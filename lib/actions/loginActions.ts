@@ -52,7 +52,7 @@ export async function authenticate(_state: unknown, formData: FormData) {
     } catch (err) {
       if (err instanceof DatabaseError) {
         return (
-          err ??
+          err.message ??
           "Our authentication service is temporarily unavailable. Please try again later."
         );
       }

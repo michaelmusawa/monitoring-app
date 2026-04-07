@@ -1,7 +1,7 @@
+// app/layout.tsx
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import Sidebar from "@/components/navigation/Sidebar";
 import PageWrapper from "@/components/navigation/PageWrapper";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -26,12 +26,26 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Script to set dark mode based on system preference */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                const isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                if (isDarkMode) {
+                  document.documentElement.classList.add('dark');
+                }
+              })();
+            `,
+          }}
+        />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <Toaster />
-
         <PageWrapper>{children}</PageWrapper>
       </body>
     </html>

@@ -10,8 +10,10 @@ import { SECTORS } from "@/lib/data/data";
 
 export default function ProjectsCategoryPageClient({
   userRole,
+  userSector,
 }: {
   userRole: string;
+  userSector: string | undefined;
 }) {
   const searchParams = useSearchParams();
   const pathname = usePathname();
@@ -56,7 +58,7 @@ export default function ProjectsCategoryPageClient({
         </div>
 
         {/* Primary action */}
-        {userRole === "sector" && (
+        {userSector !== "Monitoring And Evaluation" && (
           <Link
             href="/projects/new"
             className="shrink-0 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"

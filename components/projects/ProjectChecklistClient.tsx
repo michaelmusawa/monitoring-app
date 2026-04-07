@@ -686,6 +686,7 @@ export default function ProjectChecklistClient({
   checklist: initialChecklist,
   standardParams,
   userRole,
+  userSector,
 }: Props) {
   const router = useRouter();
 
@@ -803,26 +804,26 @@ export default function ProjectChecklistClient({
       return { canEdit: false, canReview: false, canView: true };
     if (phase === "Draft")
       return {
-        canEdit: userRole === "sector",
+        canEdit: userSector !== "Monitoring and Evaluation",
         canReview: false,
         canView: true,
       };
     if (phase === "DraftReview")
       return {
-        canEdit: userRole === "me",
-        canReview: userRole === "me",
+        canEdit: userSector === "Monitoring and Evaluation",
+        canReview: userSector === "Monitoring and Evaluation",
         canView: true,
       };
     if (phase === "WeightsAssignment")
       return {
-        canEdit: userRole === "sector",
+        canEdit: userSector !== "Monitoring and Evaluation",
         canReview: false,
         canView: true,
       };
     if (phase === "WeightsReview")
       return {
-        canEdit: userRole === "me",
-        canReview: userRole === "me",
+        canEdit: userSector === "Monitoring and Evaluation",
+        canReview: userSector === "Monitoring and Evaluation",
         canView: true,
       };
     return { canEdit: false, canReview: false, canView: true };
@@ -835,7 +836,8 @@ export default function ProjectChecklistClient({
   const effectiveCanReview = permissions.canReview;
 
   const showWorkplanTab =
-    currentPhase.id === "WeightsAssignment" && userRole === "sector";
+    currentPhase.id === "WeightsAssignment" &&
+    userSector !== "Monitoring and Evaluation";
 
   const weightedItems = useMemo(
     () =>
@@ -852,7 +854,8 @@ export default function ProjectChecklistClient({
 
   /** True if any local item differs from baseline AND is not yet committed */
   const hasUncommittedChanges = useMemo(() => {
-    if (!isReviewPhase || userRole !== "me") return false;
+    if (!isReviewPhase || userSector !== "Monitoring and Evaluation")
+      return false;
     for (const [pid, val] of Object.entries(localItems)) {
       const baseline = baselineItems.current[pid] ?? 0;
       if (val !== baseline && !committedChanges[pid]) return true;
@@ -865,7 +868,8 @@ export default function ProjectChecklistClient({
 
   /** For non-review phases: any local value different from baseline */
   const hasPendingChanges = useMemo(() => {
-    if (isReviewPhase && userRole === "me") return false; // handled differently
+    if (isReviewPhase && userSector === "Monitoring and Evaluation")
+      return false; // handled differently
     for (const [pid, val] of Object.entries(localItems)) {
       const baseline = baselineItems.current[pid] ?? 0;
       if (val !== baseline) return true;
@@ -969,7 +973,7 @@ export default function ProjectChecklistClient({
     const newValue = isIncluded ? 0 : 1;
     setLocalItems((prev) => ({ ...prev, [paramId]: newValue }));
     // Mark as pending (unapplied) for review phases
-    if (isReviewPhase && userRole === "me") {
+    if (isReviewPhase && userRole !== "Monitoring and Evaluation") {
       setPendingTaskChanges((prev) => {
         const next = new Set(prev);
         next.add(paramId);
@@ -993,7 +997,7 @@ export default function ProjectChecklistClient({
     const maxAllowed = 100 - totalWithoutCurrent;
     const newWeight = Math.max(0, Math.min(weight, maxAllowed));
     setLocalItems((prev) => ({ ...prev, [paramId]: newWeight }));
-    if (isReviewPhase && userRole === "me") {
+    if (isReviewPhase && userSector !== "Monitoring and Evaluation") {
       setPendingTaskChanges((prev) => {
         const next = new Set(prev);
         next.add(paramId);
@@ -1058,7 +1062,11 @@ export default function ProjectChecklistClient({
     if (!checklist) return;
 
     // In review phases, ME must apply (commit) all changes before sending back
-    if (isReviewPhase && userRole === "me" && hasUncommittedChanges) {
+    if (
+      isReviewPhase &&
+      userSector === "Monitoring and Evaluation" &&
+      hasUncommittedChanges
+    ) {
       toast.error(
         "Apply all your changes (click the Apply checkbox) before saving.",
       );
@@ -1590,7 +1598,7 @@ export default function ProjectChecklistClient({
                             pendingTaskChanges.has(param.id) && isDirty;
                           const annotation =
                             // Show annotation for sector officer when checklist was sent back
-                            userRole === "sector" &&
+                            userSector !== "Monitoring And Evaluation" &&
                             checklist.taskAnnotations?.find(
                               (a) => a.parameterId === param.id,
                             );
@@ -1727,7 +1735,8 @@ export default function ProjectChecklistClient({
 
                                   {/* Apply checkbox — only shown in review phases for ME on changed tasks */}
                                   {isReviewPhase &&
-                                    userRole === "me" &&
+                                    userSector ===
+                                      "Monitoring And Evaluation" &&
                                     isDirty &&
                                     !isApplied && (
                                       <div className="flex items-center gap-1.5 ml-2">
@@ -2017,42 +2026,45 @@ export default function ProjectChecklistClient({
                 )}
 
                 {/* Draft → DraftReview */}
-                {userRole === "sector" && checklist.status === "Draft" && (
-                  <Button
-                    variant="outline"
-                    onClick={() => handleSave("DraftReview")}
-                    disabled={saving}
-                  >
-                    Submit for Draft Review
-                  </Button>
-                )}
+                {userSector !== "Monitoring And Evaluation" &&
+                  checklist.status === "Draft" && (
+                    <Button
+                      variant="outline"
+                      onClick={() => handleSave("DraftReview")}
+                      disabled={saving}
+                    >
+                      Submit for Draft Review
+                    </Button>
+                  )}
 
                 {/* DraftReview: ME sends back */}
-                {userRole === "me" && checklist.status === "DraftReview" && (
-                  <Button
-                    variant="outline"
-                    onClick={() => handleSave("Draft")}
-                    disabled={
-                      saving || hasUncommittedChanges || !hasCommittedChanges
-                    }
-                  >
-                    Send Back to Draft
-                  </Button>
-                )}
+                {userSector === "Monitoring And Evaluation" &&
+                  checklist.status === "DraftReview" && (
+                    <Button
+                      variant="outline"
+                      onClick={() => handleSave("Draft")}
+                      disabled={
+                        saving || hasUncommittedChanges || !hasCommittedChanges
+                      }
+                    >
+                      Send Back to Draft
+                    </Button>
+                  )}
 
                 {/* DraftReview: ME approves */}
-                {userRole === "me" && checklist.status === "DraftReview" && (
-                  <Button
-                    variant="default"
-                    onClick={() => handleSave("WeightsAssignment")}
-                    disabled={saving || hasUncommittedChanges}
-                  >
-                    Approve Draft → Weights
-                  </Button>
-                )}
+                {userSector === "Monitoring And Evaluation" &&
+                  checklist.status === "DraftReview" && (
+                    <Button
+                      variant="default"
+                      onClick={() => handleSave("WeightsAssignment")}
+                      disabled={saving || hasUncommittedChanges}
+                    >
+                      Approve Draft → Weights
+                    </Button>
+                  )}
 
                 {/* WeightsAssignment → WeightsReview */}
-                {userRole === "sector" &&
+                {userSector !== "Monitoring And Evaluation" &&
                   checklist.status === "WeightsAssignment" && (
                     <Button
                       variant="outline"
@@ -2064,29 +2076,32 @@ export default function ProjectChecklistClient({
                   )}
 
                 {/* WeightsReview: ME sends back */}
-                {userRole === "me" && checklist.status === "WeightsReview" && (
-                  <Button
-                    variant="outline"
-                    onClick={() => handleSave("WeightsAssignment")}
-                    disabled={
-                      saving || hasUncommittedChanges || !hasCommittedChanges
-                    }
-                  >
-                    Send Back to Weights
-                  </Button>
-                )}
+                {userSector === "Monitoring And Evaluation" &&
+                  checklist.status === "WeightsReview" && (
+                    <Button
+                      variant="outline"
+                      onClick={() => handleSave("WeightsAssignment")}
+                      disabled={
+                        saving || hasUncommittedChanges || !hasCommittedChanges
+                      }
+                    >
+                      Send Back to Weights
+                    </Button>
+                  )}
 
                 {/* WeightsReview: ME approves */}
-                {userRole === "me" && checklist.status === "WeightsReview" && (
-                  <Button
-                    variant="default"
-                    onClick={() => handleSave("Approved")}
-                    disabled={saving || hasUncommittedChanges}
-                    className="bg-green-600 hover:bg-green-700"
-                  >
-                    <CheckCircle className="w-4 h-4 mr-2" /> Approve & Finalize
-                  </Button>
-                )}
+                {userSector === "Monitoring And Evaluation" &&
+                  checklist.status === "WeightsReview" && (
+                    <Button
+                      variant="default"
+                      onClick={() => handleSave("Approved")}
+                      disabled={saving || hasUncommittedChanges}
+                      className="bg-green-600 hover:bg-green-700"
+                    >
+                      <CheckCircle className="w-4 h-4 mr-2" /> Approve &
+                      Finalize
+                    </Button>
+                  )}
               </div>
 
               {/* Helper messages */}
@@ -2099,7 +2114,7 @@ export default function ProjectChecklistClient({
               )}
 
               {isReviewPhase &&
-                userRole === "me" &&
+                userSector === "Monitoring And Evaluation" &&
                 !hasCommittedChanges &&
                 !hasUncommittedChanges && (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">

@@ -238,8 +238,8 @@ export function getWardCoords(
   return ward ? { lat: ward.lat, lng: ward.lng } : { lat: sc.lat, lng: sc.lng };
 }
 
+export const ROLES = ["system admin", "admin", "user", "executive"];
 export const SECTORS = [
-  "ALL",
   "Mobility And Works",
   "Health, Wellness And Nutrition",
   "Talent, Skills Development And Care",
@@ -260,4 +260,5 @@ export const SECTORS = [
   "Ward Development Programme",
   "County Public Service Board",
   "County Assembly",
+  "Monitoring And Evaluation",
 ];

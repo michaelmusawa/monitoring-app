@@ -1,5 +1,5 @@
 // components/navigation/Sidebar.tsx
-import { auth, signOut } from "@/auth";
+import { auth } from "@/auth";
 import { getUser } from "@/lib/actions/usersActions";
 import SidebarClient from "./SidebarClient";
 
@@ -10,19 +10,16 @@ export default async function Sidebar() {
 
   // Fetch the real user record so we have sector/role info
   let displayName = userNameFromSession;
-  let role = "sector";
+  let role = "user";
+  let sector = "";
 
   try {
     const user = await getUser(userEmail);
 
     if (user) {
       displayName = user.name ?? userNameFromSession;
-      role =
-        user.sector === "me"
-          ? "me"
-          : user?.sector === "sector" || user?.sector === "IDE"
-            ? "sector"
-            : "admin";
+      role = user.role;
+      sector = user.sector ?? "";
     }
   } catch {
     // fall back to session data
@@ -33,6 +30,7 @@ export default async function Sidebar() {
       userEmail={userEmail}
       userName={displayName}
       userRole={role}
+      userSector={sector}
     />
   );
 }

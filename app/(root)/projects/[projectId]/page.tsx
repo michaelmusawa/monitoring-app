@@ -121,18 +121,14 @@ export default async function ProjectDetail(props: {
   const user = await getUser(userEmail);
 
   // Derive role once, pass everywhere
-  const userRole =
-    user?.sector === "me"
-      ? "me"
-      : user?.sector === "IDE" || user?.sector === "sector"
-        ? "sector"
-        : "viewer";
+  const userRole = user?.role;
+  const userSector = user?.sector;
 
   const project = await getProject(projectId);
   if (!project) notFound();
 
   const checklist = await getChecklist(projectId);
-  const template = await getTemplateBySector(project.sector);
+  const template = await getTemplateBySector(project?.sector ?? "");
 
   const standardParams = template.flatMap((cat: any) =>
     cat.tasks.map((task: any) => ({
@@ -437,7 +433,7 @@ export default async function ProjectDetail(props: {
               <ArrowUpRightIcon className="w-3 h-3 opacity-40" />
             </Link>
 
-            {userRole === "me" && (
+            {userSector === "Monitoring And Evaluation" && (
               <Link
                 href={`/projects/${projectId}/evaluation`}
                 className="inline-flex items-center gap-1.5 px-3.5 py-2.5 text-sm font-medium
@@ -462,6 +458,7 @@ export default async function ProjectDetail(props: {
                 checklist={checklist}
                 standardParams={standardParams}
                 userRole={userRole}
+                userSector={userSector}
               />
             )}
             {tab === "trackers" && (
@@ -470,6 +467,7 @@ export default async function ProjectDetail(props: {
                 submissions={submissions}
                 hasApprovedChecklist={hasApprovedChecklist}
                 userRole={userRole}
+                userSector={userSector}
               />
             )}
             {tab === "calendar" && (
@@ -477,6 +475,7 @@ export default async function ProjectDetail(props: {
                 projectId={project.id}
                 checklistStatus={checklist?.status ?? "Draft"}
                 userRole={userRole} // ← fixed: derived role, not raw email
+                userSector={userSector}
                 checklistItems={checklistItemsForWorkplan}
               />
             )}

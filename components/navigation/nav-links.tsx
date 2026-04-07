@@ -37,14 +37,14 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { name: "All Projects", href: "/projects", icon: FolderOpen },
       { name: "By Category", href: "/projectCategory", icon: FolderKanban },
-      { name: "Map View", href: "/portal", icon: Map },
+      { name: "Map View", href: "/map", icon: Map },
     ],
   },
   {
     label: "Administration",
     items: [
-      { name: "CIDP Categories", href: "/cidp", icon: BarChart3 },
-      { name: "Settings", href: "/settings", icon: Settings },
+      { name: "Template", href: "/admin/checklists", icon: BarChart3 },
+      { name: "Settings", href: "/admin", icon: Settings },
       { name: "Profile", href: "/profile", icon: User },
     ],
   },
@@ -52,12 +52,7 @@ const NAV_GROUPS: NavGroup[] = [
 
 // ─── NavLinks ─────────────────────────────────────────────────────────────────
 
-const NavLinks = ({
-  onNavigate,
-}: {
-  role?: string;
-  onNavigate?: () => void;
-}) => {
+const NavLinks = ({ onNavigate }: { onNavigate?: () => void }) => {
   const pathname = usePathname();
 
   return (
