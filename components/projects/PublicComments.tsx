@@ -4,8 +4,8 @@ import React, { useState } from "react";
 // Adjust path as needed
 import Image from "next/image";
 
-const publicComments = []; // Replace with actual data import
-const users = []; // Replace with actual data import
+const publicComments: any = []; // Replace with actual data import
+const users: any = []; // Replace with actual data import
 
 type Attachment = {
   id: string;
@@ -36,9 +36,9 @@ type PublicComment = {
 export default function PublicComments({ projectId }: { projectId: string }) {
   // Filter comments for this project and sort by date (newest first)
   const filteredComments = publicComments
-    .filter((comment) => comment.projectId === projectId)
+    .filter((comment: any) => comment.projectId === projectId)
     .sort(
-      (a, b) =>
+      (a: any, b: any) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
 
@@ -55,13 +55,13 @@ export default function PublicComments({ projectId }: { projectId: string }) {
 
   // Function to get user details by ID
   const getUserById = (userId: string) => {
-    const user = users.find((u) => u.id === userId);
+    const user = users.find((u: any) => u.id === userId);
     return user || { name: "Unknown User", email: "", phone: "", avatar: "" };
   };
 
   // Function to get user name from userId for replies
   const getUserName = (userId: string) => {
-    const user = users.find((u) => u.id === userId);
+    const user = users.find((u: any) => u.id === userId);
     return user ? user.name : "Unknown User";
   };
 

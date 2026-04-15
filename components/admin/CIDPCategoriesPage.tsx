@@ -1238,7 +1238,7 @@ export default function CIDPCategoriesPage({
 
   const handleSaveExtracted = async () => {
     if (!extracted) return;
-    await batchCreateCategories(extracted, userEmail);
+    await batchCreateCategories(extracted as any, userEmail);
     toast.success(`${extracted.length} categories saved`);
     setExtracted(null);
     setFile(null);

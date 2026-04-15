@@ -278,5 +278,5 @@ export async function updateTrackerSubmission(
     }
   });
 
-  revalidatePath(`/projects/${data.items[0]?.projectId ?? ""}`);
+  revalidatePath(`/projects/${data.items[0]?.parameterId ?? ""}`);
 }

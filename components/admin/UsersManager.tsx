@@ -10,9 +10,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { User as AppUserType } from "@/lib/types/types";
 
-/**
+import { User as AppUserType } from "@/lib/types/userTypes";
+
+/*
  * UsersManager component
  *
  * Lightweight, self-contained user management UI that:
@@ -64,6 +65,7 @@ export default function UsersManager() {
         }
       } catch (err: any) {
         // Fallback demo users so the UI remains useful without backend.
+        console.log("Error loading users, falling back to demo data:", err);
         if (mounted) {
           setError(
             "Unable to load users from server — showing demo users. Implement /api/admin/users to persist changes.",
@@ -102,7 +104,7 @@ export default function UsersManager() {
       return;
     }
 
-    const newUser: AppUserType = {
+    const newUser: any = {
       id: tempId(),
       name: form.name.trim(),
       email: form.email.trim(),
@@ -165,7 +167,7 @@ export default function UsersManager() {
   }
 
   // Delete user (optimistic + DELETE)
-  async function removeUser(id: string) {
+  async function removeUser(id: any) {
     if (!confirm("Remove user? This action cannot be undone.")) return;
     const prev = users;
     setUsers((s) => s.filter((u) => u.id !== id));
@@ -299,9 +301,11 @@ export default function UsersManager() {
                     <button
                       className="px-2 py-1 text-xs border rounded text-rose-600"
                       onClick={() => removeUser(u.id)}
-                      disabled={deletingUserId === u.id}
+                      disabled={deletingUserId === String(u.id)}
                     >
-                      {deletingUserId === u.id ? "Removing..." : "Remove"}
+                      {deletingUserId === String(u.id)
+                        ? "Removing..."
+                        : "Remove"}
                     </button>
                   </div>
                 </td>

@@ -114,9 +114,9 @@ export async function getCategoryWithNotes(
 export async function batchCreateCategories(
   items: {
     name: string;
-    sector?: string;
+    sector?: string | null;
     target?: number;
-    budget?: number;
+    budget?: number | null;
   }[],
   createdBy?: string,
 ): Promise<ProjectCategory[]> {
@@ -426,59 +426,250 @@ export interface CategoryWithProjects extends ProjectCategory {
 // lightweight enrichment (latest tracker, counts).  Used by the grouped
 // projects page so the server component can render everything in one shot.
 
+// Add these types and functions at the end of the file
+
+// ─── New type for flat project list ─────────────────────────────────────────
+export interface FlatProject {
+  id: string;
+  name: string;
+  categoryId: string | null;
+  categoryName: string | null;
+  sector: string | null;
+  status: string;
+  budget: number | null;
+  progress: number;
+  ward: string | null;
+  subCounty: string | null;
+  createdAt: string;
+}
+
+// ─── fetchFilteredProjectsFlat ──────────────────────────────────────────────
+// Returns a flat list of projects with their category names, applying all filters.
+export async function fetchFilteredProjectsFlat(filters?: {
+  sector?: string;
+  categoryName?: string; // search inside category name
+  projectName?: string;
+  status?: string;
+  minBudget?: number;
+  maxBudget?: number;
+}): Promise<FlatProject[]> {
+  let query = `
+    SELECT
+      p.id, p.name, p.sector, p.status, p.budget, p.progress,
+      p.ward, p.subCounty, p.createdAt, p.categoryId,
+      pc.name as categoryName
+    FROM Project p
+    LEFT JOIN ProjectCategory pc ON p.categoryId = pc.id
+    WHERE 1=1
+  `;
+  const params: any[] = [];
+  let paramIndex = 0;
+
+  if (filters?.sector) {
+    query += ` AND p.sector = @p${++paramIndex}`;
+    params.push(filters.sector);
+  }
+  if (filters?.categoryName) {
+    query += ` AND pc.name LIKE @p${++paramIndex}`;
+    params.push(`%${filters.categoryName}%`);
+  }
+  if (filters?.projectName) {
+    query += ` AND p.name LIKE @p${++paramIndex}`;
+    params.push(`%${filters.projectName}%`);
+  }
+  if (filters?.status) {
+    query += ` AND p.status = @p${++paramIndex}`;
+    params.push(filters.status);
+  }
+  if (filters?.minBudget !== undefined) {
+    query += ` AND p.budget >= @p${++paramIndex}`;
+    params.push(filters.minBudget);
+  }
+  if (filters?.maxBudget !== undefined) {
+    query += ` AND p.budget <= @p${++paramIndex}`;
+    params.push(filters.maxBudget);
+  }
+
+  query += ` ORDER BY p.createdAt DESC`;
+
+  const { rows } = await safeQuery<any>(query, params);
+  return rows.map((row) => ({
+    id: row.id.toString(),
+    name: row.name,
+    categoryId: row.categoryId?.toString() ?? null,
+    categoryName: row.categoryName ?? null,
+    sector: row.sector ?? null,
+    status: row.status,
+    budget: row.budget != null ? Number(row.budget) : null,
+    progress: row.progress != null ? Number(row.progress) : 0,
+    ward: row.ward ?? null,
+    subCounty: row.subCounty ?? null,
+    createdAt: row.createdAt?.toISOString() ?? new Date().toISOString(),
+  }));
+}
+
+// ─── Update fetchUncategorizedProjects to accept project filters ────────────
+// (Replace the existing function with this version)
+// ─── fetchUncategorizedProjects (fixed) ──────────────────────────────────────
+export async function fetchUncategorizedProjects(
+  sector?: string,
+  projectFilters?: {
+    projectName?: string;
+    status?: string;
+    minBudget?: number;
+    maxBudget?: number;
+  },
+): Promise<CategoryProject[]> {
+  // 1. Build main query with filters
+  let query = `
+    SELECT p.id, p.name, p.sector, p.status, p.budget, p.progress,
+           p.subCounty, p.ward, p.createdAt
+    FROM Project p
+    WHERE p.categoryId IS NULL
+  `;
+  const mainParams: any[] = [];
+  let nextParam = 1;
+
+  if (sector) {
+    query += ` AND p.sector = @p${nextParam++}`;
+    mainParams.push(sector);
+  }
+  if (projectFilters?.projectName) {
+    query += ` AND p.name LIKE @p${nextParam++}`;
+    mainParams.push(`%${projectFilters.projectName}%`);
+  }
+  if (projectFilters?.status && projectFilters.status !== "ALL") {
+    query += ` AND p.status = @p${nextParam++}`;
+    mainParams.push(projectFilters.status);
+  }
+  if (projectFilters?.minBudget !== undefined) {
+    query += ` AND p.budget >= @p${nextParam++}`;
+    mainParams.push(projectFilters.minBudget);
+  }
+  if (projectFilters?.maxBudget !== undefined) {
+    query += ` AND p.budget <= @p${nextParam++}`;
+    mainParams.push(projectFilters.maxBudget);
+  }
+  query += ` ORDER BY p.createdAt DESC`;
+
+  const { rows } = await safeQuery<any>(query, mainParams);
+  if (rows.length === 0) return [];
+
+  // 2. Get latest tracker submission for each project
+  const projectIds = rows.map((p: any) => p.id.toString());
+  // Build tracker query with its own independent parameters
+  const trackerQuery = `
+    SELECT t.projectId, t.overallPercent, t.submittedAt
+    FROM TrackerSubmission t
+    WHERE t.projectId IN (${projectIds.map((_, i) => `@p${i + 1}`).join(",")})
+      AND t.submittedAt = (
+        SELECT MAX(t2.submittedAt) FROM TrackerSubmission t2 WHERE t2.projectId = t.projectId
+      )
+  `;
+  const { rows: trackerRows } = await safeQuery<any>(trackerQuery, projectIds);
+  const trackerByProject = new Map(
+    trackerRows.map((r: any) => [r.projectId.toString(), r]),
+  );
+
+  // 3. Map results
+  return rows.map((p: any) => {
+    let size: CategoryProject["size"] = null;
+    if (p.budget != null) {
+      if (p.budget <= 500_000) size = "Small";
+      else if (p.budget <= 1_000_000) size = "Medium";
+      else size = "Large";
+    }
+    const tr = trackerByProject.get(p.id.toString());
+    return {
+      id: p.id.toString(),
+      name: p.name,
+      sector: p.sector ?? null,
+      status: p.status,
+      budget: p.budget != null ? Number(p.budget) : null,
+      progress: p.progress != null ? Number(p.progress) : null,
+      size,
+      subCounty: p.subCounty ?? null,
+      ward: p.ward ?? null,
+      createdAt: p.createdAt?.toISOString() ?? new Date().toISOString(),
+      latestTrackerPercent: tr ? Number(tr.overallPercent) : null,
+      latestTrackerDate: tr ? tr.submittedAt?.toISOString() : null,
+      trackerCount: 0,
+    };
+  });
+}
+
+// ─── Update fetchCategoriesWithProjects to accept project filters ───────────
+// (Replace the existing function with this version)
 export async function fetchCategoriesWithProjects(filters?: {
   sector?: string;
-  query?: string;
+  query?: string; // category name search
+  projectName?: string;
+  projectStatus?: string;
+  minBudget?: number;
+  maxBudget?: number;
 }): Promise<CategoryWithProjects[]> {
-  // 1. Load approved categories (optionally filtered by sector/name)
-  const conditions: string[] = ["status = 'APPROVED'"];
-  const params: any[] = [];
-
-  if (filters?.sector && filters.sector !== "ALL") {
-    params.push(filters.sector);
-    conditions.push(`sector = @p${params.length}`);
+  // 1. Load approved categories (sector & category name filters)
+  const catConditions: string[] = ["status = 'APPROVED'"];
+  const catParams: any[] = [];
+  if (filters?.sector) {
+    catParams.push(filters.sector);
+    catConditions.push(`sector = @p${catParams.length}`);
   }
   if (filters?.query) {
-    params.push(`%${filters.query}%`);
-    conditions.push(`name LIKE @p${params.length}`);
+    catParams.push(`%${filters.query}%`);
+    catConditions.push(`name LIKE @p${catParams.length}`);
   }
-
-  const where = `WHERE ${conditions.join(" AND ")}`;
+  const where = `WHERE ${catConditions.join(" AND ")}`;
   const { rows: catRows } = await safeQuery<any>(
     `SELECT id, name, sector, target, budget, status, createdBy,
             submittedAt, reviewedAt, createdAt, updatedAt
      FROM ProjectCategory ${where}
      ORDER BY sector, name`,
-    params,
+    catParams,
   );
-
   if (catRows.length === 0) return [];
 
   const categoryIds = catRows.map((r: any) => r.id);
-  const catPlaceholders = categoryIds
-    .map((_: any, i: number) => `@p${i + 1}`)
-    .join(", ");
 
-  // 2. Load all projects belonging to these categories
+  // 2. Load projects belonging to these categories, with project-level filters
+  let projectQuery = `
+    SELECT p.id, p.name, p.sector, p.status, p.budget, p.progress,
+           p.subCounty, p.ward, p.createdAt, p.categoryId
+    FROM Project p
+    WHERE p.categoryId IN (${categoryIds.map((_, i) => `@p${i + 1}`).join(",")})
+  `;
+  const projectParams = [...categoryIds];
+  let paramIndex = categoryIds.length;
+
+  if (filters?.projectName) {
+    projectQuery += ` AND p.name LIKE @p${++paramIndex}`;
+    projectParams.push(`%${filters.projectName}%`);
+  }
+  if (filters?.projectStatus && filters.projectStatus !== "ALL") {
+    projectQuery += ` AND p.status = @p${++paramIndex}`;
+    projectParams.push(filters.projectStatus);
+  }
+  if (filters?.minBudget !== undefined) {
+    projectQuery += ` AND p.budget >= @p${++paramIndex}`;
+    projectParams.push(filters.minBudget);
+  }
+  if (filters?.maxBudget !== undefined) {
+    projectQuery += ` AND p.budget <= @p${++paramIndex}`;
+    projectParams.push(filters.maxBudget);
+  }
+  projectQuery += ` ORDER BY p.createdAt DESC`;
+
   const { rows: projectRows } = await safeQuery<any>(
-    `SELECT p.id, p.name, p.sector, p.status, p.budget, p.progress,
-            p.subCounty, p.ward, p.createdAt, p.categoryId
-     FROM Project p
-     WHERE p.categoryId IN (${catPlaceholders})
-     ORDER BY p.createdAt DESC`,
-    categoryIds,
+    projectQuery,
+    projectParams,
   );
 
-  // 3. Enrich projects with latest tracker data
+  // 3. Enrich with tracker data
   let trackerByProject = new Map<string, any>();
   let countByProject = new Map<string, number>();
-
   if (projectRows.length > 0) {
     const projectIds = projectRows.map((p: any) => p.id.toString());
-    const projPlaceholders = projectIds
-      .map((_: any, i: number) => `@p${i + 1}`)
-      .join(", ");
-
+    const projPlaceholders = projectIds.map((_, i) => `@p${i + 1}`).join(",");
     const { rows: trackerRows } = await safeQuery<any>(
       `SELECT t.projectId, t.overallPercent, t.submittedAt
        FROM TrackerSubmission t
@@ -491,7 +682,6 @@ export async function fetchCategoriesWithProjects(filters?: {
     for (const r of trackerRows) {
       trackerByProject.set(r.projectId.toString(), r);
     }
-
     const { rows: countRows } = await safeQuery<any>(
       `SELECT projectId, COUNT(*) AS cnt
        FROM TrackerSubmission WHERE projectId IN (${projPlaceholders})
@@ -516,7 +706,6 @@ export async function fetchCategoriesWithProjects(filters?: {
       else if (p.budget <= 1_000_000) size = "Medium";
       else size = "Large";
     }
-
     const tr = trackerByProject.get(p.id.toString());
     projectsByCategory.get(catId)!.push({
       id: p.id.toString(),
@@ -535,87 +724,31 @@ export async function fetchCategoriesWithProjects(filters?: {
     });
   }
 
-  // 5. Assemble final result
-  return catRows.map((row: any) => {
-    const projects = projectsByCategory.get(row.id) ?? [];
-    const activeCount = projects.filter((p) => p.status === "ACTIVE").length;
-    const pendingCount = projects.filter((p) => p.status === "PENDING").length;
-    const progValues = projects.map(
-      (p) => p.latestTrackerPercent ?? p.progress ?? 0,
-    );
-    const avgProgress =
-      progValues.length > 0
-        ? progValues.reduce((a, b) => a + b, 0) / progValues.length
-        : null;
-
-    return {
-      ...mapCategory(row),
-      projects,
-      projectCount: projects.length,
-      activeCount,
-      pendingCount,
-      avgProgress,
-    };
-  });
-}
-
-// ─── fetchUncategorizedProjects ───────────────────────────────────────────────
-// Projects with no categoryId — shown in the "Uncategorized" bucket.
-
-export async function fetchUncategorizedProjects(): Promise<CategoryProject[]> {
-  const { rows } = await safeQuery<any>(
-    `SELECT p.id, p.name, p.sector, p.status, p.budget, p.progress,
-            p.subCounty, p.ward, p.createdAt
-     FROM Project p
-     WHERE p.categoryId IS NULL
-     ORDER BY p.createdAt DESC`,
-    [],
-  );
-
-  if (rows.length === 0) return [];
-
-  const projectIds = rows.map((p: any) => p.id.toString());
-  const placeholders = projectIds
-    .map((_: any, i: number) => `@p${i + 1}`)
-    .join(", ");
-
-  const { rows: trackerRows } = await safeQuery<any>(
-    `SELECT t.projectId, t.overallPercent, t.submittedAt
-     FROM TrackerSubmission t
-     WHERE t.projectId IN (${placeholders})
-       AND t.submittedAt = (
-         SELECT MAX(t2.submittedAt) FROM TrackerSubmission t2 WHERE t2.projectId = t.projectId
-       )`,
-    projectIds,
-  );
-  const trackerByProject = new Map(
-    trackerRows.map((r: any) => [r.projectId.toString(), r]),
-  );
-
-  return rows.map((p: any) => {
-    let size: CategoryProject["size"] = null;
-    if (p.budget != null) {
-      if (p.budget <= 500_000) size = "Small";
-      else if (p.budget <= 1_000_000) size = "Medium";
-      else size = "Large";
-    }
-    const tr = trackerByProject.get(p.id.toString()) as any;
-    return {
-      id: p.id.toString(),
-      name: p.name,
-      sector: p.sector ?? null,
-      status: p.status,
-      budget: p.budget != null ? Number(p.budget) : null,
-      progress: p.progress != null ? Number(p.progress) : null,
-      size,
-      subCounty: p.subCounty ?? null,
-      ward: p.ward ?? null,
-      createdAt: p.createdAt?.toISOString() ?? new Date().toISOString(),
-      latestTrackerPercent: tr ? Number(tr.overallPercent) : null,
-      latestTrackerDate: tr ? tr.submittedAt?.toISOString() : null,
-      trackerCount: 0,
-    };
-  });
+  // 5. Return only categories that have at least one project after filtering
+  return catRows
+    .filter((row: any) => projectsByCategory.has(row.id))
+    .map((row: any) => {
+      const projects = projectsByCategory.get(row.id)!;
+      const activeCount = projects.filter((p) => p.status === "ACTIVE").length;
+      const pendingCount = projects.filter(
+        (p) => p.status === "PENDING",
+      ).length;
+      const progValues = projects.map(
+        (p) => p.latestTrackerPercent ?? p.progress ?? 0,
+      );
+      const avgProgress =
+        progValues.length > 0
+          ? progValues.reduce((a, b) => a + b, 0) / progValues.length
+          : null;
+      return {
+        ...mapCategory(row),
+        projects,
+        projectCount: projects.length,
+        activeCount,
+        pendingCount,
+        avgProgress,
+      };
+    });
 }
 
 // ─── assignProjectToCategory ──────────────────────────────────────────────────

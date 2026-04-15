@@ -55,7 +55,8 @@ interface ChecklistItem {
 interface Props {
   projectId: string;
   checklistStatus: string; // e.g. "WeightsAssignment", "Approved" …
-  userRole: "sector" | "me" | "viewer";
+  userRole: string;
+  userSector?: string;
   // Passed from server — the approved checklist items (weight > 0 only)
   checklistItems: ChecklistItem[];
 }
@@ -963,6 +964,7 @@ export function ProjectCalendar({
   projectId,
   checklistStatus,
   userRole,
+  userSector,
   checklistItems,
 }: Props) {
   const [workplan, setWorkplan] = useState<WorkplanItem[]>([]);
@@ -970,8 +972,11 @@ export function ProjectCalendar({
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("gantt");
 
+  console.log(userRole);
+
   const canEditWorkplan =
-    userRole === "sector" && checklistStatus === "WeightsAssignment";
+    userSector !== "Monotoring And Evaluation" &&
+    checklistStatus === "WeightsAssignment";
 
   useEffect(() => {
     async function load() {

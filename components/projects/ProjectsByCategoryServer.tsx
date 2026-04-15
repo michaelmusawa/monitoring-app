@@ -1,8 +1,8 @@
-// components/projects/ProjectsByCategoryServer.tsx
 import Link from "next/link";
 import {
   fetchCategoriesWithProjects,
   fetchUncategorizedProjects,
+  fetchFilteredProjectsFlat,
   type CategoryWithProjects,
   type CategoryProject,
 } from "@/lib/actions/categoryActions";
@@ -11,20 +11,18 @@ import {
   Clock,
   TrendingUp,
   Activity,
-  AlertTriangle,
-  CheckCircle2,
-  Rocket,
   ChevronRight,
   FolderOpen,
   Layers,
-  CircleDot,
   Target,
   Wallet,
   Plus,
+  CheckCircle2,
+  AlertCircle,
 } from "lucide-react";
+import ProjectsFlatList from "./ProjectsFlatList";
 
-// ─── Formatters ───────────────────────────────────────────────────────────────
-
+// ─── Formatters (same as before) ─────────────────────────────────────────────
 function fmtCurrency(n: number | null) {
   if (n == null) return "—";
   if (n >= 1_000_000_000) return `KES ${(n / 1_000_000_000).toFixed(1)}B`;
@@ -49,8 +47,7 @@ function daysAgo(iso: string | null) {
   return `${d}d ago`;
 }
 
-// ─── Progress bar ─────────────────────────────────────────────────────────────
-
+// ─── Progress bar ───────────────────────────────────────────────────────────
 function ProgressBar({
   value,
   thin = false,
@@ -79,23 +76,20 @@ function ProgressBar({
   );
 }
 
-// ─── Size badge ───────────────────────────────────────────────────────────────
-
+// ─── Size badge ─────────────────────────────────────────────────────────────
 const SIZE_CLS: Record<string, string> = {
   Small: "text-blue-600 bg-blue-50",
   Medium: "text-violet-600 bg-violet-50",
   Large: "text-orange-600 bg-orange-50",
 };
 
-// ─── Project mini-card ────────────────────────────────────────────────────────
-
+// ─── Project mini-card (same as original) ────────────────────────────────────
 function ProjectMiniCard({ project }: { project: CategoryProject }) {
   const isPending = project.status === "PENDING";
   const pct = project.latestTrackerPercent ?? project.progress ?? 0;
 
   return (
     <div className="group relative bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-4 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
-      {/* Status dot */}
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="flex items-center gap-1.5 flex-wrap">
           <span
@@ -123,19 +117,13 @@ function ProjectMiniCard({ project }: { project: CategoryProject }) {
           }
           className="shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-zinc-50 dark:bg-zinc-800 text-zinc-500 hover:bg-blue-600 hover:text-white border border-zinc-200 dark:border-zinc-700 transition-all"
         >
-          {isPending ? (
-            <Rocket className="w-3 h-3" />
-          ) : (
-            <ChevronRight className="w-3 h-3" />
-          )}
           {isPending ? "Init" : "View"}
+          <ChevronRight className="w-3 h-3" />
         </Link>
       </div>
-
       <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 leading-snug line-clamp-2 mb-2 group-hover:text-blue-600 transition-colors">
         {project.name}
       </h4>
-
       <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-400 mb-3">
         {(project.ward || project.subCounty) && (
           <span className="flex items-center gap-1">
@@ -153,8 +141,6 @@ function ProjectMiniCard({ project }: { project: CategoryProject }) {
           {fmtDate(project.createdAt)}
         </span>
       </div>
-
-      {/* Progress */}
       <div className="space-y-1">
         <div className="flex justify-between text-xs">
           <span className="text-zinc-400 flex items-center gap-1">
@@ -177,8 +163,7 @@ function ProjectMiniCard({ project }: { project: CategoryProject }) {
   );
 }
 
-// ─── Add project button ───────────────────────────────────────────────────────
-
+// ─── Add project button ─────────────────────────────────────────────────────
 function AddProjectButton({
   categoryId,
   categoryName,
@@ -188,7 +173,6 @@ function AddProjectButton({
   categoryName: string;
   sector: string | null;
 }) {
-  // Links to a new-project form pre-seeded with categoryId and sector as query params
   const params = new URLSearchParams({
     categoryId,
     categoryName: categoryName.slice(0, 80),
@@ -205,8 +189,7 @@ function AddProjectButton({
   );
 }
 
-// ─── Sector colour map ────────────────────────────────────────────────────────
-
+// ─── Sector colour map ──────────────────────────────────────────────────────
 const SECTOR_COLORS: Record<string, { dot: string; badge: string }> = {
   "Mobility And Works": {
     dot: "bg-blue-500",
@@ -251,14 +234,15 @@ function getSectorColors(sector: string | null) {
   );
 }
 
-// ─── Category accordion card ──────────────────────────────────────────────────
-
+// ─── Category accordion card ─────────────────────────────────────────────────
 function CategoryCard({
   category,
   userRole,
+  sector,
 }: {
   category: CategoryWithProjects;
   userRole: string;
+  sector: string;
 }) {
   const colors = getSectorColors(category.sector);
   const pct = category.avgProgress ?? 0;
@@ -268,11 +252,8 @@ function CategoryCard({
     <details className="group/cat" open={hasProjects}>
       <summary className="list-none cursor-pointer">
         <div className="flex items-start gap-4 p-5 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:shadow-md transition-all duration-200 group-open/cat:rounded-b-none group-open/cat:border-b-0">
-          {/* Left accent */}
           <div className={`mt-1 w-2 h-2 rounded-full shrink-0 ${colors.dot}`} />
-
           <div className="flex-1 min-w-0">
-            {/* Title row */}
             <div className="flex flex-wrap items-center gap-2 mb-1.5">
               {category.sector && (
                 <span
@@ -293,8 +274,6 @@ function CategoryCard({
             <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 leading-snug text-base">
               {category.name}
             </h3>
-
-            {/* Stats row */}
             <div className="flex flex-wrap items-center gap-4 mt-2 text-xs text-zinc-500">
               {category.target != null && (
                 <span className="flex items-center gap-1">
@@ -323,16 +302,12 @@ function CategoryCard({
                 </span>
               )}
             </div>
-
-            {/* Progress bar */}
             {hasProjects && (
               <div className="mt-3 max-w-sm">
                 <ProgressBar value={pct} />
               </div>
             )}
           </div>
-
-          {/* Toggle chevron */}
           <svg
             className="w-4 h-4 text-zinc-400 shrink-0 mt-1 group-open/cat:rotate-180 transition-transform duration-200"
             fill="none"
@@ -348,8 +323,6 @@ function CategoryCard({
           </svg>
         </div>
       </summary>
-
-      {/* Projects grid */}
       <div className="border border-t-0 border-zinc-200 dark:border-zinc-800 rounded-b-2xl bg-zinc-50/50 dark:bg-zinc-900/50 p-4">
         {hasProjects ? (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mb-4">
@@ -365,7 +338,7 @@ function CategoryCard({
             </span>
           </div>
         )}
-        {userRole === "sector" && (
+        {sector !== "Monitoring And Evaluation" && (
           <AddProjectButton
             categoryId={category.id}
             categoryName={category.name}
@@ -377,8 +350,7 @@ function CategoryCard({
   );
 }
 
-// ─── Uncategorized section ────────────────────────────────────────────────────
-
+// ─── Uncategorized section ───────────────────────────────────────────────────
 function UncategorizedSection({ projects }: { projects: CategoryProject[] }) {
   if (projects.length === 0) return null;
   return (
@@ -416,8 +388,7 @@ function UncategorizedSection({ projects }: { projects: CategoryProject[] }) {
   );
 }
 
-// ─── Empty state ──────────────────────────────────────────────────────────────
-
+// ─── Empty state ─────────────────────────────────────────────────────────────
 function EmptyState() {
   return (
     <div className="flex flex-col items-center justify-center py-24 text-center">
@@ -425,48 +396,74 @@ function EmptyState() {
         <FolderOpen className="w-8 h-8 text-zinc-400" />
       </div>
       <h3 className="text-lg font-semibold text-zinc-700 dark:text-zinc-300">
-        No approved categories found
+        No projects found
       </h3>
       <p className="text-sm text-zinc-400 mt-1 max-w-sm">
-        Categories must be extracted from the CIDP and approved before projects
-        can be grouped under them.
+        Try adjusting your filters or add a new project.
       </p>
-      <Link
-        href="/cidp"
-        className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors"
-      >
-        Go to CIDP Categories
-      </Link>
     </div>
   );
 }
 
-// ─── Server component ─────────────────────────────────────────────────────────
-
+// ─── Main Server Component ───────────────────────────────────────────────────
 export default async function ProjectsByCategoryServer({
-  query,
+  categoryQuery,
   sector,
+  projectName,
+  projectStatus,
+  minBudget,
+  maxBudget,
+  view,
   userRole,
+  userEmail,
 }: {
-  query: string;
+  categoryQuery: string;
   sector: string;
+  projectName: string;
+  projectStatus: string;
+  minBudget?: number;
+  maxBudget?: number;
+  view: "grouped" | "flat";
   userRole: string;
   userEmail: string;
 }) {
-  console.log("sector, query", sector, query);
+  const filterSector = sector !== "ALL" ? sector : undefined;
+
+  if (view === "flat") {
+    const projects = await fetchFilteredProjectsFlat({
+      sector: filterSector,
+      categoryName: categoryQuery || undefined,
+      projectName: projectName || undefined,
+      status: projectStatus !== "ALL" ? projectStatus : undefined,
+      minBudget,
+      maxBudget,
+    });
+    if (projects.length === 0) return <EmptyState />;
+    return <ProjectsFlatList projects={projects} userRole={userRole} />;
+  }
+
+  // Grouped view
   const [categories, uncategorized] = await Promise.all([
     fetchCategoriesWithProjects({
-      sector: sector !== "ALL" ? sector : undefined,
-      query: query || undefined,
+      sector: filterSector,
+      query: categoryQuery || undefined,
+      projectName: projectName || undefined,
+      projectStatus: projectStatus !== "ALL" ? projectStatus : undefined,
+      minBudget,
+      maxBudget,
     }),
-    fetchUncategorizedProjects(),
+    fetchUncategorizedProjects(filterSector, {
+      projectName: projectName || undefined,
+      status: projectStatus !== "ALL" ? projectStatus : undefined,
+      minBudget,
+      maxBudget,
+    }),
   ]);
 
   if (categories.length === 0 && uncategorized.length === 0) {
     return <EmptyState />;
   }
 
-  // Summary stats
   const totalProjects =
     categories.reduce((s, c) => s + c.projectCount, 0) + uncategorized.length;
   const totalActive = categories.reduce((s, c) => s + c.activeCount, 0);
@@ -474,7 +471,6 @@ export default async function ProjectsByCategoryServer({
 
   return (
     <div className="space-y-3">
-      {/* Summary banner */}
       <div className="flex flex-wrap gap-4 text-sm text-zinc-500 px-1">
         <span>
           <span className="font-semibold text-zinc-800 dark:text-zinc-100">
@@ -515,17 +511,14 @@ export default async function ProjectsByCategoryServer({
           </>
         )}
       </div>
-
-      {/* Category cards */}
       {categories.map((category) => (
         <CategoryCard
           key={category.id}
           category={category}
           userRole={userRole}
+          sector={sector}
         />
       ))}
-
-      {/* Uncategorized bucket */}
       <UncategorizedSection projects={uncategorized} />
     </div>
   );

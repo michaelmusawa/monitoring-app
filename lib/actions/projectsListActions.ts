@@ -101,7 +101,7 @@ export async function fetchEnrichedProjects(params: {
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-  const enriched: EnrichedProject[] = baseProjects.map((p) => {
+  const enriched: any = baseProjects.map((p) => {
     const cl = checklistByProject.get(p.id);
     const tr = trackerByProject.get(p.id);
     const trackerCount = countByProject.get(p.id) ?? 0;
@@ -109,7 +109,7 @@ export async function fetchEnrichedProjects(params: {
     const latestTrackerPercent = tr ? Number(tr.overallPercent) : null;
     const latestTrackerDate = tr ? tr.submittedAt?.toISOString() : null;
 
-    const flags: AttentionFlag[] = [];
+    const flags: any = [];
     if (p.status === "PENDING") flags.push("pending_init");
     if (cl?.status === "DraftReview") flags.push("needs_draft_review");
     if (cl?.status === "WeightsReview") flags.push("needs_weights_review");
@@ -150,7 +150,7 @@ export async function fetchEnrichedProjects(params: {
   });
 
   if (params.attention && params.attention !== "ALL") {
-    return enriched.filter((p) =>
+    return enriched.filter((p: any) =>
       p.attentionFlags.includes(params.attention as AttentionFlag),
     );
   }

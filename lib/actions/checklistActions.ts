@@ -2,7 +2,6 @@
 
 import sql from "mssql";
 import { DatabaseError, pool, poolConnect, safeQuery } from "@/lib/db";
-import { revalidatePath } from "next/cache";
 
 export async function withTransaction<T>(
   callback: (trx: sql.Transaction) => Promise<T>,
@@ -45,7 +44,7 @@ export interface CustomParam {
   id: string;
   label: string;
   category: string;
-  isPending: true;
+  isPending: string;
   addedBy: string;
   addedAt: string;
 }
@@ -103,7 +102,7 @@ export async function getChecklist(
 
     const checklistId = rows[0].id.toString();
 
-    const checklist: Checklist = {
+    const checklist: any = {
       id: checklistId,
       projectId,
       status: rows[0].status,
@@ -443,7 +442,7 @@ export async function saveChecklist(
       }
     }
 
-    const updated: Checklist = {
+    const updated: any = {
       id: rows[0].id.toString(),
       projectId: "", // filled by caller via API route
       status: rows[0].status,

@@ -12,4 +12,8 @@ export type Project = {
   subCounty?: string | null;
   ward?: string | null;
   prerequisites?: string[];
+  createdAt?: Date;
+  size?: string;
+  categoryId?: string;
+  updatedAt?: Date;
 };

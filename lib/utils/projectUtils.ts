@@ -28,9 +28,9 @@ export const getProjectChecklistStatus = (
 // Function to check if a project needs review (has draftReview or weightAssignment in checklist)
 export const projectNeedsReview = (
   projectId: string,
-  checklists: Checklist[],
+  checklists: any,
 ): boolean => {
-  const checklist = checklists.find((c) => c.projectId === projectId);
+  const checklist = checklists.find((c: any) => c.projectId === projectId);
   if (!checklist) return false;
 
   // Projects in draft_review or weight_review status need review
@@ -50,7 +50,7 @@ export const projectNeedsReview = (
 };
 
 // Function to get the type of review needed
-export const getReviewType = (checklist: Checklist): string => {
+export const getReviewType = (checklist: any): string => {
   if (checklist.status === "draft_review") return "Draft Review";
   if (checklist.status === "weight_review") return "Weights Review";
   if (checklist.draftReview) return "Draft Review";

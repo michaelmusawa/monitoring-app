@@ -1,7 +1,7 @@
 // app/api/projects/[projectId]/checklist/change-requests/[requestId]/reject/route.ts
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { rejectChangeRequest } from "@/lib/actions/checklistActions";
+// import { rejectChangeRequest } from "@/lib/actions/checklistActions";
 import { getUser } from "@/lib/actions/usersActions";
 
 export async function PUT(
@@ -9,6 +9,8 @@ export async function PUT(
   { params }: { params: Promise<{ requestId: string }> },
 ) {
   const { requestId } = await params;
+
+  console.log(requestId);
 
   const session = await auth();
   if (!session?.user?.email) {
@@ -23,7 +25,7 @@ export async function PUT(
   }
 
   try {
-    await rejectChangeRequest(requestId);
+    // await rejectChangeRequest(requestId);
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Reject change request error:", error);

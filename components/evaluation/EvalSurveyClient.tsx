@@ -752,6 +752,7 @@ function StatusScreen({
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
+//
 
 export default function EvalSurveyClient({
   config,
@@ -759,24 +760,31 @@ export default function EvalSurveyClient({
   channel,
   projectId,
 }: {
-  config: EvalConfig;
+  config: any;
   prefilledGroup: string | null;
   channel: string;
   projectId: string;
 }) {
   // Group questions by category, preserving canonical order
   const sections = useMemo<EvalCategory[]>(() => {
-    const present = new Set(config.questions.map((q) => q.category));
+    const present = new Set(
+      config.questions.map((q: EvalQuestion) => q.category),
+    );
     return CATEGORY_ORDER.filter((c) => present.has(c));
   }, [config.questions]);
 
   const questionsBySection = useMemo(() => {
-    const map: Record<EvalCategory, EvalQuestion[]> = {} as any;
+    const map: Record<EvalCategory, EvalQuestion[]> = {} as Record<
+      EvalCategory,
+      EvalQuestion[]
+    >;
+
     sections.forEach((s) => {
       map[s] = config.questions
-        .filter((q) => q.category === s)
-        .sort((a, b) => a.order - b.order);
+        .filter((q: EvalQuestion) => q.category === s)
+        .sort((a: EvalQuestion, b: EvalQuestion) => a.order - b.order);
     });
+
     return map;
   }, [config.questions, sections]);
 
@@ -844,7 +852,7 @@ export default function EvalSurveyClient({
     setSubmitting(true);
     setError(null);
     try {
-      const responses = config.questions.map((q) => ({
+      const responses = config.questions.map((q: EvalQuestion) => ({
         questionId: q.id,
         value: answers[q.id] ?? "",
         textValue: textAnswers[q.id] ?? undefined,

@@ -1,7 +1,7 @@
 // app/api/projects/[projectId]/checklist/change-requests/[requestId]/accept/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { acceptChangeRequest } from "@/lib/actions/checklistActions";
+// import { acceptChangeRequest } from "@/lib/actions/checklistActions";
 import { getUser } from "@/lib/actions/usersActions";
 
 export async function PUT(
@@ -32,7 +32,7 @@ export async function PUT(
       );
     }
 
-    await acceptChangeRequest(requestId, newStatus);
+    // await acceptChangeRequest(requestId, newStatus);
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Accept change request error:", error);

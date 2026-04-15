@@ -121,7 +121,7 @@ export default async function ProjectDetail(props: {
   const user = await getUser(userEmail);
 
   // Derive role once, pass everywhere
-  const userRole = user?.role;
+  const userRole = user?.role ?? "";
   const userSector = user?.sector;
 
   const project = await getProject(projectId);
@@ -158,7 +158,7 @@ export default async function ProjectDetail(props: {
     weight: i.weight,
   }));
 
-  const statusMeta = STATUS_META[project.status] ?? STATUS_META.PLANNING;
+  const statusMeta = STATUS_META[project?.status ?? ""] ?? STATUS_META.PLANNING;
 
   const checklistPhaseLabel =
     CHECKLIST_PHASE_LABEL[checklist?.status ?? ""] ?? "—";

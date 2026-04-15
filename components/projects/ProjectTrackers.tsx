@@ -802,6 +802,7 @@ export function ProjectTrackers({
   submissions: initialSubmissions,
   hasApprovedChecklist,
   userRole,
+  userSector,
 }: {
   projectId: string;
   projectName?: string;
@@ -810,10 +811,10 @@ export function ProjectTrackers({
   submissions: TrackerSubmission[];
   hasApprovedChecklist: boolean;
   userRole: string;
+  userSector?: string;
 }) {
-  const user = userRole;
-  const canCreate = user === "sector";
-  const canEdit = user === "me";
+  const canCreate = userSector !== "Monitoring And Evaluation";
+  const canEdit = userSector === "Monitoring And Evaluation";
 
   const router = useRouter();
   const [submissions, setSubmissions] =

@@ -1,5 +1,5 @@
 // Inside the same file (or import from a separate module)
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { FileText, Paperclip, X } from "lucide-react";
 import { Input } from "../ui/input";
@@ -17,6 +17,7 @@ export function AttachmentsField({
   const [uploading, setUploading] = useState(false);
   const [previewFile, setPreviewFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   // Public S3 endpoint (must be set in .env.local)
   const s3Endpoint = process.env.NEXT_PUBLIC_S3_ENDPOINT;
@@ -89,6 +90,20 @@ export function AttachmentsField({
     onChange(attachments.filter((_, i) => i !== idx));
   };
 
+  useEffect(() => {
+    if (!previewFile) {
+      setPreviewUrl(null);
+      return;
+    }
+
+    const url = URL.createObjectURL(previewFile);
+    setPreviewUrl(url);
+
+    return () => {
+      URL.revokeObjectURL(url);
+    };
+  }, [previewFile]);
+
   return (
     <div>
       <label className="block text-xs font-medium text-zinc-600 mb-1">
@@ -160,12 +175,11 @@ export function AttachmentsField({
         </Button>
         {previewFile && (
           <div className="flex items-center gap-2">
-            {previewFile.type.startsWith("image/") ? (
+            {previewFile.type.startsWith("image/") && previewUrl ? (
               <Image
-                src={URL.createObjectURL(previewFile)}
+                src={previewUrl}
                 alt="preview"
                 className="h-8 w-8 object-cover rounded"
-                onLoad={() => URL.revokeObjectURL(previewFile)}
                 width={50}
                 height={50}
               />

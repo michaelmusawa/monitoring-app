@@ -80,7 +80,7 @@ export interface CustomParam {
   id: string; // local uid, e.g. "custom-abc123"
   label: string;
   category: string;
-  isPending: true; // always true until promoted
+  isPending: string; // always true until promoted
   addedBy: string; // user email
   addedAt: string; // ISO date
 }
@@ -677,6 +677,7 @@ interface Props {
   checklist: Checklist | null;
   standardParams: StandardParam[];
   userRole: string;
+  userSector?: string;
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -746,8 +747,6 @@ export default function ProjectChecklistClient({
         map[item.parameterId] = item.weight;
       });
 
-      console.log("custom items", checklist.customItems);
-
       // Load custom items and ensure they have a weight entry
       if (checklist.customItems && checklist.customItems.length > 0) {
         setCustomParams(checklist.customItems);
@@ -790,6 +789,8 @@ export default function ProjectChecklistClient({
   }, [activeTab, projectId, checklist]);
 
   // ── Derived ───────────────────────────────────────────────────────────────
+  //
+  console.log("logged in user", userSector);
 
   const currentPhase = useMemo(
     () => PHASES.find((p) => p.id === checklist?.status) || PHASES[0],
@@ -804,26 +805,26 @@ export default function ProjectChecklistClient({
       return { canEdit: false, canReview: false, canView: true };
     if (phase === "Draft")
       return {
-        canEdit: userSector !== "Monitoring and Evaluation",
+        canEdit: userSector !== "Monitoring And Evaluation",
         canReview: false,
         canView: true,
       };
     if (phase === "DraftReview")
       return {
-        canEdit: userSector === "Monitoring and Evaluation",
-        canReview: userSector === "Monitoring and Evaluation",
+        canEdit: userSector === "Monitoring And Evaluation",
+        canReview: userSector === "Monitoring And Evaluation",
         canView: true,
       };
     if (phase === "WeightsAssignment")
       return {
-        canEdit: userSector !== "Monitoring and Evaluation",
+        canEdit: userSector !== "Monitoring And Evaluation",
         canReview: false,
         canView: true,
       };
     if (phase === "WeightsReview")
       return {
-        canEdit: userSector === "Monitoring and Evaluation",
-        canReview: userSector === "Monitoring and Evaluation",
+        canEdit: userSector === "Monitoring And Evaluation",
+        canReview: userSector === "Monitoring And Evaluation",
         canView: true,
       };
     return { canEdit: false, canReview: false, canView: true };
@@ -837,7 +838,7 @@ export default function ProjectChecklistClient({
 
   const showWorkplanTab =
     currentPhase.id === "WeightsAssignment" &&
-    userSector !== "Monitoring and Evaluation";
+    userSector !== "Monitoring And Evaluation";
 
   const weightedItems = useMemo(
     () =>
@@ -854,7 +855,7 @@ export default function ProjectChecklistClient({
 
   /** True if any local item differs from baseline AND is not yet committed */
   const hasUncommittedChanges = useMemo(() => {
-    if (!isReviewPhase || userSector !== "Monitoring and Evaluation")
+    if (!isReviewPhase || userSector !== "Monitoring And Evaluation")
       return false;
     for (const [pid, val] of Object.entries(localItems)) {
       const baseline = baselineItems.current[pid] ?? 0;
@@ -868,7 +869,7 @@ export default function ProjectChecklistClient({
 
   /** For non-review phases: any local value different from baseline */
   const hasPendingChanges = useMemo(() => {
-    if (isReviewPhase && userSector === "Monitoring and Evaluation")
+    if (isReviewPhase && userSector === "Monitoring And Evaluation")
       return false; // handled differently
     for (const [pid, val] of Object.entries(localItems)) {
       const baseline = baselineItems.current[pid] ?? 0;
@@ -973,7 +974,7 @@ export default function ProjectChecklistClient({
     const newValue = isIncluded ? 0 : 1;
     setLocalItems((prev) => ({ ...prev, [paramId]: newValue }));
     // Mark as pending (unapplied) for review phases
-    if (isReviewPhase && userRole !== "Monitoring and Evaluation") {
+    if (isReviewPhase && userRole !== "Monitoring And Evaluation") {
       setPendingTaskChanges((prev) => {
         const next = new Set(prev);
         next.add(paramId);
@@ -997,7 +998,7 @@ export default function ProjectChecklistClient({
     const maxAllowed = 100 - totalWithoutCurrent;
     const newWeight = Math.max(0, Math.min(weight, maxAllowed));
     setLocalItems((prev) => ({ ...prev, [paramId]: newWeight }));
-    if (isReviewPhase && userSector !== "Monitoring and Evaluation") {
+    if (isReviewPhase && userSector !== "Monitoring And Evaluation") {
       setPendingTaskChanges((prev) => {
         const next = new Set(prev);
         next.add(paramId);
@@ -1064,7 +1065,7 @@ export default function ProjectChecklistClient({
     // In review phases, ME must apply (commit) all changes before sending back
     if (
       isReviewPhase &&
-      userSector === "Monitoring and Evaluation" &&
+      userSector === "Monitoring And Evaluation" &&
       hasUncommittedChanges
     ) {
       toast.error(
@@ -1302,7 +1303,7 @@ export default function ProjectChecklistClient({
       </div>
 
       {/* ME officer review banner */}
-      {isReviewPhase && userRole === "me" && (
+      {isReviewPhase && userSector === "Monitoring And Evaluation" && (
         <div className="flex items-start gap-3 p-3 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/20 text-sm text-amber-800 dark:text-amber-300">
           <Info className="w-4 h-4 mt-0.5 shrink-0" />
           <div>
@@ -1327,14 +1328,16 @@ export default function ProjectChecklistClient({
       )}
 
       {/* Committed changes summary for ME */}
-      {isReviewPhase && userRole === "me" && hasCommittedChanges && (
-        <div className="flex items-center gap-2 p-3 rounded-lg border border-green-200 bg-green-50 dark:bg-green-950/20 text-sm text-green-700 dark:text-green-400">
-          <CheckCircle className="w-4 h-4 shrink-0" />
-          {Object.keys(committedChanges).length} change
-          {Object.keys(committedChanges).length > 1 ? "s" : ""} applied and
-          ready to send back.
-        </div>
-      )}
+      {isReviewPhase &&
+        userSector === "Monitoring And Evaluation" &&
+        hasCommittedChanges && (
+          <div className="flex items-center gap-2 p-3 rounded-lg border border-green-200 bg-green-50 dark:bg-green-950/20 text-sm text-green-700 dark:text-green-400">
+            <CheckCircle className="w-4 h-4 shrink-0" />
+            {Object.keys(committedChanges).length} change
+            {Object.keys(committedChanges).length > 1 ? "s" : ""} applied and
+            ready to send back.
+          </div>
+        )}
 
       {/* Phase Progress Card */}
       <Card>
@@ -1762,7 +1765,8 @@ export default function ProjectChecklistClient({
 
                                   {/* Applied indicator */}
                                   {isReviewPhase &&
-                                    userRole === "me" &&
+                                    userSector ===
+                                      "Monitoring And Evaluation" &&
                                     isApplied && (
                                       <Badge
                                         variant="outline"
@@ -1786,95 +1790,98 @@ export default function ProjectChecklistClient({
           )}
 
           {/* ── Add Custom Task (sector officer, Draft phase only) ── */}
-          {currentPhase.id === "Draft" && userRole === "sector" && (
-            <div className="mt-4 border border-dashed border-primary/30 rounded-xl p-4 bg-primary/5">
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <p className="text-sm font-semibold text-primary">
-                    Add Custom Task
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Tasks added here are project-specific. They become permanent
-                    once the ME officer approves this draft.
-                  </p>
+          {currentPhase.id === "Draft" &&
+            userSector !== "Monitoring And Evaluation" && (
+              <div className="mt-4 border border-dashed border-primary/30 rounded-xl p-4 bg-primary/5">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <p className="text-sm font-semibold text-primary">
+                      Add Custom Task
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Tasks added here are project-specific. They become
+                      permanent once the ME officer approves this draft.
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setShowAddCustom((v) => !v)}
+                  >
+                    <Plus className="w-3.5 h-3.5 mr-1.5" /> Add Custom Task
+                  </Button>
                 </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setShowAddCustom((v) => !v)}
-                >
-                  <Plus className="w-3.5 h-3.5 mr-1.5" /> Add Custom Task
-                </Button>
-              </div>
 
-              {showAddCustom && (
-                <AddCustomItemForm
-                  existingCategories={[
-                    ...Object.keys(groupedParams),
-                    ...Array.from(new Set(customParams.map((p) => p.category))),
-                  ]}
-                  onAdd={(label, category) => {
-                    const newParam: CustomParam = {
-                      id: `custom-${uuid()}`,
-                      label,
-                      category,
-                      isPending: true,
-                      addedBy: "",
-                      addedAt: new Date().toISOString(),
-                    };
-                    setCustomParams((prev) => [...prev, newParam]);
-                    setLocalItems((prev) => ({ ...prev, [newParam.id]: 1 }));
-                    setShowAddCustom(false);
-                    toast.success(`Custom task "${label}" added`);
-                  }}
-                  onCancel={() => setShowAddCustom(false)}
-                />
-              )}
+                {showAddCustom && (
+                  <AddCustomItemForm
+                    existingCategories={[
+                      ...Object.keys(groupedParams),
+                      ...Array.from(
+                        new Set(customParams.map((p) => p.category)),
+                      ),
+                    ]}
+                    onAdd={(label, category) => {
+                      const newParam: any = {
+                        id: `custom-${uuid()}`,
+                        label,
+                        category,
+                        isPending: true,
+                        addedBy: "",
+                        addedAt: new Date().toISOString(),
+                      };
+                      setCustomParams((prev) => [...prev, newParam]);
+                      setLocalItems((prev) => ({ ...prev, [newParam.id]: 1 }));
+                      setShowAddCustom(false);
+                      toast.success(`Custom task "${label}" added`);
+                    }}
+                    onCancel={() => setShowAddCustom(false)}
+                  />
+                )}
 
-              {customParams.length > 0 && (
-                <div className="space-y-2 mt-3">
-                  {customParams.map((cp) => (
-                    <div
-                      key={cp.id}
-                      className="flex items-center gap-3 p-2.5 rounded-lg border border-primary/20 bg-white dark:bg-card"
-                    >
-                      <Badge
-                        variant="outline"
-                        className="text-xs text-primary border-primary/30 shrink-0"
+                {customParams.length > 0 && (
+                  <div className="space-y-2 mt-3">
+                    {customParams.map((cp) => (
+                      <div
+                        key={cp.id}
+                        className="flex items-center gap-3 p-2.5 rounded-lg border border-primary/20 bg-white dark:bg-card"
                       >
-                        Custom
-                      </Badge>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">
-                          {cp.label}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {cp.category}
-                        </p>
+                        <Badge
+                          variant="outline"
+                          className="text-xs text-primary border-primary/30 shrink-0"
+                        >
+                          Custom
+                        </Badge>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">
+                            {cp.label}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {cp.category}
+                          </p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            setCustomParams((prev) =>
+                              prev.filter((p) => p.id !== cp.id),
+                            );
+                            setLocalItems((prev) => {
+                              const next = { ...prev };
+                              delete next[cp.id];
+                              return next;
+                            });
+                          }}
+                          className="shrink-0 hover:text-destructive hover:bg-destructive/10"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </Button>
                       </div>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          setCustomParams((prev) =>
-                            prev.filter((p) => p.id !== cp.id),
-                          );
-                          setLocalItems((prev) => {
-                            const next = { ...prev };
-                            delete next[cp.id];
-                            return next;
-                          });
-                        }}
-                        className="shrink-0 hover:text-destructive hover:bg-destructive/10"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
         </TabsContent>
 
         {/* Preview Tab */}

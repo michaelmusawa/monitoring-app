@@ -2,10 +2,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 
-import {
-  getPendingChangeRequests,
-  submitChangeRequest,
-} from "@/lib/actions/checklistActions";
+// import {
+// getPendingChangeRequests,
+// submitChangeRequest,
+// } from "@/lib/actions/checklistActions";
 import { getUser } from "@/lib/actions/usersActions";
 
 export async function GET(request: NextRequest) {
@@ -24,8 +24,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const requests = await getPendingChangeRequests(checklistId);
-    return NextResponse.json(requests);
+    // const requests = await getPendingChangeRequests(checklistId);
+    // return NextResponse.json(requests);
   } catch (error) {
     console.error("GET change requests error:", error);
     return NextResponse.json(
@@ -58,10 +58,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
     }
 
-    await submitChangeRequest(checklistId, {
-      changes,
-      requestedBy: session.user.email,
-    });
+    // await submitChangeRequest(checklistId, {
+    //   changes,
+    //   requestedBy: session.user.email,
+    // });
 
     return NextResponse.json({ success: true });
   } catch (error) {

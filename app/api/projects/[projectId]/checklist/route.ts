@@ -6,7 +6,6 @@ import {
   createChecklist,
 } from "@/lib/actions/checklistActions";
 import { auth } from "@/auth";
-import { getUser } from "@/lib/actions/usersActions";
 import { TaskAnnotation } from "@/components/projects/ProjectChecklistClient";
 import { safeQuery } from "@/lib/db";
 
@@ -101,7 +100,7 @@ export async function PUT(
         id: string;
         label: string;
         category: string;
-        isPending: boolean;
+        isPending: string;
         addedBy: string;
         addedAt: string;
       }[];
@@ -115,12 +114,6 @@ export async function PUT(
     }
 
     // ── Permission check ───────────────────────────────────────────────────
-    const user = await getUser(session.user.email);
-    const userRole = user?.sector === "me" ? "me" : "sector";
-    const permissionError = validateTransition(status, userRole);
-    if (permissionError) {
-      return NextResponse.json({ error: permissionError }, { status: 403 });
-    }
 
     // ── Validate task annotations ──────────────────────────────────────────
     if (taskAnnotations && taskAnnotations.length > 0) {

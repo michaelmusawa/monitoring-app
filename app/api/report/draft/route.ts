@@ -279,7 +279,7 @@ export async function POST(req: NextRequest) {
 
     const result = await generateText({
       model: groq("llama-3.3-70b-versatile"),
-      maxTokens: 2048,
+
       system: buildSystemPrompt(),
       prompt: buildFullDraftPrompt(projects, reportDate),
     });

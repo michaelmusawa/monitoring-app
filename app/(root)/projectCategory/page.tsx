@@ -8,13 +8,11 @@ const Page = async () => {
 
   const user = await getUser(userEmail);
 
-  console.log("user", user);
-
   // Derive role once, pass everywhere
   const userRole =
-    user?.sector === "me"
+    user?.sector === "Monitoring And Evaluation"
       ? "me"
-      : user?.sector === "sector" || user?.sector === "IDE"
+      : user?.sector !== "Monitoring And Evaluation"
         ? "sector"
         : "viewer";
 

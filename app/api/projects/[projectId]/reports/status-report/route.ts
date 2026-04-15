@@ -81,7 +81,7 @@ export async function POST(
   if (!session?.user?.email)
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const user = await getUser(session.user.email);
-  if (user?.sector !== "me")
+  if (user?.sector !== "Monitoring And Evaluation")
     return NextResponse.json({ error: "ME officers only" }, { status: 403 });
 
   try {
@@ -96,7 +96,7 @@ export async function POST(
     } = body;
 
     // ── Pull project header fields from DB (set during initialization) ────────
-    const project = await getProject(projectId);
+    const project = (await getProject(projectId)) as any;
 
     // ── Pull the site-visit capture (workforce + practices + lessons) ─────────
     const capture = await getLatestTrackerCapture(projectId);
@@ -129,6 +129,8 @@ export async function POST(
       .map((it: any) => it.recommendations)
       .filter(Boolean)
       .join("\n");
+
+    console.log(derivedChallenges, derivedRecommendations);
 
     // Group scope by category
     const scopeLines = (checklistItems ?? [])
@@ -247,7 +249,6 @@ Return ONLY valid JSON, no markdown fences:
       system:
         "You are an expert government project monitoring report writer for Kenyan county governments. Write formal, detailed, professional reports. Return ONLY valid JSON with no markdown fences.",
       prompt,
-      maxTokens: 4000,
     });
 
     // Parse response

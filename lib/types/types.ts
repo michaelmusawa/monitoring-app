@@ -1,6 +1,8 @@
 // Types used across the mock data files in /lib/data
 // Add or expand types here when the data shape grows.
 
+import { User } from "./userTypes";
+
 export type Nullable<T> = T | null | undefined;
 
 export type ProjectSector = string; // free-form sector strings (e.g. "IDE", "ICT", "Mobility & Works")

@@ -26,7 +26,11 @@ export default async function EvaluationPage(props: {
   if (!project) notFound();
 
   const userRole =
-    user?.sector === "me" ? "me" : user?.sector === "IDE" ? "sector" : "viewer";
+    user?.sector === "Monitoring And Evaluation"
+      ? "me"
+      : user?.sector !== "Monitoring And Evaluation"
+        ? "sector"
+        : "viewer";
 
   // Project is "complete" when the latest tracker has all items at 100%
   const latestSubmission =

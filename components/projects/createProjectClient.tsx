@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { z } from "zod";
 import {
   Card,
   CardContent,
@@ -29,14 +30,12 @@ import {
   CheckCircle,
   AlertCircle,
   Loader2,
-  MapPin,
-  Briefcase,
-  FolderKanban,
   Info,
-  CircleDot,
   DollarSign,
   Check,
   ChevronRight,
+  FolderKanban,
+  CircleDot,
 } from "lucide-react";
 import { toast } from "sonner";
 import { ProjectLocationForm } from "@/components/projects/ProjectLocationForm";
@@ -75,14 +74,45 @@ const REQUIRED_DOCS = [
   "Timeline Schedule",
 ];
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Zod Schemas ──────────────────────────────────────────────────────────────
 
-interface LocationData {
-  subCounty: string;
-  ward: string;
-  lat: number;
-  long: number;
-}
+// Inside createProjectClient.tsx, replace the existing basicsSchema
+
+const basicsSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1, "Project name is required")
+    .max(200, "Name too long"),
+  sector: z.string().min(1, "Please select a sector"),
+  budget: z
+    .union([
+      z.string().transform((val) => (val.trim() === "" ? undefined : val)),
+      z.number().optional(),
+    ])
+    .pipe(
+      z
+        .string()
+        .optional()
+        .refine((val) => val === undefined || /^\d+(\.\d+)?$/.test(val), {
+          message: "Budget must be a number (no commas or letters)",
+        })
+        .transform((val) => (val === undefined ? undefined : Number(val))),
+    )
+    .pipe(z.number().positive("Budget must be a positive number").optional()),
+  description: z.string().max(2000, "Description too long").optional(),
+});
+
+const locationSchema = z
+  .object({
+    subCounty: z.string().min(1, "Sub-county is required"),
+    ward: z.string().min(1, "Ward is required"),
+    lat: z.number().min(-90).max(90),
+    long: z.number().min(-180).max(180),
+  })
+  .nullable();
+
+type LocationData = z.infer<typeof locationSchema>;
 
 interface ContractDetails {
   fundingSource: string;
@@ -110,8 +140,6 @@ const EMPTY_CONTRACT: ContractDetails = {
   costToCompletion: "",
 };
 
-// ─── Step definitions ─────────────────────────────────────────────────────────
-
 type Step = "basics" | "location" | "contract" | "documents";
 
 const STEPS: { id: Step; label: string; description: string }[] = [
@@ -135,7 +163,7 @@ const STEPS: { id: Step; label: string; description: string }[] = [
 
 const STEP_ORDER: Step[] = ["basics", "location", "contract", "documents"];
 
-// ─── Step indicator ───────────────────────────────────────────────────────────
+// ─── Step Indicator ───────────────────────────────────────────────────────────
 
 function StepIndicator({ current, done }: { current: Step; done: Set<Step> }) {
   return (
@@ -172,7 +200,7 @@ function StepIndicator({ current, done }: { current: Step; done: Set<Step> }) {
             </div>
             {!isLast && (
               <div
-                className={`flex-1 h-px mx-2 mb-4 transition-colors duration-200 ${
+                className={`flex-1 h-px mx-2 mb-4 transition-colors ${
                   isDone ? "bg-emerald-400" : "bg-border"
                 }`}
               />
@@ -184,7 +212,7 @@ function StepIndicator({ current, done }: { current: Step; done: Set<Step> }) {
   );
 }
 
-// ─── Section: Basic Info ──────────────────────────────────────────────────────
+// ─── Section: Basic Info (with errors) ────────────────────────────────────────
 
 function SectionBasics({
   name,
@@ -196,6 +224,9 @@ function SectionBasics({
   description,
   setDescription,
   categoryName,
+  errors,
+  touched,
+  setTouched,
 }: {
   name: string;
   setName: (v: string) => void;
@@ -206,6 +237,9 @@ function SectionBasics({
   description: string;
   setDescription: (v: string) => void;
   categoryName?: string;
+  errors: Record<string, string>;
+  touched: Record<string, boolean>;
+  setTouched: (field: string) => void;
 }) {
   return (
     <div className="space-y-5">
@@ -230,10 +264,17 @@ function SectionBasics({
         <Input
           id="proj-name"
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => {
+            setName(e.target.value);
+            if (touched.name) setTouched("name");
+          }}
+          onBlur={() => setTouched("name")}
           placeholder="e.g. Construction of Pumwani Health Centre Extension"
-          className="h-9 text-sm"
+          className={`h-9 text-sm ${errors.name && touched.name ? "border-destructive" : ""}`}
         />
+        {errors.name && touched.name && (
+          <p className="text-xs text-destructive mt-1">{errors.name}</p>
+        )}
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -241,8 +282,17 @@ function SectionBasics({
           <Label className="text-xs font-semibold">
             Sector <span className="text-destructive">*</span>
           </Label>
-          <Select value={sector} onValueChange={setSector}>
-            <SelectTrigger className="h-9 text-sm">
+          <Select
+            value={sector}
+            onValueChange={(val) => {
+              setSector(val);
+              if (touched.sector) setTouched("sector");
+            }}
+            onOpenChange={() => setTouched("sector")}
+          >
+            <SelectTrigger
+              className={`h-9 text-sm ${errors.sector && touched.sector ? "border-destructive" : ""}`}
+            >
               <SelectValue placeholder="Select a sector…" />
             </SelectTrigger>
             <SelectContent>
@@ -253,6 +303,9 @@ function SectionBasics({
               ))}
             </SelectContent>
           </Select>
+          {errors.sector && touched.sector && (
+            <p className="text-xs text-destructive mt-1">{errors.sector}</p>
+          )}
         </div>
 
         <div className="space-y-1.5">
@@ -270,6 +323,9 @@ function SectionBasics({
               className="h-9 text-sm pl-8"
             />
           </div>
+          {errors.budget && touched.budget && (
+            <p className="text-xs text-destructive mt-1">{errors.budget}</p>
+          )}
         </div>
       </div>
 
@@ -285,12 +341,15 @@ function SectionBasics({
           className="text-sm resize-none"
           rows={3}
         />
+        {errors.description && touched.description && (
+          <p className="text-xs text-destructive mt-1">{errors.description}</p>
+        )}
       </div>
     </div>
   );
 }
 
-// ─── Section: Contract Details ────────────────────────────────────────────────
+// ─── Section: Contract Details (unchanged) ────────────────────────────────────
 
 function SectionContract({
   form,
@@ -369,7 +428,6 @@ function SectionContract({
           </span>
         </p>
       </div>
-
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {fields.map((f) => (
           <div key={f.key} className="space-y-1.5">
@@ -394,7 +452,7 @@ function SectionContract({
   );
 }
 
-// ─── Section: Documents ───────────────────────────────────────────────────────
+// ─── Section: Documents (unchanged) ───────────────────────────────────────────
 
 function SectionDocuments({
   files,
@@ -416,7 +474,6 @@ function SectionDocuments({
 
   return (
     <div className="space-y-4">
-      {/* Drop zone */}
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -453,7 +510,6 @@ function SectionDocuments({
         </Button>
       </div>
 
-      {/* Uploaded list */}
       {files.length > 0 && (
         <div className="space-y-2">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
@@ -477,7 +533,6 @@ function SectionDocuments({
         </div>
       )}
 
-      {/* Required docs checklist */}
       <div className="space-y-2">
         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
           Required Documents
@@ -493,9 +548,7 @@ function SectionDocuments({
             >
               <div className="flex items-center gap-3">
                 <FileText
-                  className={`w-4 h-4 shrink-0 ${
-                    uploaded ? "text-emerald-500" : "text-muted-foreground"
-                  }`}
+                  className={`w-4 h-4 shrink-0 ${uploaded ? "text-emerald-500" : "text-muted-foreground"}`}
                 />
                 <span className="text-sm">{doc}</span>
               </div>
@@ -525,7 +578,7 @@ function SectionDocuments({
   );
 }
 
-// ─── Sidebar ──────────────────────────────────────────────────────────────────
+// ─── Sidebar (unchanged) ──────────────────────────────────────────────────────
 
 function Sidebar({
   name,
@@ -551,7 +604,6 @@ function Sidebar({
 
   return (
     <div className="space-y-4">
-      {/* Summary */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Summary</CardTitle>
@@ -610,7 +662,6 @@ function Sidebar({
         </CardContent>
       </Card>
 
-      {/* Checklist */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Checklist</CardTitle>
@@ -627,11 +678,7 @@ function Sidebar({
                   {c.done && <Check className="w-3 h-3 text-white" />}
                 </div>
                 <p
-                  className={`text-sm leading-snug ${
-                    c.done
-                      ? "line-through text-muted-foreground"
-                      : "font-medium"
-                  }`}
+                  className={`text-sm leading-snug ${c.done ? "line-through text-muted-foreground" : "font-medium"}`}
                 >
                   {c.label}
                 </p>
@@ -641,7 +688,6 @@ function Sidebar({
         </CardContent>
       </Card>
 
-      {/* Tips */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Guidelines</CardTitle>
@@ -675,7 +721,7 @@ function Sidebar({
   );
 }
 
-// ─── Main export ──────────────────────────────────────────────────────────────
+// ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function CreateProjectClient({
   categoryId,
@@ -699,13 +745,14 @@ export default function CreateProjectClient({
   const [description, setDescription] = useState("");
 
   // Location
-  const [location, setLocation] = useState<LocationData | null>(null);
+  const [location, setLocation] = useState<LocationData>(null);
 
   // Contract
   const [contract, setContract] = useState<ContractDetails>(EMPTY_CONTRACT);
   const setContractField = useCallback(
-    (key: keyof ContractDetails, val: string) =>
-      setContract((prev) => ({ ...prev, [key]: val })),
+    (key: keyof ContractDetails, val: string) => {
+      setContract((prev) => ({ ...prev, [key]: val }));
+    },
     [],
   );
   const contractFilled = Object.values(contract).filter((v) =>
@@ -718,13 +765,72 @@ export default function CreateProjectClient({
   // Submit
   const [submitting, setSubmitting] = useState(false);
 
-  // ── Helpers ─────────────────────────────────────────────────────────────────
+  // Validation state
+  const [basicsErrors, setBasicsErrors] = useState<Record<string, string>>({});
+  const [basicsTouched, setBasicsTouched] = useState<Record<string, boolean>>(
+    {},
+  );
+  const setBasicsTouchedField = (field: string) =>
+    setBasicsTouched((prev) => ({ ...prev, [field]: true }));
 
-  const canProceedFromBasics = name.trim().length > 0 && sector.length > 0;
+  // Validate basics on change
+  useEffect(() => {
+    const result = basicsSchema.safeParse({
+      name,
+      sector,
+      budget: budget === "" ? undefined : budget,
+      description: description || undefined,
+    });
+
+    if (!result.success) {
+      const errors: Record<string, string> = {};
+
+      result.error.issues.forEach((issue) => {
+        const key = issue.path[0];
+        if (typeof key === "string") {
+          errors[key] = issue.message;
+        }
+      });
+
+      setBasicsErrors(errors);
+    } else {
+      setBasicsErrors({});
+    }
+  }, [name, sector, budget, description]);
+
+  const isBasicsValid =
+    basicsErrors.name === undefined && basicsErrors.sector === undefined;
+
+  // Location validation is handled by the form's onSave (it only saves when valid)
+  const isLocationValid = location !== null;
+
+  // Step advancement guard
+  const canProceed = () => {
+    if (currentStep === "basics") return isBasicsValid;
+    if (currentStep === "location") return isLocationValid;
+    // contract and documents are optional
+    return true;
+  };
+
   const stepIndex = STEP_ORDER.indexOf(currentStep);
   const isLastStep = currentStep === "documents";
 
   function advance() {
+    if (!canProceed()) {
+      // Touch all fields in basics to show errors
+      if (currentStep === "basics") {
+        setBasicsTouched({
+          name: true,
+          sector: true,
+          budget: true,
+          description: true,
+        });
+        toast.error("Please fix the errors before continuing");
+      } else if (currentStep === "location") {
+        toast.error("Please save a valid location before continuing");
+      }
+      return;
+    }
     setDone((prev) => new Set([...prev, currentStep]));
     if (stepIndex < STEP_ORDER.length - 1)
       setCurrentStep(STEP_ORDER[stepIndex + 1]);
@@ -736,21 +842,34 @@ export default function CreateProjectClient({
 
   const handleLocationSaved = useCallback(
     (data: { subCounty: string; ward: string; lat: number; long: number }) => {
-      setLocation(data);
-      setDone((prev) => new Set([...prev, "location" as Step]));
-      toast.success("Location saved");
+      const parsed = locationSchema.safeParse(data);
+      if (parsed.success) {
+        setLocation(data);
+        setDone((prev) => new Set([...prev, "location" as Step]));
+        toast.success("Location saved");
+      } else {
+        toast.error("Invalid location data");
+      }
     },
     [],
   );
 
   async function handleCreate() {
-    if (!name.trim()) {
-      toast.error("Project name is required");
-      setCurrentStep("basics");
-      return;
-    }
-    if (!sector) {
-      toast.error("Please select a sector");
+    // Final validation of basics
+    const basicsResult = basicsSchema.safeParse({
+      name,
+      sector,
+      budget: budget === "" ? undefined : budget,
+      description: description || undefined,
+    });
+    if (!basicsResult.success) {
+      setBasicsTouched({
+        name: true,
+        sector: true,
+        budget: true,
+        description: true,
+      });
+      toast.error("Please fill in the required fields correctly");
       setCurrentStep("basics");
       return;
     }
@@ -778,10 +897,10 @@ export default function CreateProjectClient({
         plannedCompletion: contract.plannedCompletion || undefined,
         costToCompletion: contract.costToCompletion || undefined,
       });
-
       toast.success("Project created successfully!");
       router.push(`/projects/${project.id}`);
-    } catch {
+    } catch (error) {
+      console.error(error);
       toast.error("Failed to create project. Please try again.");
       setSubmitting(false);
     }
@@ -789,11 +908,8 @@ export default function CreateProjectClient({
 
   const currentStepMeta = STEPS.find((s) => s.id === currentStep)!;
 
-  // ── Render ───────────────────────────────────────────────────────────────────
-
   return (
     <div className="max-w-5xl mx-auto p-4 md:p-6">
-      {/* Page header */}
       <div className="mb-8">
         <Button variant="ghost" asChild className="mb-4 -ml-2">
           <Link href="/projects">
@@ -801,7 +917,6 @@ export default function CreateProjectClient({
             Back to Projects
           </Link>
         </Button>
-
         <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
           <div>
             <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
@@ -830,12 +945,9 @@ export default function CreateProjectClient({
         </div>
       </div>
 
-      {/* Step indicator */}
       <StepIndicator current={currentStep} done={done} />
 
-      {/* Two-column layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Main form */}
         <div className="lg:col-span-2">
           <Card>
             <CardHeader className="border-b pb-4">
@@ -855,7 +967,6 @@ export default function CreateProjectClient({
                 </div>
               </div>
             </CardHeader>
-
             <CardContent className="pt-6">
               {currentStep === "basics" && (
                 <SectionBasics
@@ -868,9 +979,11 @@ export default function CreateProjectClient({
                   description={description}
                   setDescription={setDescription}
                   categoryName={categoryName}
+                  errors={basicsErrors}
+                  touched={basicsTouched}
+                  setTouched={setBasicsTouchedField}
                 />
               )}
-
               {currentStep === "location" && (
                 <div className="space-y-4">
                   <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 border">
@@ -891,17 +1004,13 @@ export default function CreateProjectClient({
                   />
                 </div>
               )}
-
               {currentStep === "contract" && (
                 <SectionContract form={contract} set={setContractField} />
               )}
-
               {currentStep === "documents" && (
                 <SectionDocuments files={files} setFiles={setFiles} />
               )}
             </CardContent>
-
-            {/* Footer navigation */}
             <div className="px-6 py-4 border-t bg-muted/20 flex items-center justify-between gap-3">
               <Button
                 variant="ghost"
@@ -912,9 +1021,7 @@ export default function CreateProjectClient({
                 <ArrowLeft className="w-3.5 h-3.5 mr-1.5" />
                 Back
               </Button>
-
               <div className="flex items-center gap-2">
-                {/* Skip for optional steps */}
                 {(currentStep === "contract" ||
                   currentStep === "documents") && (
                   <Button
@@ -927,7 +1034,6 @@ export default function CreateProjectClient({
                     {isLastStep ? "Skip & Create" : "Skip"}
                   </Button>
                 )}
-
                 {isLastStep ? (
                   <Button
                     onClick={handleCreate}
@@ -948,12 +1054,7 @@ export default function CreateProjectClient({
                     )}
                   </Button>
                 ) : (
-                  <Button
-                    onClick={advance}
-                    disabled={currentStep === "basics" && !canProceedFromBasics}
-                    size="sm"
-                    className="min-w-[100px]"
-                  >
+                  <Button onClick={advance} size="sm" className="min-w-[100px]">
                     Continue
                     <ChevronRight className="w-3.5 h-3.5 ml-1.5" />
                   </Button>
@@ -962,8 +1063,6 @@ export default function CreateProjectClient({
             </div>
           </Card>
         </div>
-
-        {/* Sidebar */}
         <div>
           <Sidebar
             name={name}

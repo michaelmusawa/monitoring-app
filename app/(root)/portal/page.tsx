@@ -1,19 +1,8 @@
 // monitoring-app/app/portal/page.tsx
-import React from "react";
-import PortalClient from "@/components/portal/PortalPage";
-
-const publicComments = []; // Replace with actual data import
-const users = []; // Replace with actual data import
-
-export const metadata = {
-  title: "Public Projects Portal - Nairobi County",
-  description:
-    "Track and provide feedback on county infrastructure projects in Nairobi.",
-};
 
 export default function PortalPage() {
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-black">
+    <div className="min-h-screen bg-linear-to-b from-gray-50 to-white dark:from-gray-900 dark:to-black">
       <div className="max-w-7xl mx-auto p-4 sm:p-6 pt-20 lg:pt-6">
         <header className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-3">
@@ -41,7 +30,6 @@ export default function PortalPage() {
         </header>
 
         {/* Render the client-side portal component */}
-        <PortalClient projects={projects} publicComments={publicComments} />
       </div>
     </div>
   );

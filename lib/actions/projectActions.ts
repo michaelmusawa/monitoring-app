@@ -9,7 +9,7 @@ import sql from "mssql";
 
 // ─── getProject ───────────────────────────────────────────────────────────────
 
-export async function getProject(id: string): Promise<Project | null> {
+export async function getProject(id: string): Promise<any | null> {
   try {
     const sqlQuery = `
       SELECT id, name, sector, budget, status, lat, long, description,
@@ -240,7 +240,7 @@ export async function fetchProjectsForMap({
 }
 
 function mapProjectRow(row: any): Project {
-  let size: Project["size"] = null;
+  let size: any["size"] = null;
   if (row.budget !== null) {
     if (row.budget <= 500000) size = "Small";
     else if (row.budget <= 1000000) size = "Medium";
@@ -585,7 +585,7 @@ export async function createFullProject(data: {
   commencementDate?: string;
   plannedCompletion?: string;
   costToCompletion?: string;
-}): Promise<Project> {
+}): Promise<any> {
   const slug = generateSlug(data.name);
   try {
     const { rows } = await safeQuery<any>(

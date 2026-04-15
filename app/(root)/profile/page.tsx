@@ -1,13 +1,9 @@
 // app/profile/page.tsx
-import React from "react";
+
 import Image from "next/image";
 import { auth } from "@/auth";
 import { getUser } from "@/lib/actions/usersActions";
 import EditProfileModal from "@/components/profile/page";
-
-export const metadata = {
-  title: "My Profile",
-};
 
 export default async function ProfilePage() {
   const session = await auth();
@@ -31,10 +27,10 @@ export default async function ProfilePage() {
   const role = user.role || "—";
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-950 py-8 px-4">
+    <main className="min-h-screen bg-linear-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-950 py-8 px-4">
       <div className="max-w-3xl mx-auto bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden transition-all duration-300 hover:shadow-2xl">
         {/* Profile Header */}
-        <div className="bg-gradient-to-r from-green-500 to-green-700 p-6 md:p-8">
+        <div className="bg-linear-to-r from-green-500 to-green-700 p-6 md:p-8">
           <div className="flex flex-col md:flex-row items-center gap-6">
             <div className="relative">
               {user.image ? (

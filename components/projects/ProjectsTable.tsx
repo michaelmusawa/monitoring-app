@@ -65,7 +65,7 @@ const ProjectsTable = async ({
         </thead>
 
         <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-800">
-          {projects.map((project, i) => (
+          {projects.map((project: any, i) => (
             <tr
               key={project.id}
               className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"

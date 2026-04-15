@@ -810,7 +810,7 @@ export async function POST(req: NextRequest) {
     buildClosingSlide(pres);
 
     // Export to buffer
-    const buffer = (await pres.write({ outputType: "nodebuffer" })) as Buffer;
+    const buffer = (await pres.write({ outputType: "nodebuffer" })) as any;
 
     return new NextResponse(buffer, {
       status: 200,

@@ -25,7 +25,6 @@ import {
   ChevronRight,
   BarChart3,
 } from "lucide-react";
-import { User } from "@/lib/types/userTypes";
 
 // ─── Activity meta ────────────────────────────────────────────────────────────
 
@@ -146,7 +145,6 @@ export default async function AdminPage() {
   const user = await getUser(session?.user?.email ?? "");
 
   const role = user?.role || "";
-  const sector = user?.sector || "";
 
   const hasAccess = (role: string) => ["system admin", "admin"].includes(role);
 
