@@ -83,7 +83,7 @@ export default function ProjectsCategoryPageClient({
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <FolderKanban className="w-5 h-5 text-blue-600" />
+            <FolderKanban className="w-5 h-5 text-green-800-600" />
             <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">
               Projects
             </h1>
@@ -123,7 +123,7 @@ export default function ProjectsCategoryPageClient({
           {userSector !== "Monitoring And Evaluation" && (
             <Link
               href="/projects/new"
-              className="shrink-0 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
+              className="shrink-0 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-green-700 text-white text-sm font-medium hover:bg-green-600 transition-colors shadow-sm"
             >
               <Plus className="w-4 h-4" />
               New Project

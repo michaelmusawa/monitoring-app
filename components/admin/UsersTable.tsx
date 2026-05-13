@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useTransition } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useDebouncedCallback } from "use-debounce";
 import Link from "next/link";
@@ -8,7 +8,6 @@ import {
   Users,
   Search,
   Plus,
-  Shield,
   ArrowLeft,
   MoreVertical,
   UserCheck,
@@ -18,9 +17,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Filter,
-  X,
   Loader2,
-  CheckCircle2,
   AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -31,7 +28,11 @@ import {
   archiveUser,
   activateUser,
   deleteUser,
+  assignRolesToUser,
+  getUserRoles,
+  fetchAllRolesForSelect,
   type AdminUser,
+  type Role,
 } from "@/lib/actions/adminActions";
 import {
   Dialog,
@@ -59,7 +60,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import Image from "next/image";
-import { ROLES, SECTORS } from "@/lib/data/data";
+import { SECTORS } from "@/lib/data/data";
 
 // ─── Avatar ───────────────────────────────────────────────────────────────────
 
@@ -85,59 +86,63 @@ function Avatar({ user }: { user: AdminUser }) {
   );
 }
 
-// ─── Role badge ───────────────────────────────────────────────────────────────
+// ─── Multi-role badges ────────────────────────────────────────────────────────
 
-const ROLE_CLS: Record<string, string> = {
-  systemAdmin:
-    "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-800",
-  admin:
-    "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800",
-  user: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800",
-};
-function RoleBadge({ role }: { role: string | null }) {
-  const r = role ?? "sector";
+function RoleBadges({ roles }: { roles: Role[] }) {
+  if (!roles || roles.length === 0) {
+    return <span className="text-xs text-zinc-400">—</span>;
+  }
   return (
-    <span
-      className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${ROLE_CLS[r] ?? ROLE_CLS.sector}`}
-    >
-      {r}
-    </span>
+    <div className="flex flex-wrap gap-1">
+      {roles.map((role) => (
+        <span
+          key={role.id}
+          className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-800"
+        >
+          {role.name}
+        </span>
+      ))}
+    </div>
   );
 }
 
-// ─── User form dialog ─────────────────────────────────────────────────────────
+// ─── User form dialog (with multi-role select) ────────────────────────────────
 
 function UserFormDialog({
   open,
   onClose,
   initialData,
+  initialRoleIds = [],
+  allRoles,
   onSave,
 }: {
   open: boolean;
   onClose: () => void;
   initialData?: AdminUser;
+  initialRoleIds?: number[];
+  allRoles: Role[];
   onSave: (data: {
     name: string;
     email: string;
-    role: string;
+    roleIds: number[];
     sector?: string;
   }) => Promise<void>;
 }) {
   const [name, setName] = useState(initialData?.name ?? "");
   const [email, setEmail] = useState(initialData?.email ?? "");
-  const [role, setRole] = useState(initialData?.role ?? "sector");
   const [sector, setSector] = useState(initialData?.sector ?? "none");
+  const [selectedRoleIds, setSelectedRoleIds] =
+    useState<number[]>(initialRoleIds);
   const [saving, setSaving] = useState(false);
 
-  // Reset when opened
   useEffect(() => {
     if (open) {
       setName(initialData?.name ?? "");
       setEmail(initialData?.email ?? "");
-      setRole(initialData?.role ?? "sector");
-      setSector(initialData?.sector ?? "");
+      setSector(initialData?.sector ?? "none");
+      setSelectedRoleIds(initialRoleIds);
     }
-  }, [open, initialData]);
+  }, [open, initialData, initialRoleIds]);
 
   const isEdit = !!initialData;
 
@@ -147,18 +152,30 @@ function UserFormDialog({
       toast.error("Name and email are required");
       return;
     }
+    if (selectedRoleIds.length === 0) {
+      toast.error("At least one role is required");
+      return;
+    }
     setSaving(true);
     try {
       await onSave({
         name: name.trim(),
         email: email.trim(),
-        role,
+        roleIds: selectedRoleIds,
         sector: sector === "none" ? undefined : sector,
       });
       onClose();
     } finally {
       setSaving(false);
     }
+  };
+
+  const toggleRole = (roleId: number) => {
+    setSelectedRoleIds((prev) =>
+      prev.includes(roleId)
+        ? prev.filter((id) => id !== roleId)
+        : [...prev, roleId],
+    );
   };
 
   return (
@@ -168,7 +185,7 @@ function UserFormDialog({
           <DialogTitle>{isEdit ? "Edit User" : "Add New User"}</DialogTitle>
           <DialogDescription>
             {isEdit
-              ? "Update user details and role."
+              ? "Update user details and assign roles."
               : "Create a new user account."}
           </DialogDescription>
         </DialogHeader>
@@ -197,47 +214,47 @@ function UserFormDialog({
               disabled={isEdit}
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">Role</Label>
-              <Select value={role} onValueChange={setRole}>
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {ROLES.map((r) => (
-                    <SelectItem
-                      key={r}
-                      value={r}
-                      className="text-sm capitalize"
-                    >
-                      {r}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold">
+              Roles (select one or more)
+            </Label>
+            <div className="flex flex-wrap gap-2 border rounded-lg p-3 bg-muted/20">
+              {allRoles.map((role) => (
+                <button
+                  key={role.id}
+                  type="button"
+                  onClick={() => toggleRole(role.id)}
+                  className={`px-3 py-1.5 text-xs rounded-full border transition-all ${
+                    selectedRoleIds.includes(role.id)
+                      ? "bg-violet-100 border-violet-300 text-violet-800 dark:bg-violet-900/30 dark:border-violet-700 dark:text-violet-300"
+                      : "bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50 dark:bg-zinc-900 dark:border-zinc-700 dark:text-zinc-400"
+                  }`}
+                >
+                  {role.name}
+                </button>
+              ))}
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">Sector</Label>
-              <Select value={sector} onValueChange={setSector}>
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue placeholder="Select…" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem
-                    value="none"
-                    className="text-sm text-muted-foreground"
-                  >
-                    None
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold">Sector</Label>
+            <Select value={sector} onValueChange={setSector}>
+              <SelectTrigger className="h-9 text-sm">
+                <SelectValue placeholder="Select…" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem
+                  value="none"
+                  className="text-sm text-muted-foreground"
+                >
+                  None
+                </SelectItem>
+                {SECTORS.map((s) => (
+                  <SelectItem key={s} value={s} className="text-sm">
+                    {s}
                   </SelectItem>
-                  {SECTORS.map((s) => (
-                    <SelectItem key={s} value={s} className="text-sm">
-                      {s}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <DialogFooter className="pt-2">
             <Button
@@ -273,7 +290,7 @@ function UserFormDialog({
   );
 }
 
-// ─── Confirm dialog ───────────────────────────────────────────────────────────
+// ─── Confirm dialog (unchanged) ───────────────────────────────────────────────
 
 function ConfirmDialog({
   open,
@@ -296,10 +313,16 @@ function ConfirmDialog({
       <DialogContent className="max-w-sm">
         <DialogHeader>
           <div
-            className={`w-10 h-10 rounded-full flex items-center justify-center mb-1 ${variant === "destructive" ? "bg-red-100 dark:bg-red-950/30" : "bg-amber-100 dark:bg-amber-950/30"}`}
+            className={`w-10 h-10 rounded-full flex items-center justify-center mb-1 ${
+              variant === "destructive"
+                ? "bg-red-100 dark:bg-red-950/30"
+                : "bg-amber-100 dark:bg-amber-950/30"
+            }`}
           >
             <AlertCircle
-              className={`w-5 h-5 ${variant === "destructive" ? "text-red-600" : "text-amber-600"}`}
+              className={`w-5 h-5 ${
+                variant === "destructive" ? "text-red-600" : "text-amber-600"
+              }`}
             />
           </div>
           <DialogTitle>{title}</DialogTitle>
@@ -363,34 +386,52 @@ export default function AdminUsersClient({
 
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isPending, startTransition] = useTransition();
+  const [allRoles, setAllRoles] = useState<Role[]>([]);
+  const [usersRoles, setUsersRoles] = useState<Record<string, Role[]>>({});
 
   // Dialog state
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<AdminUser | null>(null);
+  const [editRoleIds, setEditRoleIds] = useState<number[]>([]);
   const [archiveTarget, setArchiveTarget] = useState<AdminUser | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null);
 
-  // Load users
-  const loadUsers = useCallback(async () => {
+  // Load users and roles
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchFilteredUsers({
-        query: params.get("query") ?? "",
-        startDate: params.get("startDate") ?? "",
-        endDate: params.get("endDate") ?? "",
-        currentPage,
-        showArchived: params.get("showArchived") === "true",
-      });
-      setUsers(data);
+      const [usersData, rolesData] = await Promise.all([
+        fetchFilteredUsers({
+          query: params.get("query") ?? "",
+          startDate: params.get("startDate") ?? "",
+          endDate: params.get("endDate") ?? "",
+          currentPage,
+          showArchived: params.get("showArchived") === "true",
+        }),
+        fetchAllRolesForSelect(),
+      ]);
+      setUsers(usersData);
+      setAllRoles(rolesData);
+
+      // Load roles for each user
+      const rolesMap: Record<string, Role[]> = {};
+      await Promise.all(
+        usersData.map(async (u) => {
+          const roles = await getUserRoles(u.id);
+          rolesMap[u.id] = roles;
+        }),
+      );
+      setUsersRoles(rolesMap);
+    } catch (error) {
+      console.error("Failed to load data", error);
     } finally {
       setLoading(false);
     }
   }, [params, currentPage]);
 
   useEffect(() => {
-    loadUsers();
-  }, [loadUsers]);
+    loadData();
+  }, [loadData]);
 
   // URL helpers
   function updateParam(key: string, value: string) {
@@ -412,6 +453,36 @@ export default function AdminUsersClient({
     );
 
   const showArchived = params.get("showArchived") === "true";
+
+  const openEdit = async (user: AdminUser) => {
+    const roles = await getUserRoles(user.id);
+    setEditTarget(user);
+    setEditRoleIds(roles.map((r) => r.id));
+  };
+
+  const handleCreateUser = async (data: {
+    name: string;
+    email: string;
+    roleIds: number[];
+    sector?: string;
+  }) => {
+    await createUser(data);
+    toast.success("User created");
+    loadData();
+  };
+
+  const handleUpdateUser = async (data: {
+    name: string;
+    email: string;
+    roleIds: number[];
+    sector?: string;
+  }) => {
+    if (!editTarget) return;
+    await updateUser(editTarget.id, { name: data.name, sector: data.sector });
+    await assignRolesToUser(editTarget.id, data.roleIds);
+    toast.success("User updated");
+    loadData();
+  };
 
   return (
     <div className="min-h-screen bg-[#F7F8FC] dark:bg-[#0E1117] p-4 md:p-6 lg:p-8">
@@ -456,7 +527,7 @@ export default function AdminUsersClient({
               placeholder="Search by name or email…"
               defaultValue={params.get("query") ?? ""}
               onChange={(e) => handleSearch(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 text-sm rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+              className="w-full pl-9 pr-3 py-2 text-sm rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400"
             />
           </div>
           <button
@@ -493,16 +564,22 @@ export default function AdminUsersClient({
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
-                    {["#", "User", "Email", "Role", "Sector", "Status", ""].map(
-                      (h) => (
-                        <th
-                          key={h}
-                          className="px-5 py-3 text-left text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider"
-                        >
-                          {h}
-                        </th>
-                      ),
-                    )}
+                    {[
+                      "#",
+                      "User",
+                      "Email",
+                      "Roles",
+                      "Sector",
+                      "Status",
+                      "",
+                    ].map((h) => (
+                      <th
+                        key={h}
+                        className="px-5 py-3 text-left text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider"
+                      >
+                        {h}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -539,7 +616,7 @@ export default function AdminUsersClient({
                         {user.email}
                       </td>
                       <td className="px-5 py-3.5">
-                        <RoleBadge role={user.role} />
+                        <RoleBadges roles={usersRoles[user.id] || []} />
                       </td>
                       <td className="px-5 py-3.5 text-xs text-zinc-500 dark:text-zinc-400 max-w-[180px] truncate">
                         {user.sector ?? (
@@ -557,7 +634,11 @@ export default function AdminUsersClient({
                           }`}
                         >
                           <span
-                            className={`w-1.5 h-1.5 rounded-full ${user.status === "archived" ? "bg-amber-400" : "bg-emerald-400"}`}
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              user.status === "archived"
+                                ? "bg-amber-400"
+                                : "bg-emerald-400"
+                            }`}
                           />
                           {user.status === "archived" ? "Archived" : "Active"}
                         </span>
@@ -570,9 +651,7 @@ export default function AdminUsersClient({
                             </button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="text-sm">
-                            <DropdownMenuItem
-                              onClick={() => setEditTarget(user)}
-                            >
+                            <DropdownMenuItem onClick={() => openEdit(user)}>
                               <Edit2 className="w-3.5 h-3.5 mr-2" /> Edit
                             </DropdownMenuItem>
                             {user.status === "archived" ? (
@@ -619,14 +698,28 @@ export default function AdminUsersClient({
               </p>
               <div className="flex gap-1">
                 <Link
-                  href={`?${new URLSearchParams({ ...Object.fromEntries(params), page: String(currentPage - 1) })}`}
-                  className={`w-8 h-8 rounded-lg flex items-center justify-center border text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors ${currentPage <= 1 ? "opacity-40 pointer-events-none" : "border-zinc-200 dark:border-zinc-700"}`}
+                  href={`?${new URLSearchParams({
+                    ...Object.fromEntries(params),
+                    page: String(currentPage - 1),
+                  })}`}
+                  className={`w-8 h-8 rounded-lg flex items-center justify-center border text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors ${
+                    currentPage <= 1
+                      ? "opacity-40 pointer-events-none"
+                      : "border-zinc-200 dark:border-zinc-700"
+                  }`}
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </Link>
                 <Link
-                  href={`?${new URLSearchParams({ ...Object.fromEntries(params), page: String(currentPage + 1) })}`}
-                  className={`w-8 h-8 rounded-lg flex items-center justify-center border text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors ${currentPage >= totalPages ? "opacity-40 pointer-events-none" : "border-zinc-200 dark:border-zinc-700"}`}
+                  href={`?${new URLSearchParams({
+                    ...Object.fromEntries(params),
+                    page: String(currentPage + 1),
+                  })}`}
+                  className={`w-8 h-8 rounded-lg flex items-center justify-center border text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors ${
+                    currentPage >= totalPages
+                      ? "opacity-40 pointer-events-none"
+                      : "border-zinc-200 dark:border-zinc-700"
+                  }`}
                 >
                   <ChevronRight className="w-4 h-4" />
                 </Link>
@@ -640,11 +733,8 @@ export default function AdminUsersClient({
       <UserFormDialog
         open={createOpen}
         onClose={() => setCreateOpen(false)}
-        onSave={async (data) => {
-          await createUser(data);
-          toast.success("User created");
-          loadUsers();
-        }}
+        allRoles={allRoles}
+        onSave={handleCreateUser}
       />
 
       {/* Edit dialog */}
@@ -652,12 +742,9 @@ export default function AdminUsersClient({
         open={!!editTarget}
         onClose={() => setEditTarget(null)}
         initialData={editTarget ?? undefined}
-        onSave={async (data) => {
-          if (!editTarget) return;
-          await updateUser(editTarget.id, data);
-          toast.success("User updated");
-          loadUsers();
-        }}
+        initialRoleIds={editRoleIds}
+        allRoles={allRoles}
+        onSave={handleUpdateUser}
       />
 
       {/* Archive/activate confirm */}
@@ -673,7 +760,7 @@ export default function AdminUsersClient({
               ? `Archive ${archiveTarget.name ?? archiveTarget.email}? They will lose access to the platform.`
               : `Re-activate ${archiveTarget.name ?? archiveTarget.email}? They will regain platform access.`
           }
-          variant={archiveTarget.status === "active" ? "warning" : "warning"}
+          variant="warning"
           onConfirm={async () => {
             if (archiveTarget.status === "active") {
               await archiveUser(archiveTarget.id);
@@ -682,7 +769,7 @@ export default function AdminUsersClient({
               await activateUser(archiveTarget.id);
               toast.success("User activated");
             }
-            loadUsers();
+            loadData();
           }}
         />
       )}
@@ -698,7 +785,7 @@ export default function AdminUsersClient({
           onConfirm={async () => {
             await deleteUser(deleteTarget.id);
             toast.success("User deleted");
-            loadUsers();
+            loadData();
           }}
         />
       )}

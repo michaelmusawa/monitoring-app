@@ -27,21 +27,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>
-        {/* Script to set dark mode based on system preference */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              (function() {
-                const isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
-                if (isDarkMode) {
-                  document.documentElement.classList.add('dark');
-                }
-              })();
-            `,
-          }}
-        />
-      </head>
+      <head></head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >

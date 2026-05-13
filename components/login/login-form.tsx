@@ -2,11 +2,15 @@
 "use client";
 
 import { authenticate } from "@/lib/actions/loginActions";
-import { AtSign, FileExclamationPoint, KeyIcon } from "lucide-react";
+import { AlertCircle, Eye, EyeOff, Lock, Mail } from "lucide-react";
 import { useActionState } from "react";
 import { useState } from "react";
-import SubmitButton from "../ui/submitButton";
+import { Label } from "../ui/label";
+import { Input } from "../ui/input";
+import { Alert, AlertDescription } from "../ui/alert";
+import { Button } from "../ui/button";
 
+import Link from "next/link";
 export default function LoginForm() {
   const [errorMessage, formAction, isPending] = useActionState(
     authenticate,
@@ -14,78 +18,80 @@ export default function LoginForm() {
   );
   const [showPassword, setShowPassword] = useState<boolean>(false);
 
-  const togglePassword = () => {
-    setShowPassword((prev) => !prev);
-  };
-
   return (
-    <div className="space-y-4 bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-lg backdrop-blur-sm transition-colors duration-500">
-      <form action={formAction} className="space-y-4">
-        <h1
-          className={` text-2xl font-semibold text-gray-900 dark:text-gray-100`}
-        >
-          Please log in to continue
-        </h1>
-
-        {/* Email Field */}
-        <div>
-          <label
-            htmlFor="email"
-            className="block text-xs font-medium text-gray-900 dark:text-gray-200 mb-2"
-          >
-            Email
-          </label>
-          <div className="relative">
-            <input
-              id="email"
-              name="email"
-              type="email"
-              required
-              placeholder="janedoe@example.com"
-              className="w-full pl-10 pr-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 placeholder-gray-500 dark:placeholder-gray-400 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-countyGreen transition"
-            />
-            <AtSign className="absolute left-3 top-1/2 h-[18px] w-[18px] transform -translate-y-1/2 text-gray-400 dark:text-gray-500" />
-          </div>
+    <form action={formAction} className="space-y-5">
+      {/* Email Field */}
+      <div className="space-y-2">
+        <Label htmlFor="email">Email</Label>
+        <div className="relative">
+          <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            id="email"
+            name="email"
+            type="text"
+            placeholder="e.g., jane@example.com"
+            className="pl-9"
+            required
+            autoComplete="username"
+          />
         </div>
-
-        {/* Password Field */}
-        <div>
-          <label
-            htmlFor="password"
-            className="block text-xs font-medium text-gray-900 dark:text-gray-200 mb-2"
+        <p className="text-xs text-muted-foreground">
+          Use your registered email or National ID/Personal Number
+        </p>
+      </div>
+      {/* Password Field */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <Label htmlFor="password">Password</Label>
+          <Link
+            href="/forgot-password"
+            className="text-xs text-primary hover:underline"
           >
-            Password
-          </label>
-          <div className="relative">
-            <input
-              id="password"
-              name="password"
-              type={showPassword ? "text" : "password"}
-              required
-              minLength={6}
-              placeholder="Enter password"
-              className="w-full pl-10 pr-10 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 placeholder-gray-500 dark:placeholder-gray-400 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-countyGreen transition"
-            />
-            <KeyIcon className="absolute left-3 top-1/2 h-[18px] w-[18px] transform -translate-y-1/2 text-gray-400 dark:text-gray-500" />
-            <span
-              onClick={togglePassword}
-              className="absolute right-3 top-1/2 transform -translate-y-1/2 cursor-pointer text-gray-500 dark:text-gray-400"
-            >
-              {showPassword ? "👁️" : "🙈"}
-            </span>
-          </div>
+            Forgot password?
+          </Link>
         </div>
+        <div className="relative">
+          <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            id="password"
+            name="password"
+            type={showPassword ? "text" : "password"}
+            placeholder="••••••••"
+            className="pl-9 pr-9"
+            required
+            minLength={6}
+            autoComplete="current-password"
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword(!showPassword)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            aria-label={showPassword ? "Hide password" : "Show password"}
+          >
+            {showPassword ? (
+              <EyeOff className="h-4 w-4" />
+            ) : (
+              <Eye className="h-4 w-4" />
+            )}
+          </button>
+        </div>
+      </div>
 
-        {/* Error Message */}
-        {errorMessage && (
-          <div className="flex items-center space-x-2 text-red-500">
-            <FileExclamationPoint className="w-5 h-5" />
-            <span className="text-sm">{errorMessage}</span>
-          </div>
-        )}
+      {errorMessage && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{errorMessage}</AlertDescription>
+        </Alert>
+      )}
 
-        <SubmitButton isPending={isPending} className="w-full" />
-      </form>
-    </div>
+      <Button type="submit" className="w-full" disabled={isPending}>
+        {isPending ? "Signing in..." : "Sign In"}
+      </Button>
+      <div className="bg-muted/30 rounded-lg p-3 text-xs text-center text-muted-foreground">
+        <p>
+          By signing in, you agree to our Terms of Service and Privacy Policy.
+        </p>
+      </div>
+    </form>
   );
 }

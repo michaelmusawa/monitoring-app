@@ -724,31 +724,28 @@ export async function fetchCategoriesWithProjects(filters?: {
     });
   }
 
-  // 5. Return only categories that have at least one project after filtering
-  return catRows
-    .filter((row: any) => projectsByCategory.has(row.id))
-    .map((row: any) => {
-      const projects = projectsByCategory.get(row.id)!;
-      const activeCount = projects.filter((p) => p.status === "ACTIVE").length;
-      const pendingCount = projects.filter(
-        (p) => p.status === "PENDING",
-      ).length;
-      const progValues = projects.map(
-        (p) => p.latestTrackerPercent ?? p.progress ?? 0,
-      );
-      const avgProgress =
-        progValues.length > 0
-          ? progValues.reduce((a, b) => a + b, 0) / progValues.length
-          : null;
-      return {
-        ...mapCategory(row),
-        projects,
-        projectCount: projects.length,
-        activeCount,
-        pendingCount,
-        avgProgress,
-      };
-    });
+  // 5. Return ALL categories, including those without projects
+  //    (projects array will be empty, counts zero, avgProgress null)
+  return catRows.map((row: any) => {
+    const projects = projectsByCategory.get(row.id) ?? [];
+    const activeCount = projects.filter((p) => p.status === "ACTIVE").length;
+    const pendingCount = projects.filter((p) => p.status === "PENDING").length;
+    const progValues = projects.map(
+      (p) => p.latestTrackerPercent ?? p.progress ?? 0,
+    );
+    const avgProgress =
+      progValues.length > 0
+        ? progValues.reduce((a, b) => a + b, 0) / progValues.length
+        : null;
+    return {
+      ...mapCategory(row),
+      projects,
+      projectCount: projects.length,
+      activeCount,
+      pendingCount,
+      avgProgress,
+    };
+  });
 }
 
 // ─── assignProjectToCategory ──────────────────────────────────────────────────

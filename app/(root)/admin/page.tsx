@@ -265,6 +265,21 @@ export default async function AdminPage() {
                 )}
 
                 <QuickAction
+                  href="/admin/roles"
+                  icon={<Shield className="w-5 h-5 text-purple-600" />}
+                  label="Roles & Permissions"
+                  description="Manage roles and permissions"
+                  accent="bg-purple-50 dark:bg-purple-950/30"
+                />
+                <QuickAction
+                  href="/admin/permissions"
+                  icon={<Shield className="w-5 h-5 text-indigo-600" />}
+                  label="Permissions"
+                  description="Granular permission codes"
+                  accent="bg-indigo-50 dark:bg-indigo-950/30"
+                />
+
+                <QuickAction
                   href="/admin/checklists"
                   icon={<CheckSquare className="w-5 h-5 text-emerald-600" />}
                   label="Checklist Templates"

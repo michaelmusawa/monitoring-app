@@ -33,6 +33,7 @@ import {
   Activity,
   Rocket,
   ArrowUpRight,
+  Clock,
 } from "lucide-react";
 import ReportGenerator, { type ReportProject } from "./ReportGenerator";
 import type {
@@ -246,7 +247,7 @@ function Breadcrumb({
           {item.onClick ? (
             <button
               onClick={item.onClick}
-              className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium transition-colors"
+              className="text-green-700 hover:text-green-600 dark:text-blue-400 dark:hover:text-blue-300 font-medium transition-colors"
             >
               {item.label}
             </button>
@@ -265,28 +266,29 @@ function Breadcrumb({
 function StatCard({ label, value, sub, icon, accentBorder, accentIcon }: any) {
   return (
     <div
-      className={`relative overflow-hidden rounded-2xl border bg-white dark:bg-zinc-900 p-5 ${accentBorder} dark:border-zinc-800`}
+      className={`group relative overflow-hidden rounded-xl border bg-white dark:bg-zinc-900 p-5 transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 ${accentBorder} dark:border-zinc-800`}
     >
-      <div className="flex items-start justify-between mb-3">
+      <div className="flex items-start justify-between mb-2">
         <div
-          className={`w-10 h-10 rounded-xl flex items-center justify-center ${accentIcon}`}
+          className={`w-10 h-10 rounded-xl flex items-center justify-center transition-transform duration-200 group-hover:scale-110 ${accentIcon}`}
         >
           {icon}
         </div>
       </div>
-      <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
+      <div className="text-2xl font-extrabold text-zinc-900 dark:text-zinc-100 tracking-tight mb-0.5">
         {value}
-      </p>
-      <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mt-0.5">
+      </div>
+      <div className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
         {label}
-      </p>
+      </div>
       {sub && (
-        <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">{sub}</p>
+        <div className="text-xs text-zinc-400 dark:text-zinc-500 mt-1.5 flex items-center gap-1">
+          {sub}
+        </div>
       )}
     </div>
   );
 }
-
 // Queue card (for action items)
 function QueueCard({ label, count, icon, cls, href }: any) {
   return (
@@ -367,7 +369,7 @@ function CumulativeView({
           />
           <div className="text-center">
             <p className="text-xs text-zinc-400 uppercase tracking-widest font-semibold">
-              Cumulative CIDP Performance
+              Cumulative KPI Performance
             </p>
             <p className="text-xs text-zinc-400 mt-0.5">
               {data.totalProjects} projects · {data.totalCategories} categories
@@ -381,7 +383,7 @@ function CumulativeView({
             {
               label: "Target (100%)",
               value: "100%",
-              sub: "CIDP 5-year cumulative target",
+              sub: "KPI 5-year cumulative target",
               icon: (
                 <Target className="w-5 h-5 text-blue-600 dark:text-blue-400" />
               ),
@@ -729,7 +731,7 @@ function CategoryView({ category }: { category: CategoryPerformance }) {
         </div>
         {[
           {
-            label: "CIDP Target",
+            label: "KPI Target",
             value: category.target.toFixed(0),
             sub: "5-year KPI target",
           },
@@ -873,6 +875,9 @@ export default function UnifiedDashboard({
   reportProjects,
 }: UnifiedDashboardProps) {
   const [showReport, setShowReport] = useState(false);
+  const [activeView, setActiveView] = useState<"dashboard" | "cidp">(
+    "dashboard",
+  );
   const isME = userRole === "me";
 
   // Drill state for CIDP section
@@ -889,7 +894,7 @@ export default function UnifiedDashboard({
   const breadcrumb = useMemo(() => {
     const items: { label: string; onClick?: () => void }[] = [
       {
-        label: "CIDP Overview",
+        label: "KPI Overview",
         onClick: () => setDrill({ level: "cumulative" }),
       },
     ];
@@ -912,6 +917,20 @@ export default function UnifiedDashboard({
     stats.totalProjects > 0
       ? Math.round((stats.completedProjects / stats.totalProjects) * 100)
       : 0;
+  const ongoingRate =
+    stats.totalProjects > 0
+      ? Math.round((stats.activeProjects / stats.totalProjects) * 100)
+      : 0;
+  const stalledRate =
+    stats.totalProjects > 0
+      ? Math.round((stats.stalledProjects / stats.totalProjects) * 100)
+      : 0;
+
+  const notRate =
+    stats.totalProjects > 0
+      ? Math.round((stats.pendingProjects / stats.totalProjects) * 100)
+      : 0;
+
   const actionCount =
     stats.awaitingDraftReview +
     stats.awaitingWeightsReview +
@@ -924,7 +943,7 @@ export default function UnifiedDashboard({
         ? "Good afternoon"
         : "Good evening";
 
-  // Constants for charts (copied from original stats dashboard)
+  // Constants for charts
   const SECTOR_COLORS = [
     "#3b82f6",
     "#10b981",
@@ -962,7 +981,7 @@ export default function UnifiedDashboard({
   return (
     <div className="min-h-screen bg-[#F7F8FC] dark:bg-[#0E1117] p-4 md:p-6 lg:p-8">
       <div className="max-w-7xl mx-auto space-y-6">
-        {/* ── Unified Header ─────────────────────────────────────────────────────────── */}
+        {/* ── Unified Header with view toggle ──────────────────────────────────────── */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <p className="text-xs font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">
@@ -975,8 +994,12 @@ export default function UnifiedDashboard({
             </p>
             <h1 className="text-3xl font-black text-zinc-900 dark:text-zinc-100 tracking-tight">
               {greeting},{" "}
-              <span className="text-blue-600 dark:text-blue-400">
-                {userName.split(" ")[0]}
+              <span className="text-green-700 dark:text-blue-400">
+                {
+                  userName && userName.includes("@")
+                    ? userName.split("@")[0] // Extract local part from email
+                    : userName?.split(" ")[0] // Fallback to first word (original logic)
+                }
               </span>
             </h1>
             <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
@@ -985,13 +1008,38 @@ export default function UnifiedDashboard({
                 : `Monitoring ${stats.activeProjects} active project${stats.activeProjects !== 1 ? "s" : ""} across ${stats.sectorBreakdown.length} sector${stats.sectorBreakdown.length !== 1 ? "s" : ""}`}
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* View toggle */}
+            <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-800 rounded-xl p-1">
+              <button
+                onClick={() => setActiveView("dashboard")}
+                className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                  activeView === "dashboard"
+                    ? "bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-sm"
+                    : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
+                }`}
+              >
+                Dashboard
+              </button>
+              <button
+                onClick={() => setActiveView("cidp")}
+                className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                  activeView === "cidp"
+                    ? "bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-sm"
+                    : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
+                }`}
+              >
+                KPI Performance
+              </button>
+            </div>
+
+            {/* Role badge */}
             <span
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border shrink-0 ${
                 isME
                   ? "bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/30 dark:border-amber-800 dark:text-amber-400"
                   : userRole === "admin"
-                    ? "bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/30 dark:border-blue-800 dark:text-blue-400"
+                    ? "bg-green-50 border-green-200 text-green-700 dark:bg-blue-900/30 dark:border-blue-800 dark:text-blue-400"
                     : "bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/30 dark:border-emerald-800 dark:text-emerald-400"
               }`}
             >
@@ -1002,6 +1050,7 @@ export default function UnifiedDashboard({
                   ? "Admin"
                   : "Sector Officer"}
             </span>
+
             <button
               onClick={() => setShowReport(true)}
               className="flex items-center gap-2 px-4 py-2 bg-green-700 hover:bg-green-800 text-white rounded-xl text-sm font-semibold transition-colors shadow-sm"
@@ -1012,388 +1061,455 @@ export default function UnifiedDashboard({
           </div>
         </div>
 
-        {/* ── Action Queue (only for ME) ─────────────────────────────────────────────── */}
-        {isME && actionCount > 0 && (
-          <div className="rounded-2xl border border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-900/20 p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Bell className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-              <h2 className="text-sm font-bold text-amber-800 dark:text-amber-400">
-                Action Queue
-              </h2>
-              <span className="text-xs text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-900 border border-amber-200 dark:border-amber-800 px-2 py-0.5 rounded-full font-medium">
-                {actionCount} items
-              </span>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-              <QueueCard
-                label="Awaiting Draft Review"
-                count={stats.awaitingDraftReview}
-                icon={
-                  <ClipboardList className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                }
-                cls="bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100 dark:bg-amber-900/30 dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-900/50"
-                href="/projects?attention=needs_draft_review"
-              />
-              <QueueCard
-                label="Awaiting Weights Review"
-                count={stats.awaitingWeightsReview}
-                icon={
-                  <BarChart3 className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                }
-                cls="bg-purple-50 border-purple-200 text-purple-800 hover:bg-purple-100 dark:bg-purple-900/30 dark:border-purple-800 dark:text-purple-300 dark:hover:bg-purple-900/50"
-                href="/projects?attention=needs_weights_review"
-              />
-              <QueueCard
-                label="New Trackers (7d)"
-                count={stats.recentTrackers}
-                icon={
-                  <Activity className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                }
-                cls="bg-blue-50 border-blue-200 text-blue-800 hover:bg-blue-100 dark:bg-blue-900/30 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-900/50"
-                href="/projects?attention=new_tracker"
-              />
-              <QueueCard
-                label="Stalled Projects"
-                count={stats.stalledProjects}
-                icon={
-                  <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400" />
-                }
-                cls="bg-red-50 border-red-200 text-red-800 hover:bg-red-100 dark:bg-red-900/30 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-900/50"
-                href="/projects?attention=stalled_items"
-              />
-            </div>
-          </div>
-        )}
-
-        {/* ── Top Stats (4 cards) ────────────────────────────────────────────────────── */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard
-            label="Total Projects"
-            value={<Counter value={stats.totalProjects} />}
-            sub={`${stats.pendingProjects} pending · ${stats.activeProjects} active`}
-            icon={
-              <Layers className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-            }
-            accentBorder="border-blue-100 dark:border-blue-900/40"
-            accentIcon="bg-blue-50 dark:bg-blue-950/30"
-          />
-          <StatCard
-            label="Portfolio Budget"
-            value={fmtBudget(stats.totalBudget)}
-            sub={`${stats.totalProjects} projects`}
-            icon={
-              <BarChart3 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-            }
-            accentBorder="border-emerald-100 dark:border-emerald-900/40"
-            accentIcon="bg-emerald-50 dark:bg-emerald-950/30"
-          />
-          <StatCard
-            label="Avg Progress"
-            value={
-              <>
-                <Counter value={stats.avgProgress} decimals={1} />%
-              </>
-            }
-            sub={`${stats.nearCompleteProjects} near complete`}
-            icon={
-              <TrendingUp className="w-5 h-5 text-violet-600 dark:text-violet-400" />
-            }
-            accentBorder="border-violet-100 dark:border-violet-900/40"
-            accentIcon="bg-violet-50 dark:bg-violet-950/30"
-          />
-          <StatCard
-            label="Completion Rate"
-            value={
-              <>
-                <Counter value={completionRate} />%
-              </>
-            }
-            sub={`${stats.completedProjects} completed`}
-            icon={
-              <CheckCircle2 className="w-5 h-5 text-teal-600 dark:text-teal-400" />
-            }
-            accentBorder="border-teal-100 dark:border-teal-900/40"
-            accentIcon="bg-teal-50 dark:bg-teal-950/30"
-          />
-        </div>
-
-        {/* ── CIDP Performance Monitor (drill‑down) ──────────────────────────────────── */}
-        <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="text-xs font-bold text-zinc-800 dark:text-zinc-200 uppercase tracking-widest">
-                CIDP Performance Monitor
-              </h2>
-              <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
-                Target vs actual delivery across all approved categories
-              </p>
-            </div>
-          </div>
-
-          <Breadcrumb items={breadcrumb} />
-
-          {drill.level === "cumulative" && (
-            <CumulativeView
-              data={cidpData}
-              onDrillSector={(s) => setDrill({ level: "sector", sector: s })}
-            />
-          )}
-          {drill.level === "sector" && (
-            <SectorView
-              sector={drill.sector}
-              onDrillCategory={(c) =>
-                setDrill({
-                  level: "category",
-                  sector: drill.sector,
-                  category: c,
-                })
-              }
-            />
-          )}
-          {drill.level === "category" && (
-            <CategoryView category={drill.category} />
-          )}
-        </div>
-
-        {/* ── Sector + distribution row ──────────────────────────────────────────────── */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-          {/* Sector breakdown (2 cols) */}
-          <div className="lg:col-span-2 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5">
-            <SectionHeader
-              title="By Sector"
-              sub="Average progress and project count per sector"
-            />
-            <div className="space-y-3">
-              {stats.sectorBreakdown.slice(0, 8).map((s, i) => (
-                <div key={s.sector || i} className="flex items-center gap-3">
-                  <div
-                    className="w-2.5 h-2.5 rounded-full shrink-0"
-                    style={{
-                      backgroundColor: SECTOR_COLORS[i % SECTOR_COLORS.length],
-                    }}
+        {/* ── VIEW: Dashboard Overview (default) ─────────────────────────────────── */}
+        {activeView === "dashboard" && (
+          <>
+            {/* ── Action Queue (only for ME) ────────────────────────────────────── */}
+            {isME && actionCount > 0 && (
+              <div className="rounded-2xl border border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-900/20 p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Bell className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                  <h2 className="text-sm font-bold text-amber-800 dark:text-amber-400">
+                    Action Queue
+                  </h2>
+                  <span className="text-xs text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-900 border border-amber-200 dark:border-amber-800 px-2 py-0.5 rounded-full font-medium">
+                    {actionCount} items
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  <QueueCard
+                    label="Awaiting Draft Review"
+                    count={stats.awaitingDraftReview}
+                    icon={
+                      <ClipboardList className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                    }
+                    cls="bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100 dark:bg-amber-900/30 dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-900/50"
+                    href="/projects?attention=needs_draft_review"
                   />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300 truncate">
-                        {s.sector ?? "Unknown"}
-                      </span>
-                      <div className="flex items-center gap-3 shrink-0 ml-2">
-                        <span className="text-xs text-zinc-400 dark:text-zinc-500">
-                          {s.count} proj
-                        </span>
-                        <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-300 w-9 text-right">
-                          {s.avgProgress.toFixed(0)}%
-                        </span>
-                      </div>
-                    </div>
-                    <div className="h-1.5 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
+                  <QueueCard
+                    label="Awaiting Weights Review"
+                    count={stats.awaitingWeightsReview}
+                    icon={
+                      <BarChart3 className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                    }
+                    cls="bg-purple-50 border-purple-200 text-purple-800 hover:bg-purple-100 dark:bg-purple-900/30 dark:border-purple-800 dark:text-purple-300 dark:hover:bg-purple-900/50"
+                    href="/projects?attention=needs_weights_review"
+                  />
+                  <QueueCard
+                    label="New Trackers (7d)"
+                    count={stats.recentTrackers}
+                    icon={
+                      <Activity className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                    }
+                    cls="bg-blue-50 border-blue-200 text-blue-800 hover:bg-blue-100 dark:bg-blue-900/30 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-900/50"
+                    href="/projects?attention=new_tracker"
+                  />
+                  <QueueCard
+                    label="Stalled Projects"
+                    count={stats.stalledProjects}
+                    icon={
+                      <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400" />
+                    }
+                    cls="bg-red-50 border-red-200 text-red-800 hover:bg-red-100 dark:bg-red-900/30 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-900/50"
+                    href="/projects?attention=stalled_items"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* ── Top Stats (8 cards) ────────────────────────────────────────────── */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+              <StatCard
+                label="Total Projects"
+                value={<Counter value={stats.totalProjects} />}
+                // sub={`${stats.pendingProjects} pending · ${stats.activeProjects} active`}
+                icon={
+                  <Layers className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                }
+                accentBorder="border-blue-100 dark:border-blue-900/40"
+                accentIcon="bg-blue-50 dark:bg-blue-950/30"
+              />
+              <StatCard
+                label="Completed Projects"
+                value={
+                  <>
+                    <Counter value={stats.completedProjects} />
+                  </>
+                }
+                sub={`${completionRate}%`}
+                icon={
+                  <CheckCircle2 className="w-5 h-5 text-teal-600 dark:text-teal-400" />
+                }
+                accentBorder="border-teal-100 dark:border-teal-900/40"
+                accentIcon="bg-teal-50 dark:bg-teal-950/30"
+              />
+              <StatCard
+                label="Ongoing Projects"
+                value={<Counter value={stats.activeProjects} />}
+                sub={`${ongoingRate}%`}
+                icon={
+                  <Activity className="w-5 h-5 text-sky-600 dark:text-sky-400" />
+                }
+                accentBorder="border-sky-100 dark:border-sky-900/40"
+                accentIcon="bg-sky-50 dark:bg-sky-950/30"
+              />
+              <StatCard
+                label="Stalled Projects"
+                value={<Counter value={stats.stalledProjects} />}
+                sub={`${stalledRate}%`}
+                icon={
+                  <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400" />
+                }
+                accentBorder="border-red-100 dark:border-red-900/40"
+                accentIcon="bg-red-50 dark:bg-red-950/30"
+              />
+              <StatCard
+                label="Terminated projects"
+                value={<Counter value={0} />}
+                sub={`${0}%`}
+                icon={
+                  <Rocket className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                }
+                accentBorder="border-indigo-100 dark:border-indigo-900/40"
+                accentIcon="bg-indigo-50 dark:bg-indigo-950/30"
+              />
+              <StatCard
+                label="Total Budget"
+                value={fmtBudget(stats.totalBudget)}
+                sub={`${stats.totalProjects} projects`}
+                icon={
+                  <BarChart3 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                }
+                accentBorder="border-emerald-100 dark:border-emerald-900/40"
+                accentIcon="bg-emerald-50 dark:bg-emerald-950/30"
+              />
+
+              <StatCard
+                label="Not Started"
+                value={<Counter value={stats.pendingProjects} />}
+                sub={`${notRate}%`}
+                icon={
+                  <Clock className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                }
+                accentBorder="border-amber-100 dark:border-amber-900/40"
+                accentIcon="bg-amber-50 dark:bg-amber-950/30"
+              />
+
+              <StatCard
+                label="Avg Progress"
+                value={
+                  <>
+                    <Counter value={stats.avgProgress} decimals={1} />%
+                  </>
+                }
+                sub={`${stats.nearCompleteProjects} near complete`}
+                icon={
+                  <TrendingUp className="w-5 h-5 text-violet-600 dark:text-violet-400" />
+                }
+                accentBorder="border-violet-100 dark:border-violet-900/40"
+                accentIcon="bg-violet-50 dark:bg-violet-950/30"
+              />
+
+              {/* Additional 4 cards */}
+            </div>
+
+            {/* ── Sector + distribution row ──────────────────────────────────────── */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+              <div className="lg:col-span-2 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5">
+                <SectionHeader
+                  title="By Sector"
+                  sub="Average progress and project count per sector"
+                />
+                <div className="space-y-3">
+                  {stats.sectorBreakdown.slice(0, 8).map((s, i) => (
+                    <div
+                      key={s.sector || i}
+                      className="flex items-center gap-3"
+                    >
                       <div
-                        className="h-full rounded-full"
+                        className="w-2.5 h-2.5 rounded-full shrink-0"
                         style={{
-                          width: `${s.avgProgress}%`,
                           backgroundColor:
                             SECTOR_COLORS[i % SECTOR_COLORS.length],
                         }}
                       />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300 truncate">
+                            {s.sector ?? "Unknown"}
+                          </span>
+                          <div className="flex items-center gap-3 shrink-0 ml-2">
+                            <span className="text-xs text-zinc-400 dark:text-zinc-500">
+                              {s.count} proj
+                            </span>
+                            <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-300 w-9 text-right">
+                              {s.avgProgress.toFixed(0)}%
+                            </span>
+                          </div>
+                        </div>
+                        <div className="h-1.5 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full"
+                            style={{
+                              width: `${s.avgProgress}%`,
+                              backgroundColor:
+                                SECTOR_COLORS[i % SECTOR_COLORS.length],
+                            }}
+                          />
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Progress buckets (1 col) */}
-          <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5">
-            <SectionHeader title="Progress Buckets" />
-            <ResponsiveContainer width="100%" height={180}>
-              <BarChart
-                data={stats.progressBuckets}
-                barSize={22}
-                margin={{ top: 4, right: 0, left: -20, bottom: 0 }}
-              >
-                <XAxis
-                  dataKey="label"
-                  tick={{ fontSize: 10, fill: "#9ca3af" }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  tick={{ fontSize: 10, fill: "#9ca3af" }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <Tooltip content={<ChartTooltip />} />
-                <Bar dataKey="count" name="Projects" radius={[4, 4, 0, 0]}>
-                  {stats.progressBuckets.map((_, i) => (
-                    <Cell key={i} fill={BUCKET_COLORS[i] ?? "#3b82f6"} />
                   ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-            <div className="grid grid-cols-2 gap-1.5 mt-2">
-              {stats.progressBuckets.map((b, i) => (
-                <div key={b.label} className="flex items-center gap-1.5">
-                  <div
-                    className="w-2 h-2 rounded-sm shrink-0"
-                    style={{ backgroundColor: BUCKET_COLORS[i] }}
-                  />
-                  <span className="text-xs text-zinc-500 dark:text-zinc-400 truncate">
-                    {b.label}: <strong>{b.count}</strong>
-                  </span>
                 </div>
-              ))}
-            </div>
-          </div>
-        </div>
+              </div>
 
-        {/* ── Tracker activity + budget row ──────────────────────────────────────────── */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-          <div className="lg:col-span-2 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5">
-            <SectionHeader
-              title="Tracker Activity"
-              sub="Monthly submission count"
-            />
-            <ResponsiveContainer width="100%" height={170}>
-              <AreaChart
-                data={stats.monthlyTrackers}
-                margin={{ top: 4, right: 0, left: -20, bottom: 0 }}
-              >
-                <defs>
-                  <linearGradient id="blueGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.25} />
-                    <stop offset="100%" stopColor="#3b82f6" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <XAxis
-                  dataKey="month"
-                  tick={{ fontSize: 10, fill: "#9ca3af" }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  tick={{ fontSize: 10, fill: "#9ca3af" }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <Tooltip content={<ChartTooltip />} />
-                <Area
-                  type="monotone"
-                  dataKey="submissions"
-                  name="Submissions"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  fill="url(#blueGrad)"
-                  dot={{ r: 3, fill: "#3b82f6", strokeWidth: 0 }}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5">
-            <SectionHeader title="Budget by Size" />
-            <div className="flex justify-center">
-              <ResponsiveContainer width="100%" height={150}>
-                <PieChart>
-                  <Pie
-                    data={stats.budgetBySize}
-                    dataKey="budget"
-                    nameKey="size"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={42}
-                    outerRadius={65}
-                    paddingAngle={3}
+              <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5">
+                <SectionHeader title="Progress Buckets" />
+                <ResponsiveContainer width="100%" height={180}>
+                  <BarChart
+                    data={stats.progressBuckets}
+                    barSize={22}
+                    margin={{ top: 4, right: 0, left: -20, bottom: 0 }}
                   >
-                    {stats.budgetBySize.map((_, i) => (
-                      <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    formatter={(v: number) => fmtBudget(v)}
-                    contentStyle={{
-                      fontSize: 11,
-                      background: "#18181b",
-                      border: "1px solid #3f3f46",
-                      borderRadius: 8,
-                      color: "#f4f4f5",
-                    }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="space-y-2 mt-1">
-              {stats.budgetBySize.map((b, i) => (
-                <div key={b.size} className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div
-                      className="w-2.5 h-2.5 rounded-full"
-                      style={{
-                        backgroundColor: PIE_COLORS[i % PIE_COLORS.length],
-                      }}
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fontSize: 10, fill: "#9ca3af" }}
+                      axisLine={false}
+                      tickLine={false}
                     />
-                    <span className="text-xs text-zinc-600 dark:text-zinc-400">
-                      {b.size}
-                    </span>
-                    <span className="text-xs text-zinc-400 dark:text-zinc-500">
-                      ({b.count})
-                    </span>
-                  </div>
-                  <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                    {fmtBudget(b.budget)}
-                  </span>
+                    <YAxis
+                      tick={{ fontSize: 10, fill: "#9ca3af" }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <Tooltip content={<ChartTooltip />} />
+                    <Bar dataKey="count" name="Projects" radius={[4, 4, 0, 0]}>
+                      {stats.progressBuckets.map((_, i) => (
+                        <Cell key={i} fill={BUCKET_COLORS[i] ?? "#3b82f6"} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+                <div className="grid grid-cols-2 gap-1.5 mt-2">
+                  {stats.progressBuckets.map((b, i) => (
+                    <div key={b.label} className="flex items-center gap-1.5">
+                      <div
+                        className="w-2 h-2 rounded-sm shrink-0"
+                        style={{ backgroundColor: BUCKET_COLORS[i] }}
+                      />
+                      <span className="text-xs text-zinc-500 dark:text-zinc-400 truncate">
+                        {b.label}: <strong>{b.count}</strong>
+                      </span>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              </div>
             </div>
-          </div>
-        </div>
 
-        {/* ── Recent Activity ─────────────────────────────────────────────────────────── */}
-        <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5">
-          <SectionHeader
-            title="Recent Activity"
-            sub="Latest events across all projects"
-          />
-          {stats.recentActivity.length === 0 ? (
-            <p className="text-sm text-zinc-400 dark:text-zinc-500 text-center py-10">
-              No recent activity
-            </p>
-          ) : (
-            <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {stats.recentActivity.slice(0, 8).map((ev) => {
-                const meta = ACTIVITY_META[ev.type];
-                return (
-                  <div
-                    key={ev.id}
-                    className="flex items-start gap-3 py-3 first:pt-0 last:pb-0"
+            {/* ── Tracker activity + budget row ──────────────────────────────────── */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+              <div className="lg:col-span-2 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5">
+                <SectionHeader
+                  title="Tracker Activity"
+                  sub="Monthly submission count"
+                />
+                <ResponsiveContainer width="100%" height={170}>
+                  <AreaChart
+                    data={stats.monthlyTrackers}
+                    margin={{ top: 4, right: 0, left: -20, bottom: 0 }}
                   >
+                    <defs>
+                      <linearGradient id="blueGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop
+                          offset="0%"
+                          stopColor="#3b82f6"
+                          stopOpacity={0.25}
+                        />
+                        <stop
+                          offset="100%"
+                          stopColor="#3b82f6"
+                          stopOpacity={0}
+                        />
+                      </linearGradient>
+                    </defs>
+                    <XAxis
+                      dataKey="month"
+                      tick={{ fontSize: 10, fill: "#9ca3af" }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 10, fill: "#9ca3af" }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <Tooltip content={<ChartTooltip />} />
+                    <Area
+                      type="monotone"
+                      dataKey="submissions"
+                      name="Submissions"
+                      stroke="#3b82f6"
+                      strokeWidth={2}
+                      fill="url(#blueGrad)"
+                      dot={{ r: 3, fill: "#3b82f6", strokeWidth: 0 }}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5">
+                <SectionHeader title="Budget by Size" />
+                <div className="flex justify-center">
+                  <ResponsiveContainer width="100%" height={150}>
+                    <PieChart>
+                      <Pie
+                        data={stats.budgetBySize}
+                        dataKey="budget"
+                        nameKey="size"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={42}
+                        outerRadius={65}
+                        paddingAngle={3}
+                      >
+                        {stats.budgetBySize.map((_, i) => (
+                          <Cell
+                            key={i}
+                            fill={PIE_COLORS[i % PIE_COLORS.length]}
+                          />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        formatter={(v: number) => fmtBudget(v)}
+                        contentStyle={{
+                          fontSize: 11,
+                          background: "#18181b",
+                          border: "1px solid #3f3f46",
+                          borderRadius: 8,
+                          color: "#f4f4f5",
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="space-y-2 mt-1">
+                  {stats.budgetBySize.map((b, i) => (
                     <div
-                      className={`shrink-0 w-7 h-7 rounded-lg border flex items-center justify-center mt-0.5 ${meta.cls} dark:border-zinc-700`}
+                      key={b.size}
+                      className="flex items-center justify-between"
                     >
-                      {meta.icon}
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="w-2.5 h-2.5 rounded-full"
+                          style={{
+                            backgroundColor: PIE_COLORS[i % PIE_COLORS.length],
+                          }}
+                        />
+                        <span className="text-xs text-zinc-600 dark:text-zinc-400">
+                          {b.size}
+                        </span>
+                        <span className="text-xs text-zinc-400 dark:text-zinc-500">
+                          ({b.count})
+                        </span>
+                      </div>
+                      <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                        {fmtBudget(b.budget)}
+                      </span>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200 truncate">
-                        {ev.projectName}
-                      </p>
-                      <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
-                        {ev.detail}
-                      </p>
-                    </div>
-                    <span className="text-xs text-zinc-400 dark:text-zinc-500 shrink-0 mt-0.5">
-                      {timeAgo(ev.date)}
-                    </span>
-                  </div>
-                );
-              })}
+                  ))}
+                </div>
+              </div>
             </div>
-          )}
-          <a
-            href="/projects"
-            className="flex items-center gap-1.5 mt-4 text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
-          >
-            View all projects <ArrowUpRight className="w-3.5 h-3.5" />
-          </a>
-        </div>
+
+            {/* ── Recent Activity ────────────────────────────────────────────────── */}
+            <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5">
+              <SectionHeader
+                title="Recent Activity"
+                sub="Latest events across all projects"
+              />
+              {stats.recentActivity.length === 0 ? (
+                <p className="text-sm text-zinc-400 dark:text-zinc-500 text-center py-10">
+                  No recent activity
+                </p>
+              ) : (
+                <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                  {stats.recentActivity.slice(0, 8).map((ev) => {
+                    const meta = ACTIVITY_META[ev.type];
+                    return (
+                      <div
+                        key={ev.id}
+                        className="flex items-start gap-3 py-3 first:pt-0 last:pb-0"
+                      >
+                        <div
+                          className={`shrink-0 w-7 h-7 rounded-lg border flex items-center justify-center mt-0.5 ${meta.cls} dark:border-zinc-700`}
+                        >
+                          {meta.icon}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200 truncate">
+                            {ev.projectName}
+                          </p>
+                          <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
+                            {ev.detail}
+                          </p>
+                        </div>
+                        <span className="text-xs text-zinc-400 dark:text-zinc-500 shrink-0 mt-0.5">
+                          {timeAgo(ev.date)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <a
+                href="/projects"
+                className="flex items-center gap-1.5 mt-4 text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
+              >
+                View all projects <ArrowUpRight className="w-3.5 h-3.5" />
+              </a>
+            </div>
+          </>
+        )}
+
+        {/* ── VIEW: CIDP Performance Monitor ────────────────────────────────────── */}
+        {activeView === "cidp" && (
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-xs font-bold text-zinc-800 dark:text-zinc-200 uppercase tracking-widest">
+                  County key performance indicators
+                </h2>
+                <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
+                  Target vs actual delivery across all approved categories
+                </p>
+              </div>
+            </div>
+
+            <Breadcrumb items={breadcrumb} />
+
+            {drill.level === "cumulative" && (
+              <CumulativeView
+                data={cidpData}
+                onDrillSector={(s) => setDrill({ level: "sector", sector: s })}
+              />
+            )}
+            {drill.level === "sector" && (
+              <SectorView
+                sector={drill.sector}
+                onDrillCategory={(c) =>
+                  setDrill({
+                    level: "category",
+                    sector: drill.sector,
+                    category: c,
+                  })
+                }
+              />
+            )}
+            {drill.level === "category" && (
+              <CategoryView category={drill.category} />
+            )}
+          </div>
+        )}
       </div>
 
       {/* Report Generator Modal */}

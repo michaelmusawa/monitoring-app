@@ -1,22 +1,27 @@
 import { auth } from "@/auth";
 import CIDPCategoriesPage from "@/components/admin/CIDPCategoriesPage";
 import { getUser } from "@/lib/actions/usersActions";
+import { getUserPermissions } from "@/lib/actions/adminActions";
 
-const Page = async () => {
+export default async function Page() {
   const session = await auth();
   const userEmail = session?.user?.email || "";
-
   const user = await getUser(userEmail);
 
-  // Derive role once, pass everywhere
-  const userRole =
-    user?.sector === "Monitoring And Evaluation"
-      ? "me"
-      : user?.sector !== "Monitoring And Evaluation"
-        ? "sector"
-        : "viewer";
+  // Fetch permissions from RBAC system
+  let permissions: string[] = [];
+  if (user?.id) {
+    permissions = await getUserPermissions(user.id);
+  }
 
-  return <CIDPCategoriesPage userRole={userRole} />;
-};
+  // Fallback role display string (derived from sector for backward compatibility)
+  let displayRole = "viewer";
+  if (user?.sector === "Monitoring And Evaluation") displayRole = "me";
+  else if (user?.sector && user.sector !== "Monitoring And Evaluation")
+    displayRole = "sector";
+  else if (user?.role === "system admin") displayRole = "viewer";
 
-export default Page;
+  return (
+    <CIDPCategoriesPage userPermissions={permissions} userRole={displayRole} />
+  );
+}

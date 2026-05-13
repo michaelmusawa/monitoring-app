@@ -1,3 +1,4 @@
+// app/(root)/projects/[projectId]/page.tsx
 import {
   ArrowLeftIcon,
   CalendarIcon,
@@ -30,6 +31,7 @@ import {
 } from "@/lib/actions/checklistActions";
 import { getTrackerSubmissions } from "@/lib/actions/trackerActions";
 import { getUser } from "@/lib/actions/usersActions";
+import { getUserPermissions } from "@/lib/actions/adminActions";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -43,7 +45,6 @@ const STATUS_META: Record<
     badge:
       "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800",
   },
-
   STALLED: {
     label: "Stalled",
     dot: "bg-violet-400",
@@ -94,8 +95,6 @@ function getStageFromChecklist(status: string): string {
   }
 }
 
-// ─── Checklist phase label ────────────────────────────────────────────────────
-
 const CHECKLIST_PHASE_LABEL: Record<string, string> = {
   Draft: "Draft",
   DraftReview: "Draft Review",
@@ -117,12 +116,8 @@ export default async function ProjectDetail(props: {
 
   const session = await auth();
   const userEmail = session?.user?.email || "";
-
   const user = await getUser(userEmail);
-
-  // Derive role once, pass everywhere
-  const userRole = user?.role ?? "";
-  const userSector = user?.sector;
+  const userPermissions = user?.id ? await getUserPermissions(user.id) : [];
 
   const project = await getProject(projectId);
   if (!project) notFound();
@@ -158,12 +153,9 @@ export default async function ProjectDetail(props: {
     weight: i.weight,
   }));
 
-  const statusMeta = STATUS_META[project?.status ?? ""] ?? STATUS_META.PLANNING;
-
+  const statusMeta = STATUS_META[project?.status ?? ""] ?? STATUS_META.PENDING;
   const checklistPhaseLabel =
     CHECKLIST_PHASE_LABEL[checklist?.status ?? ""] ?? "—";
-
-  // ─── Tab definitions ─────────────────────────────────────────────────────
 
   const mainTabs = [
     { key: "checklist", label: "Checklist", icon: CheckIcon },
@@ -176,7 +168,7 @@ export default async function ProjectDetail(props: {
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-16 pt-20 lg:pt-8 space-y-0">
-        {/* ── Back nav ──────────────────────────────────────────────────────── */}
+        {/* Back nav */}
         <div className="py-4">
           <Link
             href="/projects"
@@ -187,7 +179,7 @@ export default async function ProjectDetail(props: {
           </Link>
         </div>
 
-        {/* ── Header ────────────────────────────────────────────────────────── */}
+        {/* Header */}
         <div className="py-4 border-b border-zinc-200 dark:border-zinc-800">
           <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
             <div className="space-y-2">
@@ -195,7 +187,6 @@ export default async function ProjectDetail(props: {
                 <h1 className="text-2xl font-bold tracking-tight leading-none">
                   {project.name}
                 </h1>
-                {/* Status badge */}
                 <span
                   className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${statusMeta.badge}`}
                 >
@@ -226,17 +217,9 @@ export default async function ProjectDetail(props: {
                 )}
               </div>
             </div>
-
-            {/* Quick-link to reports */}
             <Link
               href={`/projects/${projectId}/reports`}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm
-                         border border-zinc-200 dark:border-zinc-700
-                         bg-white dark:bg-zinc-900
-                         text-zinc-600 dark:text-zinc-300
-                         hover:border-zinc-400 dark:hover:border-zinc-500
-                         hover:text-zinc-900 dark:hover:text-white
-                         transition-all shrink-0"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 hover:border-zinc-400 dark:hover:border-zinc-500 hover:text-zinc-900 dark:hover:text-white transition-all shrink-0"
             >
               <FileTextIcon className="w-3.5 h-3.5" />
               Reports
@@ -245,12 +228,10 @@ export default async function ProjectDetail(props: {
           </div>
         </div>
 
-        {/* ── Stage progress ─────────────────────────────────────────────────── */}
+        {/* Stage progress */}
         <div className="py-5 border-b border-zinc-200 dark:border-zinc-800">
           <div className="relative">
-            {/* Track line */}
             <div className="absolute top-[13px] left-0 right-0 h-px bg-zinc-200 dark:bg-zinc-800" />
-            {/* Filled portion */}
             <div
               className="absolute top-[13px] left-0 h-px bg-zinc-900 dark:bg-zinc-200 transition-all duration-700"
               style={{
@@ -260,12 +241,10 @@ export default async function ProjectDetail(props: {
                     : "0%",
               }}
             />
-            {/* Stage dots + labels */}
             <div className="relative flex justify-between">
               {STAGES.map((stage, i) => {
                 const isDone = i < currentStageIndex;
                 const isCurrent = i === currentStageIndex;
-                const isFuture = i > currentStageIndex;
                 return (
                   <div
                     key={stage.id}
@@ -277,7 +256,7 @@ export default async function ProjectDetail(props: {
                         border-2 transition-all duration-300 z-10
                         ${isDone ? "bg-zinc-900 dark:bg-zinc-100 border-zinc-900 dark:border-zinc-100" : ""}
                         ${isCurrent ? "bg-white dark:bg-zinc-950 border-zinc-900 dark:border-zinc-100 ring-4 ring-zinc-900/10 dark:ring-zinc-100/10" : ""}
-                        ${isFuture ? "bg-white dark:bg-zinc-950 border-zinc-300 dark:border-zinc-700" : ""}
+                        ${!isDone && !isCurrent ? "bg-white dark:bg-zinc-950 border-zinc-300 dark:border-zinc-700" : ""}
                       `}
                     >
                       {isDone ? (
@@ -295,7 +274,6 @@ export default async function ProjectDetail(props: {
                     >
                       {stage.full}
                     </span>
-                    {/* Mobile: only show current */}
                     <span
                       className={`
                         text-[11px] font-medium sm:hidden
@@ -311,9 +289,8 @@ export default async function ProjectDetail(props: {
           </div>
         </div>
 
-        {/* ── Stat cards ─────────────────────────────────────────────────────── */}
+        {/* Stat cards */}
         <div className="py-5 grid grid-cols-2 lg:grid-cols-4 gap-3 border-b border-zinc-200 dark:border-zinc-800">
-          {/* Tracker submissions */}
           <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 space-y-1">
             <div className="flex items-center justify-between">
               <span className="text-xs text-zinc-500 dark:text-zinc-400 font-medium">
@@ -330,8 +307,6 @@ export default async function ProjectDetail(props: {
                 : `Latest: ${new Date(latestSubmission!.submittedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`}
             </div>
           </div>
-
-          {/* Checklist items */}
           <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 space-y-1">
             <div className="flex items-center justify-between">
               <span className="text-xs text-zinc-500 dark:text-zinc-400 font-medium">
@@ -347,8 +322,6 @@ export default async function ProjectDetail(props: {
             </div>
             <div className="text-xs text-zinc-400">items selected</div>
           </div>
-
-          {/* Overall progress */}
           <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 space-y-1">
             <div className="flex items-center justify-between">
               <span className="text-xs text-zinc-500 dark:text-zinc-400 font-medium">
@@ -360,7 +333,6 @@ export default async function ProjectDetail(props: {
               {overallProgress.toFixed(0)}
               <span className="text-sm font-normal text-zinc-400">%</span>
             </div>
-            {/* Mini progress bar */}
             <div className="w-full h-1 rounded-full bg-zinc-100 dark:bg-zinc-800 overflow-hidden">
               <div
                 className="h-full rounded-full bg-amber-400 transition-all duration-700"
@@ -368,8 +340,6 @@ export default async function ProjectDetail(props: {
               />
             </div>
           </div>
-
-          {/* Stage */}
           <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 space-y-1">
             <div className="flex items-center justify-between">
               <span className="text-xs text-zinc-500 dark:text-zinc-400 font-medium">
@@ -386,13 +356,9 @@ export default async function ProjectDetail(props: {
           </div>
         </div>
 
-        {/* ── Tabs ───────────────────────────────────────────────────────────── */}
+        {/* Tabs */}
         <div className="pt-4">
-          {/* Tab bar — scrollable on mobile, no wrapping */}
-          <div
-            className="flex items-center gap-0.5 overflow-x-auto scrollbar-none
-                          border-b border-zinc-200 dark:border-zinc-800 pb-0"
-          >
+          <div className="flex items-center gap-0.5 overflow-x-auto scrollbar-none border-b border-zinc-200 dark:border-zinc-800 pb-0">
             {mainTabs.map((tabItem) => {
               const isActive = tab === tabItem.key;
               return (
@@ -414,34 +380,19 @@ export default async function ProjectDetail(props: {
                 </Link>
               );
             })}
-
-            {/* Spacer pushes external links to the right on wider screens */}
             <div className="flex-1 min-w-4" />
-
-            {/* External links */}
             <Link
               href={`/projects/${projectId}/reports`}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 text-sm font-medium
-                         whitespace-nowrap border-b-2 border-transparent -mb-px
-                         text-zinc-500 dark:text-zinc-400
-                         hover:text-zinc-700 dark:hover:text-zinc-300
-                         hover:border-zinc-300 dark:hover:border-zinc-600
-                         transition-all"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 border-transparent -mb-px text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600 transition-all"
             >
               <FileTextIcon className="w-3.5 h-3.5" />
               Reports
               <ArrowUpRightIcon className="w-3 h-3 opacity-40" />
             </Link>
-
-            {userSector === "Monitoring And Evaluation" && (
+            {userPermissions.includes("checklist:evaluation") && (
               <Link
                 href={`/projects/${projectId}/evaluation`}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2.5 text-sm font-medium
-                           whitespace-nowrap border-b-2 border-transparent -mb-px
-                           text-zinc-500 dark:text-zinc-400
-                           hover:text-zinc-700 dark:hover:text-zinc-300
-                           hover:border-zinc-300 dark:hover:border-zinc-600
-                           transition-all"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 border-transparent -mb-px text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600 transition-all"
               >
                 <FileTextIcon className="w-3.5 h-3.5" />
                 Evaluation
@@ -450,15 +401,13 @@ export default async function ProjectDetail(props: {
             )}
           </div>
 
-          {/* ── Tab content ──────────────────────────────────────────────────── */}
           <div className="pt-6">
             {tab === "checklist" && (
               <ProjectChecklistClient
                 projectId={project.id}
                 checklist={checklist}
                 standardParams={standardParams}
-                userRole={userRole}
-                userSector={userSector}
+                userPermissions={userPermissions}
               />
             )}
             {tab === "trackers" && (
@@ -466,16 +415,14 @@ export default async function ProjectDetail(props: {
                 projectId={project.id}
                 submissions={submissions}
                 hasApprovedChecklist={hasApprovedChecklist}
-                userRole={userRole}
-                userSector={userSector}
+                userPermissions={userPermissions}
               />
             )}
             {tab === "calendar" && (
               <ProjectCalendar
                 projectId={project.id}
                 checklistStatus={checklist?.status ?? "Draft"}
-                userRole={userRole} // ← fixed: derived role, not raw email
-                userSector={userSector}
+                userPermissions={userPermissions}
                 checklistItems={checklistItemsForWorkplan}
               />
             )}

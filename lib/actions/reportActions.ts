@@ -388,3 +388,138 @@ export async function saveStatusReportDraft(data: {
     throw new DatabaseError();
   }
 }
+
+export interface ProjectProgress {
+  id: string;
+  name: string;
+  sector: string;
+  status: string;
+  progress: number;
+  budget: number | null;
+  createdAt: Date;
+}
+
+export async function getProjectProgressData(): Promise<ProjectProgress[]> {
+  const sql = `
+    SELECT id, name, sector, status, progress, budget, createdAt
+    FROM Project
+    ORDER BY createdAt DESC
+  `;
+  const { rows } = await safeQuery<any>(sql, []);
+  return rows.map((r) => ({
+    id: r.id.toString(),
+    name: r.name,
+    sector: r.sector,
+    status: r.status,
+    progress: r.progress || 0,
+    budget: r.budget,
+    createdAt: r.createdAt,
+  }));
+}
+
+export interface ChecklistStatus {
+  projectId: string;
+  projectName: string;
+  status: string;
+  totalItems: number;
+  selectedItems: number;
+  totalWeight: number;
+  lastModified: Date;
+}
+
+export async function getChecklistStatusData(): Promise<ChecklistStatus[]> {
+  const sql = `
+    SELECT
+      p.id as projectId,
+      p.name as projectName,
+      c.status,
+      COUNT(ci.id) as totalItems,
+      SUM(CASE WHEN ci.weight > 0 THEN 1 ELSE 0 END) as selectedItems,
+      SUM(ci.weight) as totalWeight,
+      c.lastModified
+    FROM Project p
+    LEFT JOIN Checklist c ON p.id = c.projectId
+    LEFT JOIN ChecklistItem ci ON ci.checklistId = c.id
+    GROUP BY p.id, p.name, c.status, c.lastModified
+    ORDER BY p.name
+  `;
+  const { rows } = await safeQuery<any>(sql, []);
+  return rows.map((r) => ({
+    projectId: r.projectId.toString(),
+    projectName: r.projectName,
+    status: r.status || "No checklist",
+    totalItems: r.totalItems || 0,
+    selectedItems: r.selectedItems || 0,
+    totalWeight: r.totalWeight || 0,
+    lastModified: r.lastModified,
+  }));
+}
+
+export interface SectorPerformance {
+  sector: string;
+  projectCount: number;
+  avgProgress: number;
+  totalBudget: number;
+  completedProjects: number;
+  activeProjects: number;
+}
+
+export async function getSectorPerformanceData(): Promise<SectorPerformance[]> {
+  const sql = `
+    SELECT
+      COALESCE(sector, 'Unspecified') as sector,
+      COUNT(*) as projectCount,
+      AVG(progress) as avgProgress,
+      SUM(COALESCE(budget, 0)) as totalBudget,
+      SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) as completedProjects,
+      SUM(CASE WHEN status = 'ACTIVE' THEN 1 ELSE 0 END) as activeProjects
+    FROM Project
+    GROUP BY COALESCE(sector, 'Unspecified')
+    ORDER BY avgProgress DESC
+  `;
+  const { rows } = await safeQuery<any>(sql, []);
+  return rows.map((r) => ({
+    sector: r.sector,
+    projectCount: r.projectCount,
+    avgProgress: Math.round(r.avgProgress * 10) / 10,
+    totalBudget: r.totalBudget,
+    completedProjects: r.completedProjects,
+    activeProjects: r.activeProjects,
+  }));
+}
+
+export interface PendingChangeRequest {
+  projectId: string;
+  projectName: string;
+  requestedBy: string;
+  requestedAt: Date;
+  changesCount: number;
+}
+
+export async function getPendingChangeRequestsData(): Promise<
+  PendingChangeRequest[]
+> {
+  const sql = `
+    SELECT
+      p.id as projectId,
+      p.name as projectName,
+      cr.requestedBy,
+      cr.requestedAt,
+      COUNT(ci.id) as changesCount
+    FROM ChecklistChangeRequest cr
+    JOIN Checklist c ON cr.checklistId = c.id
+    JOIN Project p ON c.projectId = p.id
+    JOIN ChecklistChangeItem ci ON cr.id = ci.requestId
+    WHERE cr.status = 'PENDING'
+    GROUP BY p.id, p.name, cr.requestedBy, cr.requestedAt
+    ORDER BY cr.requestedAt DESC
+  `;
+  const { rows } = await safeQuery<any>(sql, []);
+  return rows.map((r) => ({
+    projectId: r.projectId.toString(),
+    projectName: r.projectName,
+    requestedBy: r.requestedBy,
+    requestedAt: r.requestedAt,
+    changesCount: r.changesCount,
+  }));
+}

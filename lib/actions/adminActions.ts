@@ -198,22 +198,32 @@ export async function fetchUsersPages(
 
 // ─── createUser ───────────────────────────────────────────────────────────────
 
+// ─── createUser ───────────────────────────────────────────────────────────────
+// Now accepts roleIds instead of a single role string.
 export async function createUser(data: {
   name: string;
   email: string;
-  role: string;
+  roleIds: number[]; // new: array of role IDs
   sector?: string;
 }): Promise<AdminUser> {
   try {
+    // Insert user without setting the deprecated 'role' column (set to NULL)
     const { rows } = await safeQuery<any>(
       `INSERT INTO [User] (name, email, role, sector, status, createdAt)
        OUTPUT INSERTED.id, INSERTED.name, INSERTED.email, INSERTED.role,
               INSERTED.sector, INSERTED.status, INSERTED.image, INSERTED.createdAt
-       VALUES (@p1, @p2, @p3, @p4, 'active', GETDATE())`,
-      [data.name, data.email, data.role, data.sector ?? null],
+       VALUES (@p1, @p2, NULL, @p3, 'active', GETDATE())`,
+      [data.name, data.email, data.sector ?? null],
     );
+    const newUser = mapUser(rows[0]);
+
+    // Assign roles to the new user
+    if (data.roleIds.length > 0) {
+      await assignRolesToUser(newUser.id, data.roleIds);
+    }
+
     revalidatePath("/admin");
-    return mapUser(rows[0]);
+    return newUser;
   } catch (error) {
     console.error("createUser error:", error);
     throw new DatabaseError();
@@ -221,10 +231,15 @@ export async function createUser(data: {
 }
 
 // ─── updateUser ───────────────────────────────────────────────────────────────
-
+// Now can accept roleIds (optional) and updates UserRoles accordingly.
 export async function updateUser(
   id: string,
-  data: { name?: string; email?: string; role?: string; sector?: string },
+  data: {
+    name?: string;
+    email?: string;
+    sector?: string;
+    roleIds?: number[]; // optional: if provided, replaces existing role assignments
+  },
 ): Promise<void> {
   const updates: string[] = [];
   const params: any[] = [];
@@ -237,22 +252,24 @@ export async function updateUser(
     params.push(data.email);
     updates.push(`email  = @p${params.length}`);
   }
-  if (data.role !== undefined) {
-    params.push(data.role);
-    updates.push(`role   = @p${params.length}`);
-  }
   if (data.sector !== undefined) {
     params.push(data.sector);
     updates.push(`sector = @p${params.length}`);
   }
 
-  if (updates.length === 0) return;
-  params.push(id);
+  if (updates.length > 0) {
+    params.push(id);
+    await safeQuery(
+      `UPDATE [User] SET ${updates.join(", ")} WHERE id = @p${params.length}`,
+      params,
+    );
+  }
 
-  await safeQuery(
-    `UPDATE [User] SET ${updates.join(", ")} WHERE id = @p${params.length}`,
-    params,
-  );
+  // Update roles if provided
+  if (data.roleIds !== undefined) {
+    await assignRolesToUser(id, data.roleIds);
+  }
+
   revalidatePath("/admin");
   revalidatePath("/admin/users");
 }
@@ -350,4 +367,229 @@ function mapUser(row: any): AdminUser {
     image: row.image ?? null,
     createdAt: row.createdAt?.toISOString?.() ?? new Date().toISOString(),
   };
+}
+
+// … existing code …
+
+// ─── Fetch monthly tracker activity (for public dashboard) ─────────────
+export async function fetchMonthlyTrackerActivity(filters?: {
+  sector?: string;
+  subCounty?: string;
+  ward?: string;
+  fiscalYear?: string;
+}): Promise<{ month: string; submissions: number }[]> {
+  let query = `
+    SELECT FORMAT(ts.submittedAt, 'MMM yy') AS month, COUNT(*) AS submissions
+    FROM TrackerSubmission ts
+    INNER JOIN Project p ON p.id = ts.projectId
+    WHERE 1=1
+  `;
+  const params: any[] = [];
+  let idx = 1;
+
+  if (filters?.sector && filters.sector !== "ALL") {
+    query += ` AND p.sector = @p${idx++}`;
+    params.push(filters.sector);
+  }
+  if (filters?.subCounty) {
+    query += ` AND p.subCounty = @p${idx++}`;
+    params.push(filters.subCounty);
+  }
+  if (filters?.ward) {
+    query += ` AND p.ward = @p${idx++}`;
+    params.push(filters.ward);
+  }
+  if (filters?.fiscalYear) {
+    query += ` AND p.fiscalYear = @p${idx++}`;
+    params.push(filters.fiscalYear);
+  }
+
+  query += ` AND ts.submittedAt >= DATEADD(month, -12, GETDATE())
+    GROUP BY FORMAT(ts.submittedAt, 'MMM yy'), YEAR(ts.submittedAt), MONTH(ts.submittedAt)
+    ORDER BY YEAR(ts.submittedAt) ASC, MONTH(ts.submittedAt) ASC`;
+
+  const { rows } = await safeQuery<any>(query, params);
+  return rows.map((r: any) => ({
+    month: r.month,
+    submissions: Number(r.submissions),
+  }));
+}
+
+// ========== ROLE MANAGEMENT ==========
+
+export interface Role {
+  id: number;
+  name: string;
+  description: string | null;
+  permissionIds?: number[];
+}
+
+export async function fetchAllRoles(): Promise<Role[]> {
+  const { rows } = await safeQuery<Role>(
+    `SELECT id, name, description FROM Role ORDER BY name`,
+  );
+  return rows;
+}
+
+export async function fetchRoleWithPermissions(
+  roleId: number,
+): Promise<Role & { permissionIds: number[] }> {
+  const roleRes = await safeQuery<any>(
+    `SELECT id, name, description FROM Role WHERE id = @p1`,
+    [roleId],
+  );
+  if (roleRes.rows.length === 0) throw new Error("Role not found");
+  const role = roleRes.rows[0];
+  const permRes = await safeQuery<{ permissionId: number }>(
+    `SELECT permissionId FROM RolePermission WHERE roleId = @p1`,
+    [roleId],
+  );
+  return {
+    id: role.id,
+    name: role.name,
+    description: role.description,
+    permissionIds: permRes.rows.map((r) => r.permissionId),
+  };
+}
+
+export async function createRole(data: {
+  name: string;
+  description?: string;
+}): Promise<Role> {
+  const { rows } = await safeQuery<any>(
+    `INSERT INTO Role (name, description) OUTPUT INSERTED.id, INSERTED.name, INSERTED.description VALUES (@p1, @p2)`,
+    [data.name, data.description ?? null],
+  );
+  revalidatePath("/admin/roles");
+  return {
+    id: rows[0].id,
+    name: rows[0].name,
+    description: rows[0].description,
+  };
+}
+
+export async function updateRole(
+  roleId: number,
+  data: { name: string; description?: string },
+): Promise<void> {
+  await safeQuery(
+    `UPDATE Role SET name = @p1, description = @p2 WHERE id = @p3`,
+    [data.name, data.description ?? null, roleId],
+  );
+  revalidatePath("/admin/roles");
+}
+
+export async function deleteRole(roleId: number): Promise<void> {
+  await safeQuery(`DELETE FROM Role WHERE id = @p1`, [roleId]);
+  revalidatePath("/admin/roles");
+}
+
+export async function assignPermissionsToRole(
+  roleId: number,
+  permissionIds: number[],
+): Promise<void> {
+  // Begin transaction (simplified – use proper transaction in production)
+  await safeQuery(`DELETE FROM RolePermission WHERE roleId = @p1`, [roleId]);
+  for (const pid of permissionIds) {
+    await safeQuery(
+      `INSERT INTO RolePermission (roleId, permissionId) VALUES (@p1, @p2)`,
+      [roleId, pid],
+    );
+  }
+  revalidatePath("/admin/roles");
+}
+
+// ========== PERMISSION MANAGEMENT ==========
+
+export interface Permission {
+  id: number;
+  code: string;
+  description: string | null;
+}
+
+export async function fetchAllPermissions(): Promise<Permission[]> {
+  const { rows } = await safeQuery<Permission>(
+    `SELECT id, code, description FROM Permission ORDER BY code`,
+  );
+  return rows;
+}
+
+export async function createPermission(data: {
+  code: string;
+  description?: string;
+}): Promise<Permission> {
+  const { rows } = await safeQuery<any>(
+    `INSERT INTO Permission (code, description) OUTPUT INSERTED.id, INSERTED.code, INSERTED.description VALUES (@p1, @p2)`,
+    [data.code, data.description ?? null],
+  );
+  revalidatePath("/admin/permissions");
+  return {
+    id: rows[0].id,
+    code: rows[0].code,
+    description: rows[0].description,
+  };
+}
+
+export async function updatePermission(
+  permId: number,
+  data: { code: string; description?: string },
+): Promise<void> {
+  await safeQuery(
+    `UPDATE Permission SET code = @p1, description = @p2 WHERE id = @p3`,
+    [data.code, data.description ?? null, permId],
+  );
+  revalidatePath("/admin/permissions");
+}
+
+export async function deletePermission(permId: number): Promise<void> {
+  await safeQuery(`DELETE FROM Permission WHERE id = @p1`, [permId]);
+  revalidatePath("/admin/permissions");
+}
+
+// ========== USER ROLE ASSIGNMENT ==========
+
+export async function getUserRoles(userId: string): Promise<Role[]> {
+  const { rows } = await safeQuery<any>(
+    `SELECT r.id, r.name, r.description
+     FROM UserRoles ur
+     JOIN Role r ON r.id = ur.roleId
+     WHERE ur.userId = @p1 AND (ur.expiresAt IS NULL OR ur.expiresAt > GETUTCDATE())`,
+    [userId],
+  );
+  return rows;
+}
+
+export async function assignRolesToUser(
+  userId: string,
+  roleIds: number[],
+): Promise<void> {
+  // Remove existing assignments (simple replace strategy)
+  await safeQuery(`DELETE FROM UserRoles WHERE userId = @p1`, [userId]);
+  for (const rid of roleIds) {
+    await safeQuery(
+      `INSERT INTO UserRoles (userId, roleId, assignedAt) VALUES (@p1, @p2, GETUTCDATE())`,
+      [userId, rid],
+    );
+  }
+  revalidatePath("/admin/users");
+}
+
+// Helper: get aggregated permissions for a user (for middleware)
+export async function getUserPermissions(userId: string): Promise<string[]> {
+  const { rows } = await safeQuery<{ code: string }>(
+    `SELECT DISTINCT p.code
+     FROM UserRoles ur
+     JOIN RolePermission rp ON rp.roleId = ur.roleId
+     JOIN Permission p ON p.id = rp.permissionId
+     WHERE ur.userId = @p1 AND (ur.expiresAt IS NULL OR ur.expiresAt > GETUTCDATE())`,
+    [userId],
+  );
+  return rows.map((r) => r.code);
+}
+
+export async function fetchAllRolesForSelect(): Promise<Role[]> {
+  const { rows } = await safeQuery<Role>(
+    `SELECT id, name FROM Role ORDER BY name`,
+  );
+  return rows;
 }

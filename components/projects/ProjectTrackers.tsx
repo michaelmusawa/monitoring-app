@@ -1,6 +1,7 @@
+// components/projects/ProjectTrackers.tsx
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +28,7 @@ import {
   FileText,
   Sparkles,
   Loader2,
+  Circle,
 } from "lucide-react";
 import {
   Dialog,
@@ -50,7 +52,6 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Slider } from "@/components/ui/slider";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -62,7 +63,7 @@ import {
   ReportEditorDialog,
   type ReportDraft,
 } from "@/components/trackers/ReportEditorDialog";
-import { AttachmentsField } from "../trackers/AttachmentsField";
+import { AttachmentsField } from "@/components/trackers/AttachmentsField";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -71,7 +72,7 @@ export interface TrackerItem {
   weight: number;
   label: string;
   category: string;
-  status: string;
+  status: string; // will always be one of the four statuses
   percentComplete: number;
   challenges?: string;
   recommendations?: string;
@@ -88,8 +89,15 @@ export interface TrackerSubmission {
   items: TrackerItem[];
 }
 
-type ItemStatus = "ONGOING" | "STALLED" | "COMPLETED";
+type ItemStatus = "NOT_STARTED" | "ONGOING" | "STALLED" | "COMPLETED";
 type Baselines = Record<string, number>;
+
+// ─── Permission helper ────────────────────────────────────────────────────────
+
+function hasPermission(perms: string[], required: string | string[]): boolean {
+  if (typeof required === "string") return perms.includes(required);
+  return required.some((p) => perms.includes(p));
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -97,6 +105,12 @@ const STATUS_CONFIG: Record<
   ItemStatus,
   { label: string; color: string; bg: string; icon: React.ReactNode }
 > = {
+  NOT_STARTED: {
+    label: "Not Started",
+    color: "text-zinc-600 dark:text-zinc-400",
+    bg: "bg-zinc-100 border-zinc-300 dark:bg-zinc-800 dark:border-zinc-600",
+    icon: <Circle className="w-3.5 h-3.5" />,
+  },
   COMPLETED: {
     label: "Completed",
     color: "text-emerald-700",
@@ -135,7 +149,6 @@ const getProgressColor = (pct: number) => {
   return "bg-red-500";
 };
 
-// Collect all attachment URLs from a tracker submission
 const collectAttachments = (submission: TrackerSubmission): string[] => {
   const urls: string[] = [];
   submission.items.forEach((item) => {
@@ -146,7 +159,6 @@ const collectAttachments = (submission: TrackerSubmission): string[] => {
   return urls;
 };
 
-// Build checklist items payload from tracker items for the AI prompt
 const buildChecklistPayload = (submission: TrackerSubmission) =>
   submission.items.map((item) => ({
     parameterId: item.parameterId,
@@ -156,7 +168,6 @@ const buildChecklistPayload = (submission: TrackerSubmission) =>
     percent: item.percentComplete,
   }));
 
-// Build categories summary for the AI prompt
 const buildCategorySummary = (submission: TrackerSubmission) => {
   const grouped: Record<string, { total: number; sum: number }> = {};
   submission.items.forEach((item) => {
@@ -170,10 +181,39 @@ const buildCategorySummary = (submission: TrackerSubmission) => {
   }));
 };
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
+/**
+ * Compute the derived status for a tracker item.
+ *
+ * @param progress       current percent complete
+ * @param baseline       percent from the immediately previous submission (if any)
+ * @param baselineDate   ISO date string of that previous submission
+ * @returns the computed ItemStatus
+ */
+const computeItemStatus = (
+  progress: number,
+  baseline?: number,
+  baselineDate?: string,
+): ItemStatus => {
+  if (progress === 100) return "COMPLETED";
+  if (progress === 0) return "NOT_STARTED";
+
+  // For any other progress, default is ONGOING
+  // unless we have a baseline and the progress is unchanged for >3 months
+  if (baseline !== undefined && baselineDate && progress === baseline) {
+    const threeMonthsMs = 3 * 30 * 24 * 60 * 60 * 1000; // approximate 3 months
+    const elapsed = Date.now() - new Date(baselineDate).getTime();
+    if (elapsed > threeMonthsMs) {
+      return "STALLED";
+    }
+  }
+
+  return "ONGOING";
+};
+
+// ─── Sub‑components ───────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
-  const cfg = STATUS_CONFIG[status as ItemStatus] ?? STATUS_CONFIG.ONGOING;
+  const cfg = STATUS_CONFIG[status as ItemStatus] ?? STATUS_CONFIG.NOT_STARTED;
   return (
     <span
       className={cn(
@@ -213,8 +253,6 @@ function ProgressBar({
   );
 }
 
-// ─── Tracker Card ─────────────────────────────────────────────────────────────
-
 function TrackerCard({
   sub,
   canEdit,
@@ -229,9 +267,13 @@ function TrackerCard({
   onEdit: () => void;
 }) {
   const statusCounts = useMemo(() => {
-    const counts = { COMPLETED: 0, ONGOING: 0, STALLED: 0 };
+    const counts = { NOT_STARTED: 0, ONGOING: 0, STALLED: 0, COMPLETED: 0 };
     sub.items.forEach((it) => {
-      if (it.status in counts) counts[it.status as ItemStatus]++;
+      // For card summaries we still use the stored status (which is always
+      // derived, so it's fine). But if we want to be 100% consistent we
+      // could recalc, but that’s overkill here.
+      const s = it.status as ItemStatus;
+      if (s in counts) counts[s]++;
     });
     return counts;
   }, [sub.items]);
@@ -241,7 +283,6 @@ function TrackerCard({
       onClick={onView}
       className="group relative bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-5 cursor-pointer hover:border-zinc-400 dark:hover:border-zinc-600 hover:shadow-md transition-all duration-200"
     >
-      {/* Top row */}
       <div className="flex items-start justify-between gap-4 mb-4">
         <div className="flex-1 min-w-0">
           <p className="font-semibold text-base truncate">{sub.title}</p>
@@ -261,9 +302,7 @@ function TrackerCard({
           <span className="text-sm text-zinc-500">%</span>
         </div>
       </div>
-
       <ProgressBar value={sub.overallPercent} className="mb-3" />
-
       <div className="flex items-center gap-2 mb-4 flex-wrap">
         {(Object.entries(statusCounts) as [ItemStatus, number][]).map(
           ([status, count]) =>
@@ -285,7 +324,6 @@ function TrackerCard({
           {sub.items.length} items
         </span>
       </div>
-
       <div
         className="flex items-center gap-2"
         onClick={(e) => e.stopPropagation()}
@@ -321,9 +359,13 @@ function TrackerCard({
   );
 }
 
-// ─── View Mode ────────────────────────────────────────────────────────────────
-
-function TrackerView({ submission }: { submission: TrackerSubmission }) {
+function TrackerView({
+  submission,
+  previousDate,
+}: {
+  submission: TrackerSubmission;
+  previousDate?: string;
+}) {
   const grouped = useMemo(() => {
     const g: Record<string, TrackerItem[]> = {};
     submission.items.forEach((it) => {
@@ -345,8 +387,10 @@ function TrackerView({ submission }: { submission: TrackerSubmission }) {
           <span className="text-xl font-bold">{overall.toFixed(1)}%</span>
         </div>
         <ProgressBar value={overall} />
-        <div className="grid grid-cols-3 gap-3 mt-4">
-          {(["COMPLETED", "ONGOING", "STALLED"] as ItemStatus[]).map((s) => {
+        <div className="grid grid-cols-4 gap-3 mt-4">
+          {(
+            ["NOT_STARTED", "ONGOING", "STALLED", "COMPLETED"] as ItemStatus[]
+          ).map((s) => {
             const count = submission.items.filter(
               (it) => it.status === s,
             ).length;
@@ -397,59 +441,69 @@ function TrackerView({ submission }: { submission: TrackerSubmission }) {
               </AccordionTrigger>
               <AccordionContent>
                 <div className="space-y-3 pb-2">
-                  {items.map((it, i) => (
-                    <div key={i} className="border rounded-lg p-3 space-y-2">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="font-medium text-sm">{it.label}</p>
-                          <p className="text-xs text-zinc-500">
-                            Weight: {it.weight}
-                          </p>
+                  {items.map((it, i) => {
+                    // For view, compute status on the fly using the previousDate prop
+                    const status = computeItemStatus(
+                      it.percentComplete,
+                      undefined, // baseline percent not needed for view; we rely on the stored status
+                      previousDate,
+                    );
+                    return (
+                      <div key={i} className="border rounded-lg p-3 space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <p className="font-medium text-sm">{it.label}</p>
+                            <p className="text-xs text-zinc-500">
+                              Weight: {it.weight}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <StatusBadge status={status} />
+                            <span className="text-sm font-semibold tabular-nums">
+                              {it.percentComplete}%
+                            </span>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <StatusBadge status={it.status} />
-                          <span className="text-sm font-semibold tabular-nums">
-                            {it.percentComplete}%
-                          </span>
-                        </div>
+                        <ProgressBar value={it.percentComplete} />
+                        {it.challenges && (
+                          <div className="text-xs bg-red-50 border border-red-100 rounded p-2">
+                            <span className="font-semibold text-red-700">
+                              Challenges:{" "}
+                            </span>
+                            <span className="text-red-600">
+                              {it.challenges}
+                            </span>
+                          </div>
+                        )}
+                        {it.recommendations && (
+                          <div className="text-xs bg-blue-50 border border-blue-100 rounded p-2">
+                            <span className="font-semibold text-blue-700">
+                              Recommendations:{" "}
+                            </span>
+                            <span className="text-blue-600">
+                              {it.recommendations}
+                            </span>
+                          </div>
+                        )}
+                        {it.attachments && it.attachments.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {it.attachments.map((url, idx) => (
+                              <a
+                                key={idx}
+                                href={url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-xs text-blue-600 underline hover:text-blue-800"
+                              >
+                                <Paperclip className="w-3 h-3" />
+                                {url.split("/").pop()}
+                              </a>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                      <ProgressBar value={it.percentComplete} />
-                      {it.challenges && (
-                        <div className="text-xs bg-red-50 border border-red-100 rounded p-2">
-                          <span className="font-semibold text-red-700">
-                            Challenges:{" "}
-                          </span>
-                          <span className="text-red-600">{it.challenges}</span>
-                        </div>
-                      )}
-                      {it.recommendations && (
-                        <div className="text-xs bg-blue-50 border border-blue-100 rounded p-2">
-                          <span className="font-semibold text-blue-700">
-                            Recommendations:{" "}
-                          </span>
-                          <span className="text-blue-600">
-                            {it.recommendations}
-                          </span>
-                        </div>
-                      )}
-                      {it.attachments && it.attachments.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {it.attachments.map((url, idx) => (
-                            <a
-                              key={idx}
-                              href={url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-xs text-blue-600 underline hover:text-blue-800"
-                            >
-                              <Paperclip className="w-3 h-3" />
-                              {url.split("/").pop()}
-                            </a>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </AccordionContent>
             </AccordionItem>
@@ -460,16 +514,16 @@ function TrackerView({ submission }: { submission: TrackerSubmission }) {
   );
 }
 
-// ─── Tracker Form ─────────────────────────────────────────────────────────────
-
 function TrackerForm({
   submission,
   onChange,
   baselines = {},
+  baselineDate,
 }: {
   submission: TrackerSubmission;
   onChange: (s: TrackerSubmission) => void;
   baselines?: Baselines;
+  baselineDate?: string; // ISO date of the previous tracker
 }) {
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("ALL");
@@ -515,21 +569,32 @@ function TrackerForm({
     return submission.items
       .map((it, i) => ({ it, i }))
       .filter(({ it }) => {
+        const status = computeItemStatus(
+          it.percentComplete,
+          baselines[it.parameterId],
+          baselineDate,
+        );
         const matchesSearch =
           !search ||
           it.label.toLowerCase().includes(search.toLowerCase()) ||
           it.category.toLowerCase().includes(search.toLowerCase());
-        const matchesStatus =
-          filterStatus === "ALL" || it.status === filterStatus;
+        const matchesStatus = filterStatus === "ALL" || status === filterStatus;
         const matchesCategory =
           filterCategory === "ALL" || it.category === filterCategory;
         return matchesSearch && matchesStatus && matchesCategory;
       });
-  }, [submission.items, search, filterStatus, filterCategory]);
+  }, [
+    submission.items,
+    search,
+    filterStatus,
+    filterCategory,
+    baselines,
+    baselineDate,
+  ]);
 
   const overall = computeOverall(submission.items);
   const completedCount = submission.items.filter(
-    (it) => it.status === "COMPLETED",
+    (it) => it.percentComplete === 100,
   ).length;
 
   return (
@@ -557,7 +622,16 @@ function TrackerForm({
           </span>
           <span>·</span>
           <span>
-            {submission.items.filter((it) => it.status === "STALLED").length}{" "}
+            {
+              submission.items.filter(
+                (it) =>
+                  computeItemStatus(
+                    it.percentComplete,
+                    baselines[it.parameterId],
+                    baselineDate,
+                  ) === "STALLED",
+              ).length
+            }{" "}
             stalled
           </span>
         </div>
@@ -580,6 +654,7 @@ function TrackerForm({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="ALL">All statuses</SelectItem>
+            <SelectItem value="NOT_STARTED">Not Started</SelectItem>
             <SelectItem value="ONGOING">Ongoing</SelectItem>
             <SelectItem value="STALLED">Stalled</SelectItem>
             <SelectItem value="COMPLETED">Completed</SelectItem>
@@ -633,14 +708,21 @@ function TrackerForm({
           </div>
         )}
         {filteredItems.map(({ it, i }) => {
+          const status = computeItemStatus(
+            it.percentComplete,
+            baselines[it.parameterId],
+            baselineDate,
+          );
           const isExpanded = expandedItems.has(i);
+          const minPct = baselines[it.parameterId] ?? 0;
           return (
             <div
               key={i}
               className={cn(
                 "border rounded-xl overflow-hidden transition-all",
-                it.status === "STALLED" && "border-red-200",
-                it.status === "COMPLETED" && "border-emerald-200",
+                status === "STALLED" && "border-red-200",
+                status === "COMPLETED" && "border-emerald-200",
+                status === "NOT_STARTED" && "border-zinc-200",
               )}
             >
               <div
@@ -650,34 +732,19 @@ function TrackerForm({
                 <span
                   className={cn(
                     "w-2 h-2 rounded-full shrink-0",
-                    it.status === "COMPLETED" && "bg-emerald-500",
-                    it.status === "ONGOING" && "bg-blue-500",
-                    it.status === "STALLED" && "bg-red-500",
+                    status === "COMPLETED" && "bg-emerald-500",
+                    status === "ONGOING" && "bg-blue-500",
+                    status === "STALLED" && "bg-red-500",
+                    status === "NOT_STARTED" && "bg-zinc-400",
                   )}
                 />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{it.label}</p>
                   <p className="text-xs text-zinc-400">{it.category}</p>
                 </div>
-
-                <div
-                  className="flex items-center gap-2 shrink-0"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <Select
-                    value={it.status}
-                    onValueChange={(val) => updateItem(i, { status: val })}
-                  >
-                    <SelectTrigger className="h-7 text-xs w-28 border-0 bg-transparent">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ONGOING">Ongoing</SelectItem>
-                      <SelectItem value="STALLED">Stalled</SelectItem>
-                      <SelectItem value="COMPLETED">Completed</SelectItem>
-                    </SelectContent>
-                  </Select>
-
+                <div className="flex items-center gap-2 shrink-0">
+                  {/* Status badge instead of select */}
+                  <StatusBadge status={status} />
                   <div className="flex items-center gap-1.5 w-28">
                     <ProgressBar
                       value={it.percentComplete}
@@ -688,7 +755,6 @@ function TrackerForm({
                     </span>
                   </div>
                 </div>
-
                 <ChevronDown
                   className={cn(
                     "w-4 h-4 text-zinc-400 shrink-0 transition-transform",
@@ -699,53 +765,45 @@ function TrackerForm({
 
               {isExpanded && (
                 <div className="border-t px-4 pb-4 pt-3 space-y-4 bg-zinc-50/50 dark:bg-zinc-900/30">
-                  {(() => {
-                    const minPct = baselines[it.parameterId] ?? 0;
-                    const isLocked = minPct >= 100;
-                    return (
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <label className="text-xs font-medium text-zinc-600">
-                              % Complete
-                            </label>
-                            {minPct > 0 && (
-                              <span className="inline-flex items-center gap-1 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
-                                <AlertCircle className="w-3 h-3" />
-                                Min {minPct}% (inherited)
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Slider
-                              value={[it.percentComplete]}
-                              onValueChange={([v]) =>
-                                updateItem(i, { percentComplete: v })
-                              }
-                              min={minPct}
-                              max={100}
-                              step={1}
-                              className="w-32"
-                              disabled={isLocked}
-                            />
-                            <Input
-                              type="number"
-                              min={minPct}
-                              max={100}
-                              value={it.percentComplete}
-                              onChange={(e) =>
-                                updateItem(i, {
-                                  percentComplete: Number(e.target.value),
-                                })
-                              }
-                              className="w-16 h-7 text-xs text-center"
-                              disabled={isLocked}
-                            />
-                          </div>
-                        </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs font-medium text-zinc-600">
+                          % Complete
+                        </label>
+                        {minPct > 0 && (
+                          <span className="inline-flex items-center gap-1 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
+                            <AlertCircle className="w-3 h-3" />
+                            Min {minPct}% (inherited)
+                          </span>
+                        )}
                       </div>
-                    );
-                  })()}
+                      <div className="flex items-center gap-2">
+                        <Slider
+                          value={[it.percentComplete]}
+                          onValueChange={([v]) =>
+                            updateItem(i, { percentComplete: v })
+                          }
+                          min={minPct}
+                          max={100}
+                          step={1}
+                          className="w-32"
+                        />
+                        <Input
+                          type="number"
+                          min={minPct}
+                          max={100}
+                          value={it.percentComplete}
+                          onChange={(e) =>
+                            updateItem(i, {
+                              percentComplete: Number(e.target.value),
+                            })
+                          }
+                          className="w-16 h-7 text-xs text-center"
+                        />
+                      </div>
+                    </div>
+                  </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
@@ -777,7 +835,6 @@ function TrackerForm({
                       />
                     </div>
                   </div>
-
                   <AttachmentsField
                     attachments={it.attachments ?? []}
                     onChange={(val) => updateItem(i, { attachments: val })}
@@ -794,6 +851,16 @@ function TrackerForm({
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
+interface Props {
+  projectId: string;
+  projectName?: string;
+  projectSector?: string;
+  projectLocation?: string;
+  submissions: TrackerSubmission[];
+  hasApprovedChecklist: boolean;
+  userPermissions: string[];
+}
+
 export function ProjectTrackers({
   projectId,
   projectName,
@@ -801,34 +868,29 @@ export function ProjectTrackers({
   projectLocation,
   submissions: initialSubmissions,
   hasApprovedChecklist,
-  userRole,
-  userSector,
-}: {
-  projectId: string;
-  projectName?: string;
-  projectSector?: string;
-  projectLocation?: string;
-  submissions: TrackerSubmission[];
-  hasApprovedChecklist: boolean;
-  userRole: string;
-  userSector?: string;
-}) {
-  const canCreate = userSector !== "Monitoring And Evaluation";
-  const canEdit = userSector === "Monitoring And Evaluation";
-
+  userPermissions,
+}: Props) {
   const router = useRouter();
+
+  const canView = hasPermission(userPermissions, "tracker:view");
+  const canCreate = hasPermission(userPermissions, "tracker:create");
+  const canEdit = hasPermission(userPermissions, "tracker:edit");
+  const canGenerateReport = hasPermission(
+    userPermissions,
+    "tracker:generate_report",
+  );
+
   const [submissions, setSubmissions] =
     useState<TrackerSubmission[]>(initialSubmissions);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [mode, setMode] = useState<"view" | "edit">("view");
   const [current, setCurrent] = useState<TrackerSubmission | null>(null);
   const [currentBaselines, setCurrentBaselines] = useState<Baselines>({});
+  const [previousDate, setPreviousDate] = useState<string | undefined>(
+    undefined,
+  );
   const [saving, setSaving] = useState(false);
-  // true  → current tracker is unsaved (only in local state); Save does POST
-  // false → current tracker already exists in DB; Save does PUT
   const [isNewTracker, setIsNewTracker] = useState(false);
-
-  // ── Report Generation State ──
   const [captureOpen, setCaptureOpen] = useState(false);
   const [reportEditorOpen, setReportEditorOpen] = useState(false);
   const [generatingReport, setGeneratingReport] = useState(false);
@@ -855,8 +917,12 @@ export function ProjectTrackers({
   const latestSaved = sortedSubmissions[sortedSubmissions.length - 1] ?? null;
 
   const openView = (sub: TrackerSubmission) => {
+    // find the previous submission (by submission time) to compute stalled status
+    const idx = sortedSubmissions.findIndex((s) => s.id === sub.id);
+    const prev = idx > 0 ? sortedSubmissions[idx - 1] : null;
     setCurrent(sub);
     setCurrentBaselines({});
+    setPreviousDate(prev?.submittedAt);
     setMode("view");
     setDialogOpen(true);
   };
@@ -865,21 +931,27 @@ export function ProjectTrackers({
     const idx = sortedSubmissions.findIndex((s) => s.id === sub.id);
     const prev = idx > 0 ? sortedSubmissions[idx - 1] : null;
     setCurrentBaselines(prev ? buildBaselines(prev) : {});
+    setPreviousDate(prev?.submittedAt);
     setCurrent({ ...sub, items: sub.items.map((it) => ({ ...it })) });
     setMode("edit");
     setDialogOpen(true);
   };
+
+  if (!canView) {
+    return (
+      <div className="p-8 text-center border rounded-lg">
+        No permission to view trackers.
+      </div>
+    );
+  }
 
   const openCreate = async () => {
     if (!hasApprovedChecklist) {
       toast.error("Cannot create tracker: no approved checklist yet.");
       return;
     }
-
     setSaving(true);
     try {
-      // ── Fetch checklist items from the server to seed the form ──────────────
-      // This is a read-only GET — nothing is written to the DB yet.
       const checklistRes = await fetch(`/api/projects/${projectId}/checklist`);
       if (!checklistRes.ok) throw new Error("Could not load checklist");
       const checklist = await checklistRes.json();
@@ -889,27 +961,22 @@ export function ProjectTrackers({
           weight: ci.weight ?? 1,
           label: ci.label,
           category: ci.category,
-          status: "ONGOING",
+          status: "NOT_STARTED", // default
           percentComplete: 0,
           challenges: "",
           recommendations: "",
           attachments: null,
         }),
       );
-
       if (checklistItems.length === 0) {
         toast.error("Checklist has no items yet.");
         return;
       }
-
-      // ── Build an in-memory draft — NOT persisted yet ───────────────────────
       const title = `Tracker — ${new Date().toLocaleDateString("en-GB", {
         day: "numeric",
         month: "short",
         year: "numeric",
       })}`;
-
-      // Seed percentages/status from the latest saved tracker if one exists
       const seededItems: TrackerItem[] = checklistItems.map((ci) => {
         const prev = latestSaved?.items.find(
           (p) => p.parameterId === ci.parameterId,
@@ -918,13 +985,12 @@ export function ProjectTrackers({
           ? {
               ...ci,
               percentComplete: prev.percentComplete,
-              status: prev.status,
+              status: "ONGOING", // will be recomputed by form anyway
             }
           : ci;
       });
-
       const draft: TrackerSubmission = {
-        id: "__new__", // sentinel — replaced on first save
+        id: "__new__",
         projectId,
         title,
         submittedBy: "",
@@ -932,9 +998,9 @@ export function ProjectTrackers({
         overallPercent: computeOverall(seededItems),
         items: seededItems,
       };
-
       setCurrent(draft);
       setCurrentBaselines(latestSaved ? buildBaselines(latestSaved) : {});
+      setPreviousDate(latestSaved?.submittedAt);
       setIsNewTracker(true);
       setMode("edit");
       setDialogOpen(true);
@@ -946,7 +1012,6 @@ export function ProjectTrackers({
   };
 
   const handleCancel = () => {
-    // If this was an unsaved new tracker, just discard it — nothing was written
     setIsNewTracker(false);
     setDialogOpen(false);
     setCurrent(null);
@@ -957,7 +1022,6 @@ export function ProjectTrackers({
     setSaving(true);
     try {
       if (isNewTracker) {
-        // ── First save: create in DB ─────────────────────────────────────────
         const res = await fetch(`/api/projects/${projectId}/trackers`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -965,6 +1029,11 @@ export function ProjectTrackers({
             title: current.title,
             items: current.items.map((it) => ({
               ...it,
+              status: computeItemStatus(
+                it.percentComplete,
+                currentBaselines[it.parameterId],
+                previousDate,
+              ),
               percentComplete: Number(it.percentComplete),
             })),
           }),
@@ -977,7 +1046,6 @@ export function ProjectTrackers({
         setDialogOpen(false);
         router.refresh();
       } else {
-        // ── Subsequent saves: update existing record ─────────────────────────
         const res = await fetch(`/api/projects/${projectId}/trackers`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -986,6 +1054,11 @@ export function ProjectTrackers({
             title: current.title,
             items: current.items.map((it) => ({
               ...it,
+              status: computeItemStatus(
+                it.percentComplete,
+                currentBaselines[it.parameterId],
+                previousDate,
+              ),
               percentComplete: Number(it.percentComplete),
             })),
           }),
@@ -1006,32 +1079,23 @@ export function ProjectTrackers({
     }
   };
 
-  // ── Report flow: open capture modal ──────────────────────────────────────────
-
   const handleOpenCaptureForReport = () => {
     if (!current) return;
-    // Collect attachments from the current tracker for later preview
     setCurrentAttachments(collectAttachments(current));
-    setDialogOpen(false); // close tracker dialog
-    setCaptureOpen(true); // open capture modal
+    setDialogOpen(false);
+    setCaptureOpen(true);
   };
-
-  // ── Report flow: after capture saved → generate report ────────────────────────
 
   const handleCaptureComplete = async (captureData: TrackerCaptureData) => {
     if (!current) return;
     setCaptureOpen(false);
     setGeneratingReport(true);
-
     try {
-      // 1. Save capture metadata
       await fetch(`/api/projects/${projectId}/tracker-capture`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(captureData),
       });
-
-      // 2. Generate report
       const res = await fetch(
         `/api/projects/${projectId}/reports/status-report`,
         {
@@ -1046,17 +1110,14 @@ export function ProjectTrackers({
               categories: buildCategorySummary(current),
             },
             checklistItems: buildChecklistPayload(current),
-            // Full items so the route can derive findings, challenges & recommendations
             trackerItems: current.items,
           }),
         },
       );
-
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.error ?? "Generation failed");
       }
-
       const draft: ReportDraft = await res.json();
       setCurrentDraft(draft);
       setReportEditorOpen(true);
@@ -1069,8 +1130,6 @@ export function ProjectTrackers({
       setGeneratingReport(false);
     }
   };
-
-  // ── View existing draft report ────────────────────────────────────────────────
 
   const handleViewExistingDraft = async (sub: TrackerSubmission) => {
     try {
@@ -1101,7 +1160,6 @@ export function ProjectTrackers({
 
   return (
     <div className="space-y-5">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold">Project Trackers</h2>
@@ -1121,20 +1179,16 @@ export function ProjectTrackers({
             </p>
           )}
         </div>
-
         <div className="flex items-center gap-2">
-          {/* ME officer: view existing report draft */}
           {canEdit && latestSaved && (
             <Button
               size="sm"
               variant="outline"
               onClick={() => handleViewExistingDraft(latestSaved)}
             >
-              <FileText className="w-4 h-4 mr-2" />
-              View Draft Report
+              <FileText className="w-4 h-4 mr-2" /> View Draft Report
             </Button>
           )}
-
           {canCreate && !projectComplete && (
             <Button size="sm" onClick={openCreate} disabled={saving}>
               <Plus className="w-4 h-4 mr-2" />
@@ -1144,7 +1198,6 @@ export function ProjectTrackers({
         </div>
       </div>
 
-      {/* Project complete banner */}
       {projectComplete && (
         <div className="flex items-center gap-3 p-4 rounded-xl bg-emerald-50 border border-emerald-200">
           <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
@@ -1159,7 +1212,6 @@ export function ProjectTrackers({
         </div>
       )}
 
-      {/* Generating report overlay */}
       {generatingReport && (
         <div className="flex items-center gap-3 p-4 rounded-xl bg-blue-50 border border-blue-200 animate-pulse">
           <Loader2 className="w-5 h-5 text-blue-600 shrink-0 animate-spin" />
@@ -1174,7 +1226,6 @@ export function ProjectTrackers({
         </div>
       )}
 
-      {/* Cards */}
       {submissions.length === 0 ? (
         <div className="border-2 border-dashed rounded-xl p-12 text-center">
           <BarChart3 className="w-10 h-10 text-zinc-300 mx-auto mb-3" />
@@ -1205,14 +1256,15 @@ export function ProjectTrackers({
         </div>
       )}
 
-      {/* ── Tracker View/Edit Dialog ── */}
+      {/* Tracker View/Edit Dialog */}
       <Dialog
         open={dialogOpen}
-        onOpenChange={(open) => {
-          if (!open) handleCancel();
-        }}
+        onOpenChange={(open) => !open && handleCancel()}
       >
-        <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col overflow-hidden p-0">
+        <DialogContent
+          className="flex flex-col overflow-hidden p-0"
+          style={{ maxWidth: "90vw", width: "1400px", maxHeight: "95vh" }}
+        >
           <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
             <DialogTitle>
               {mode === "edit" ? "Edit Tracker" : "Tracker Details"}
@@ -1221,16 +1273,16 @@ export function ProjectTrackers({
               {current?.title}
             </DialogDescription>
           </DialogHeader>
-
           <div className="flex-1 overflow-y-auto px-6 py-4">
             {current ? (
               mode === "view" ? (
-                <TrackerView submission={current} />
+                <TrackerView submission={current} previousDate={previousDate} />
               ) : (
                 <TrackerForm
                   submission={current}
                   onChange={(updated) => setCurrent(updated)}
                   baselines={currentBaselines}
+                  baselineDate={previousDate}
                 />
               )
             ) : (
@@ -1239,7 +1291,6 @@ export function ProjectTrackers({
               </div>
             )}
           </div>
-
           <DialogFooter className="px-6 py-4 border-t shrink-0 bg-white dark:bg-zinc-950">
             {mode === "edit" ? (
               <div className="flex gap-2 w-full justify-end">
@@ -1261,19 +1312,15 @@ export function ProjectTrackers({
                     <Edit3 className="w-4 h-4 mr-2" /> Edit
                   </Button>
                 )}
-
-                {/* Generate Report button — ME officer only, view mode */}
-                {canEdit && current && (
+                {canGenerateReport && current && (
                   <Button
                     onClick={handleOpenCaptureForReport}
                     className="bg-blue-600 hover:bg-blue-700 text-white"
                     disabled={generatingReport}
                   >
-                    <Sparkles className="w-4 h-4 mr-2" />
-                    Generate Report
+                    <Sparkles className="w-4 h-4 mr-2" /> Generate Report
                   </Button>
                 )}
-
                 <Button
                   variant="outline"
                   onClick={() => setDialogOpen(false)}
@@ -1287,7 +1334,6 @@ export function ProjectTrackers({
         </DialogContent>
       </Dialog>
 
-      {/* ── Capture Modal ── */}
       {captureOpen && current && (
         <TrackerCaptureModal
           open={captureOpen}
@@ -1298,8 +1344,6 @@ export function ProjectTrackers({
           onComplete={handleCaptureComplete}
         />
       )}
-
-      {/* ── Report Editor Dialog ── */}
       {reportEditorOpen && currentDraft && (
         <ReportEditorDialog
           open={reportEditorOpen}

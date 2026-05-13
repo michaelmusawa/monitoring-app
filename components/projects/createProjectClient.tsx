@@ -67,16 +67,15 @@ const SECTORS = [
 ];
 
 const REQUIRED_DOCS = [
-  "Project Proposal Document",
-  "Public Participation Plan",
-  "Environmental Impact Assessment",
-  "Stakeholder Agreement",
-  "Timeline Schedule",
+  "Project concept note",
+  "BQ document",
+  "Work plan",
+  "Contract Agreement",
+  "Project Proposal",
+  "CIMES",
 ];
 
 // ─── Zod Schemas ──────────────────────────────────────────────────────────────
-
-// Inside createProjectClient.tsx, replace the existing basicsSchema
 
 const basicsSchema = z.object({
   name: z
@@ -114,10 +113,13 @@ const locationSchema = z
 
 type LocationData = z.infer<typeof locationSchema>;
 
+// Updated ContractDetails: removed employerRep, added tenderNumber, projectScope, projectObjective
 interface ContractDetails {
   fundingSource: string;
   employer: string;
-  employerRep: string;
+  tenderNumber: string; // new
+  projectScope: string; // new
+  projectObjective: string; // new
   projectManager: string;
   fiscalYear: string;
   contractSum: string;
@@ -130,7 +132,9 @@ interface ContractDetails {
 const EMPTY_CONTRACT: ContractDetails = {
   fundingSource: "",
   employer: "",
-  employerRep: "",
+  tenderNumber: "",
+  projectScope: "",
+  projectObjective: "",
   projectManager: "",
   fiscalYear: "",
   contractSum: "",
@@ -156,12 +160,29 @@ const STEPS: { id: Step; label: string; description: string }[] = [
   {
     id: "contract",
     label: "Contract",
-    description: "Funding, employer & dates",
+    description: "Funding, scope & dates",
   },
   { id: "documents", label: "Documents", description: "Supporting files" },
 ];
 
 const STEP_ORDER: Step[] = ["basics", "location", "contract", "documents"];
+
+// ─── Small helper: auto‑calculate fiscal year ────────────────────────────────
+function getFiscalYearFromDate(dateStr: string): string {
+  if (!dateStr) return "";
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = date.getMonth(); // 0‑based (0 = Jan)
+  // Fiscal year ends in June. For dates July (month >= 6) to Dec, fiscal year spans (year)‑(year+1)
+  // For dates Jan to June, fiscal year spans (year-1)‑year
+  if (month >= 6) {
+    // July (6) to December (11)
+    return `${year}/${year + 1}`;
+  } else {
+    return `${year - 1}/${year}`;
+  }
+}
 
 // ─── Step Indicator ───────────────────────────────────────────────────────────
 
@@ -212,7 +233,7 @@ function StepIndicator({ current, done }: { current: Step; done: Set<Step> }) {
   );
 }
 
-// ─── Section: Basic Info (with errors) ────────────────────────────────────────
+// ─── Section: Basic Info (unchanged) ─────────────────────────────────────────
 
 function SectionBasics({
   name,
@@ -349,7 +370,7 @@ function SectionBasics({
   );
 }
 
-// ─── Section: Contract Details (unchanged) ────────────────────────────────────
+// ─── Section: Contract Details (updated) ─────────────────────────────────────
 
 function SectionContract({
   form,
@@ -361,12 +382,30 @@ function SectionContract({
   const filled = Object.values(form).filter((v) => String(v).trim()).length;
   const total = Object.keys(form).length;
 
+  // Auto‑set fiscal year when commencementDate changes
+  useEffect(() => {
+    if (form.commencementDate) {
+      const autoFiscal = getFiscalYearFromDate(form.commencementDate);
+      if (autoFiscal && autoFiscal !== form.fiscalYear) {
+        set("fiscalYear", autoFiscal);
+      }
+    }
+  }, [form.commencementDate, form.fiscalYear, set]);
+
+  const today = new Date().toISOString().split("T")[0];
+
   const fields: {
     key: keyof ContractDetails;
     label: string;
     placeholder: string;
     type?: string;
+    min?: string;
   }[] = [
+    {
+      key: "tenderNumber",
+      label: "Tender Number",
+      placeholder: "e.g. NCC/PROC/01/2024-2025",
+    },
     {
       key: "fundingSource",
       label: "Funding Source",
@@ -374,20 +413,29 @@ function SectionContract({
     },
     {
       key: "employer",
-      label: "Employer",
+      label: "Contractor Name",
       placeholder: "e.g. Nairobi City County",
     },
     {
-      key: "employerRep",
-      label: "Employer's Representative",
-      placeholder: "e.g. County Chief Officer – Markets and Trade",
+      key: "projectScope",
+      label: "Project Scope",
+      placeholder: "Describe the scope of works / services",
+    },
+    {
+      key: "projectObjective",
+      label: "Project Objective",
+      placeholder: "Main objective of the project",
     },
     {
       key: "projectManager",
       label: "Project Manager",
       placeholder: "e.g. Director, Building Services",
     },
-    { key: "fiscalYear", label: "Fiscal Year", placeholder: "e.g. 2024–2025" },
+    {
+      key: "fiscalYear",
+      label: "Fiscal Year",
+      placeholder: "Auto‑filled from commencement date",
+    },
     {
       key: "contractSum",
       label: "Contract Sum",
@@ -398,12 +446,14 @@ function SectionContract({
       label: "Commencement Date",
       placeholder: "",
       type: "date",
+      min: today,
     },
     {
       key: "plannedCompletion",
       label: "Planned Completion",
       placeholder: "",
       type: "date",
+      min: today,
     },
     {
       key: "contractDuration",
@@ -437,14 +487,34 @@ function SectionContract({
             >
               {f.label}
             </Label>
-            <Input
-              id={`contract-${f.key}`}
-              type={f.type || "text"}
-              value={form[f.key]}
-              onChange={(e) => set(f.key, e.target.value)}
-              placeholder={f.placeholder}
-              className="h-9 text-sm"
-            />
+            {f.key === "projectScope" || f.key === "projectObjective" ? (
+              <Textarea
+                id={`contract-${f.key}`}
+                value={form[f.key]}
+                onChange={(e) => set(f.key, e.target.value)}
+                placeholder={f.placeholder}
+                className="text-sm resize-none"
+                rows={2}
+              />
+            ) : f.type === "date" ? (
+              <Input
+                id={`contract-${f.key}`}
+                type="date"
+                value={form[f.key]}
+                onChange={(e) => set(f.key, e.target.value)}
+                min={f.min}
+                className="h-9 text-sm"
+              />
+            ) : (
+              <Input
+                id={`contract-${f.key}`}
+                type={f.type || "text"}
+                value={form[f.key]}
+                onChange={(e) => set(f.key, e.target.value)}
+                placeholder={f.placeholder}
+                className="h-9 text-sm"
+              />
+            )}
           </div>
         ))}
       </div>
@@ -704,7 +774,7 @@ function Sidebar({
             },
             {
               title: "Contract details power reports",
-              body: "Funding, employer and dates appear verbatim in monitoring reports.",
+              body: "Funding, scope, dates, and tender info appear in monitoring reports.",
             },
           ].map((tip, i) => (
             <div key={i} className="flex items-start gap-2.5">
@@ -721,7 +791,7 @@ function Sidebar({
   );
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+// ─── Main Component (updated handleCreate) ───────────────────────────────────
 
 export default function CreateProjectClient({
   categoryId,
@@ -747,7 +817,7 @@ export default function CreateProjectClient({
   // Location
   const [location, setLocation] = useState<LocationData>(null);
 
-  // Contract
+  // Contract (updated)
   const [contract, setContract] = useState<ContractDetails>(EMPTY_CONTRACT);
   const setContractField = useCallback(
     (key: keyof ContractDetails, val: string) => {
@@ -801,14 +871,28 @@ export default function CreateProjectClient({
   const isBasicsValid =
     basicsErrors.name === undefined && basicsErrors.sector === undefined;
 
-  // Location validation is handled by the form's onSave (it only saves when valid)
+  // Location validation
   const isLocationValid = location !== null;
 
-  // Step advancement guard
+  // Basic date validation for contract dates (cannot be past)
+  const isContractDatesValid = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (contract.commencementDate) {
+      const commencement = new Date(contract.commencementDate);
+      if (commencement < today) return false;
+    }
+    if (contract.plannedCompletion) {
+      const completion = new Date(contract.plannedCompletion);
+      if (completion < today) return false;
+    }
+    return true;
+  };
+
   const canProceed = () => {
     if (currentStep === "basics") return isBasicsValid;
     if (currentStep === "location") return isLocationValid;
-    // contract and documents are optional
+    if (currentStep === "contract") return isContractDatesValid();
     return true;
   };
 
@@ -817,7 +901,6 @@ export default function CreateProjectClient({
 
   function advance() {
     if (!canProceed()) {
-      // Touch all fields in basics to show errors
       if (currentStep === "basics") {
         setBasicsTouched({
           name: true,
@@ -828,6 +911,10 @@ export default function CreateProjectClient({
         toast.error("Please fix the errors before continuing");
       } else if (currentStep === "location") {
         toast.error("Please save a valid location before continuing");
+      } else if (currentStep === "contract") {
+        toast.error(
+          "Commencement and planned completion dates cannot be in the past",
+        );
       }
       return;
     }
@@ -874,6 +961,26 @@ export default function CreateProjectClient({
       return;
     }
 
+    // Validate contract dates (not past)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (
+      contract.commencementDate &&
+      new Date(contract.commencementDate) < today
+    ) {
+      toast.error("Commencement date cannot be in the past");
+      setCurrentStep("contract");
+      return;
+    }
+    if (
+      contract.plannedCompletion &&
+      new Date(contract.plannedCompletion) < today
+    ) {
+      toast.error("Planned completion date cannot be in the past");
+      setCurrentStep("contract");
+      return;
+    }
+
     setSubmitting(true);
     try {
       const project = await createFullProject({
@@ -888,7 +995,9 @@ export default function CreateProjectClient({
         long: location?.long,
         fundingSource: contract.fundingSource || undefined,
         employer: contract.employer || undefined,
-        employerRep: contract.employerRep || undefined,
+        tenderNumber: contract.tenderNumber || undefined, // new
+        projectScope: contract.projectScope || undefined, // new
+        projectObjective: contract.projectObjective || undefined, // new
         projectManager: contract.projectManager || undefined,
         fiscalYear: contract.fiscalYear || undefined,
         contractSum: contract.contractSum || undefined,

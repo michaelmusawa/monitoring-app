@@ -74,7 +74,7 @@ function Steps({ current }: { current: number }) {
               i < current
                 ? "bg-emerald-100 text-emerald-700"
                 : i === current
-                  ? "bg-blue-600 text-white shadow-sm"
+                  ? "bg-green-600 text-white shadow-sm"
                   : "bg-zinc-100 text-zinc-400"
             }`}
           >

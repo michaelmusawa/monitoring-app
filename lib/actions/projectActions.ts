@@ -574,10 +574,12 @@ export async function createFullProject(data: {
   ward?: string;
   lat?: number;
   long?: number;
-  // Contract details
+  // Contract details (updated)
   fundingSource?: string;
   employer?: string;
-  employerRep?: string;
+  tenderNumber?: string; // new
+  projectScope?: string; // new
+  projectObjective?: string; // new
   projectManager?: string;
   fiscalYear?: string;
   contractSum?: string;
@@ -592,8 +594,8 @@ export async function createFullProject(data: {
       `INSERT INTO Project (
          id, name, sector, budget, description, status, categoryId,
          subCounty, ward, lat, long,
-         fundingSource, employer, employerRep, projectManager,
-         fiscalYear, contractSum, contractDuration,
+         fundingSource, employer, tenderNumber, projectScope, projectObjective,
+         projectManager, fiscalYear, contractSum, contractDuration,
          commencementDate, plannedCompletion, costToCompletion
        )
        OUTPUT
@@ -601,16 +603,17 @@ export async function createFullProject(data: {
          INSERTED.status, INSERTED.description, INSERTED.categoryId,
          INSERTED.subCounty, INSERTED.ward, INSERTED.lat, INSERTED.long,
          INSERTED.createdAt, INSERTED.updatedAt,
-         INSERTED.fundingSource, INSERTED.employer, INSERTED.employerRep,
+         INSERTED.fundingSource, INSERTED.employer, INSERTED.tenderNumber,
+         INSERTED.projectScope, INSERTED.projectObjective,
          INSERTED.projectManager, INSERTED.fiscalYear, INSERTED.contractSum,
          INSERTED.contractDuration, INSERTED.commencementDate,
          INSERTED.plannedCompletion, INSERTED.costToCompletion
        VALUES (
          @p1,  @p2,  @p3,  @p4,  @p5,  'ACTIVE', @p6,
          @p7,  @p8,  @p9,  @p10,
-         @p11, @p12, @p13, @p14,
-         @p15, @p16, @p17,
-         @p18, @p19, @p20
+         @p11, @p12, @p13, @p14, @p15,
+         @p16, @p17, @p18, @p19,
+         @p20, @p21, @p22
        )`,
       [
         slug,
@@ -625,7 +628,9 @@ export async function createFullProject(data: {
         data.long ?? null,
         data.fundingSource ?? null,
         data.employer ?? null,
-        data.employerRep ?? null,
+        data.tenderNumber ?? null,
+        data.projectScope ?? null,
+        data.projectObjective ?? null,
         data.projectManager ?? null,
         data.fiscalYear ?? null,
         data.contractSum ?? null,
@@ -653,7 +658,9 @@ export async function createFullProject(data: {
       updatedAt: row.updatedAt?.toISOString(),
       fundingSource: row.fundingSource ?? null,
       employer: row.employer ?? null,
-      employerRep: row.employerRep ?? null,
+      tenderNumber: row.tenderNumber ?? null,
+      projectScope: row.projectScope ?? null,
+      projectObjective: row.projectObjective ?? null,
       projectManager: row.projectManager ?? null,
       fiscalYear: row.fiscalYear ?? null,
       contractSum: row.contractSum ?? null,

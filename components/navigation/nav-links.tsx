@@ -5,17 +5,15 @@ import Link from "next/link";
 import {
   LayoutDashboard,
   FolderKanban,
-  Globe,
   Settings,
   User,
   BarChart3,
   FolderOpen,
   ChevronRight,
-  Map,
+  File,
+  ExternalLink,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-// ─── Nav structure ────────────────────────────────────────────────────────────
 
 interface NavItem {
   name: string;
@@ -36,31 +34,35 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Projects",
     items: [
       { name: "All Projects", href: "/projects", icon: FolderOpen },
-      { name: "By Category", href: "/projectCategory", icon: FolderKanban },
-      { name: "Map View", href: "/map", icon: Map },
+      { name: "Categories", href: "/projectCategory", icon: FolderKanban },
     ],
   },
   {
     label: "Administration",
     items: [
-      { name: "Template", href: "/admin/checklists", icon: BarChart3 },
       { name: "Settings", href: "/admin", icon: Settings },
       { name: "Profile", href: "/profile", icon: User },
     ],
   },
+  {
+    label: "Reports",
+    items: [{ name: "Reports", href: "/reports", icon: File }],
+  },
+  {
+    label: "Public",
+    items: [{ name: "Portal", href: "/portal", icon: ExternalLink }],
+  },
 ];
-
-// ─── NavLinks ─────────────────────────────────────────────────────────────────
 
 const NavLinks = ({ onNavigate }: { onNavigate?: () => void }) => {
   const pathname = usePathname();
 
   return (
-    <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-6 scrollbar-none">
-      {NAV_GROUPS.map((group, gi) => (
-        <div key={gi}>
+    <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4 scrollbar-none">
+      {NAV_GROUPS.map((group, idx) => (
+        <div key={idx} className="space-y-1">
           {group.label && (
-            <p className="px-3 mb-1.5 text-[10px] font-semibold tracking-widest uppercase text-zinc-500 select-none">
+            <p className="px-3 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
               {group.label}
             </p>
           )}
@@ -73,37 +75,34 @@ const NavLinks = ({ onNavigate }: { onNavigate?: () => void }) => {
 
               return (
                 <Link
-                  key={item.href + item.name}
+                  key={item.href}
                   href={item.href}
                   onClick={onNavigate}
                   className={cn(
-                    "group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-150 outline-none focus-visible:ring-1 focus-visible:ring-blue-400",
+                    "group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200",
                     isActive
-                      ? "text-white bg-white/[0.08]"
-                      : "text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.05]",
+                      ? "bg-gradient-to-r from-green-500/10 to-transparent text-green-600 dark:from-green-500/15 dark:text-green-400"
+                      : "text-zinc-600 hover:bg-gray-100 hover:text-gray-900 dark:text-zinc-400 dark:hover:bg-white/5 dark:hover:text-white",
                   )}
                 >
                   {/* Active left accent bar */}
                   <span
                     className={cn(
-                      "absolute left-0 top-1/2 -translate-y-1/2 w-[3px] rounded-full transition-all duration-200",
-                      isActive ? "h-5 bg-blue-400" : "h-0 bg-transparent",
+                      "absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-full transition-all duration-200",
+                      isActive ? "bg-green-500" : "h-0 bg-transparent",
                     )}
                   />
-
                   <Icon
                     className={cn(
-                      "h-4 w-4 shrink-0 transition-colors duration-150",
+                      "h-4 w-4 shrink-0 transition-colors",
                       isActive
-                        ? "text-blue-400"
-                        : "text-zinc-500 group-hover:text-zinc-300",
+                        ? "text-green-500"
+                        : "text-zinc-400 group-hover:text-zinc-600 dark:text-zinc-500 dark:group-hover:text-zinc-300",
                     )}
                   />
-
                   <span className="flex-1 truncate">{item.name}</span>
-
                   {isActive && (
-                    <ChevronRight className="h-3 w-3 text-zinc-600 shrink-0" />
+                    <ChevronRight className="h-3 w-3 shrink-0 text-green-400" />
                   )}
                 </Link>
               );

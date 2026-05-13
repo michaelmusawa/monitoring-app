@@ -1,3 +1,4 @@
+// components/projects/ProjectChecklistClient.tsx
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -22,6 +23,7 @@ import {
   X,
   Info,
   Plus,
+  CheckIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -64,7 +66,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { v4 as uuid } from "uuid";
+import { v4 as uuidv4 } from "uuid";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -77,12 +79,12 @@ export interface ChecklistItem {
 }
 
 export interface CustomParam {
-  id: string; // local uid, e.g. "custom-abc123"
+  id: string;
   label: string;
   category: string;
-  isPending: string; // always true until promoted
-  addedBy: string; // user email
-  addedAt: string; // ISO date
+  isPending: string;
+  addedBy: string;
+  addedAt: string;
 }
 
 export interface Checklist {
@@ -94,9 +96,7 @@ export interface Checklist {
   lastModifiedBy: string;
   editReason?: string;
   items: ChecklistItem[];
-  /** Task-level change annotations sent back by ME officer */
   taskAnnotations?: TaskAnnotation[];
-  /** Custom items added by sector officer — persisted in ChecklistCustomItem */
   customItems?: CustomParam[];
 }
 
@@ -115,15 +115,57 @@ export interface HistoryEntry {
   createdAt: string;
 }
 
-/**
- * A per-task annotation created by the ME officer when sending back.
- * Stored alongside the checklist (e.g. in a JSON column or separate table).
- */
 export interface TaskAnnotation {
   parameterId: string;
   oldValue: number;
   newValue: number;
   reason: string;
+}
+
+// ─── Permission helper ────────────────────────────────────────────────────────
+
+function hasPermission(perms: string[], required: string | string[]): boolean {
+  if (typeof required === "string") return perms.includes(required);
+  return required.some((p) => perms.includes(p));
+}
+
+// Simple custom checkbox that avoids nesting a <button> inside another <button>
+function SimpleCheckbox({
+  checked,
+  onCheckedChange,
+  disabled,
+}: {
+  checked: boolean;
+  onCheckedChange: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div
+      role="checkbox"
+      aria-checked={checked}
+      tabIndex={disabled ? -1 : 0}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (!disabled) onCheckedChange();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === " " || e.key === "Enter") {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!disabled) onCheckedChange();
+        }
+      }}
+      className={cn(
+        "size-4 shrink-0 rounded-[4px] border shadow-xs transition-all cursor-pointer",
+        checked
+          ? "bg-primary border-primary text-primary-foreground flex items-center justify-center"
+          : "bg-background border-input",
+        disabled && "opacity-50 cursor-not-allowed",
+      )}
+    >
+      {checked && <CheckIcon className="w-3 h-3 text-white" />}
+    </div>
+  );
 }
 
 // ─── Phase definitions ────────────────────────────────────────────────────────
@@ -152,7 +194,7 @@ const PHASES = [
   {
     id: "WeightsAssignment",
     label: "Weights Assignment",
-    description: "Assign weights to selected tasks",
+    description: "Assign weights to categories and tasks",
     icon: <BarChart3 className="w-4 h-4" />,
     color: "bg-purple-500",
     allowsTaskSelection: false,
@@ -181,7 +223,7 @@ const PHASES = [
   },
 ];
 
-// ─── Add Custom Item Form ─────────────────────────────────────────────────────
+// ─── Sub‑components ───────────────────────────────────────────────────────────
 
 function AddCustomItemForm({
   existingCategories,
@@ -274,8 +316,6 @@ function AddCustomItemForm({
   );
 }
 
-// ─── Reason Dialog ────────────────────────────────────────────────────────────
-
 function ReasonDialog({
   open,
   paramLabel,
@@ -295,7 +335,6 @@ function ReasonDialog({
 }) {
   const [reason, setReason] = useState("");
 
-  // Reset when opened
   useEffect(() => {
     if (open) setReason("");
   }, [open]);
@@ -319,7 +358,6 @@ function ReasonDialog({
             <span className="font-medium text-foreground">{paramLabel}</span>.
           </DialogDescription>
         </DialogHeader>
-
         <div className="space-y-3">
           <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm">
             <span className="text-muted-foreground">Change: </span>
@@ -333,7 +371,6 @@ function ReasonDialog({
             autoFocus
           />
         </div>
-
         <DialogFooter>
           <Button variant="outline" onClick={onCancel}>
             Cancel
@@ -349,8 +386,6 @@ function ReasonDialog({
     </Dialog>
   );
 }
-
-// ─── Task Change Annotation Badge ─────────────────────────────────────────────
 
 function TaskChangeBadge({ annotation }: { annotation: TaskAnnotation }) {
   const [expanded, setExpanded] = useState(false);
@@ -392,8 +427,6 @@ function TaskChangeBadge({ annotation }: { annotation: TaskAnnotation }) {
     </div>
   );
 }
-
-// ─── Inline Workplan Date Editor ─────────────────────────────────────────────
 
 function WorkplanDateEditor({
   projectId,
@@ -447,7 +480,7 @@ function WorkplanDateEditor({
         setDates(map);
         setLoaded(true);
       });
-  }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [projectId, items]);
 
   const setField = (pid: string, field: "start" | "end", value: string) => {
     setDates((prev) => ({ ...prev, [pid]: { ...prev[pid], [field]: value } }));
@@ -670,59 +703,69 @@ function WorkplanDateEditor({
   );
 }
 
-// ─── Props ────────────────────────────────────────────────────────────────────
-
-interface Props {
-  projectId: string;
-  checklist: Checklist | null;
-  standardParams: StandardParam[];
-  userRole: string;
-  userSector?: string;
-}
-
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function ProjectChecklistClient({
   projectId,
   checklist: initialChecklist,
   standardParams,
-  userRole,
-  userSector,
+  userPermissions,
 }: Props) {
   const router = useRouter();
 
-  const [loading] = useState(false);
+  // ── Permissions ─────────────────────────────────────────────────────────────
+  const canView = hasPermission(userPermissions, "checklist:view");
+  const canCreateDraft = hasPermission(
+    userPermissions,
+    "checklist:create_draft",
+  );
+  const canEditTasks = hasPermission(userPermissions, "checklist:edit_tasks");
+  const canEditWeights = hasPermission(
+    userPermissions,
+    "checklist:edit_weights",
+  );
+  const canSubmitReview = hasPermission(
+    userPermissions,
+    "checklist:submit_review",
+  );
+  const canReview = hasPermission(userPermissions, "checklist:review");
+  const canApplyChanges = hasPermission(
+    userPermissions,
+    "checklist:apply_changes",
+  );
+  const canSave = hasPermission(userPermissions, "checklist:save");
+  const canReset = hasPermission(userPermissions, "checklist:reset");
+  const canExport = hasPermission(userPermissions, "checklist:export");
+  const canAddCustom = hasPermission(userPermissions, "checklist:add_custom");
+  const canDeleteCustom = hasPermission(
+    userPermissions,
+    "checklist:delete_custom",
+  );
+
+  // ── State ─────────────────────────────────────────────────────────────────
+  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [checklist, setChecklist] = useState<Checklist | null>(
     initialChecklist,
   );
+  // localItems now holds effective weight (0–100 for the whole project)
   const [localItems, setLocalItems] = useState<Record<string, number>>({});
-
-  // Custom items added by sector officer
+  // New state for two-level weights (only meaningful in weight phases)
+  const [categoryWeights, setCategoryWeights] = useState<
+    Record<string, number>
+  >({});
+  const [itemLocalWeights, setItemLocalWeights] = useState<
+    Record<string, number>
+  >({});
   const [customParams, setCustomParams] = useState<CustomParam[]>([]);
   const [showAddCustom, setShowAddCustom] = useState(false);
-
-  /** The "baseline" weights as loaded from server — used to detect diffs */
   const baselineItems = useRef<Record<string, number>>({});
-
-  /**
-   * Per-task changes that the ME officer has annotated with reasons.
-   * key = parameterId, value = { oldValue, newValue, reason }
-   * These are "committed" (Apply clicked + reason given).
-   */
   const [committedChanges, setCommittedChanges] = useState<
     Record<string, TaskAnnotation>
   >({});
-
-  /**
-   * Per-task changes that the ME officer made but hasn't applied yet
-   * (checkbox not clicked). key = parameterId.
-   */
   const [pendingTaskChanges, setPendingTaskChanges] = useState<Set<string>>(
     new Set(),
   );
-
-  /** Dialog state: which parameterId is awaiting a reason */
   const [reasonDialog, setReasonDialog] = useState<{
     open: boolean;
     parameterId: string;
@@ -730,7 +773,6 @@ export default function ProjectChecklistClient({
     oldValue: number;
     newValue: number;
   } | null>(null);
-
   const [searchQuery, setSearchQuery] = useState("");
   const [showIncludedOnly, setShowIncludedOnly] = useState(false);
   const [activeTab, setActiveTab] = useState("items");
@@ -738,8 +780,23 @@ export default function ProjectChecklistClient({
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  // ── Init local state from checklist ──────────────────────────────────────
+  // ── Derived from checklist status ─────────────────────────────────────────
+  const currentPhase = useMemo(
+    () => PHASES.find((p) => p.id === checklist?.status) || PHASES[0],
+    [checklist?.status],
+  );
+  const isReviewPhase = currentPhase.isReviewPhase;
 
+  const effectiveCanEdit =
+    (canEditTasks && currentPhase.allowsTaskSelection) ||
+    (canEditWeights && currentPhase.allowsWeightAssignment);
+
+  const showWorkplanTab =
+    (currentPhase.id === "WeightsAssignment" ||
+      currentPhase.id === "WeightsReview") &&
+    canEditWeights;
+
+  // ── Sync local state from checklist ─────────────────────────────────────
   useEffect(() => {
     if (checklist) {
       const map: Record<string, number> = {};
@@ -747,20 +804,67 @@ export default function ProjectChecklistClient({
         map[item.parameterId] = item.weight;
       });
 
-      // Load custom items and ensure they have a weight entry
+      // Handle custom items
       if (checklist.customItems && checklist.customItems.length > 0) {
         setCustomParams(checklist.customItems);
         checklist.customItems.forEach((cp) => {
-          if (!(cp.id in map)) map[cp.id] = 1;
+          if (!(cp.id in map)) map[cp.id] = 0; // will be set below
         });
       } else {
         setCustomParams([]);
       }
 
+      // For weight phases, derive the two-level state from effective weights
+      if (
+        currentPhase.allowsWeightAssignment &&
+        (checklist.status === "WeightsAssignment" ||
+          checklist.status === "WeightsReview" ||
+          checklist.status === "Approved")
+      ) {
+        // Build category -> items map from the flat list
+        const itemsByCategory: Record<
+          string,
+          { id: string; weight: number }[]
+        > = {};
+        const allParams = [
+          ...standardParams.map((p) => ({ id: p.id, category: p.category })),
+          ...(checklist.customItems || []).map((c) => ({
+            id: c.id,
+            category: c.category,
+          })),
+        ];
+        checklist.items.forEach((item) => {
+          const param = allParams.find((p) => p.id === item.parameterId);
+          if (param) {
+            if (!itemsByCategory[param.category])
+              itemsByCategory[param.category] = [];
+            itemsByCategory[param.category].push({
+              id: item.parameterId,
+              weight: item.weight,
+            });
+          }
+        });
+
+        const newCatWeights: Record<string, number> = {};
+        const newItemLocal: Record<string, number> = {};
+
+        Object.entries(itemsByCategory).forEach(([cat, items]) => {
+          const totalCat = items.reduce((sum, it) => sum + it.weight, 0);
+          newCatWeights[cat] = totalCat;
+          items.forEach((it) => {
+            newItemLocal[it.id] =
+              totalCat > 0 ? (it.weight / totalCat) * 100 : 0;
+          });
+        });
+
+        setCategoryWeights(newCatWeights);
+        setItemLocalWeights(newItemLocal);
+      }
+
       setLocalItems(map);
       baselineItems.current = { ...map };
 
-      // Load existing task annotations if any (sent back by ME)
+      // Task annotations
       if (checklist.taskAnnotations && checklist.taskAnnotations.length > 0) {
         const committed: Record<string, TaskAnnotation> = {};
         checklist.taskAnnotations.forEach((a) => {
@@ -770,13 +874,44 @@ export default function ProjectChecklistClient({
       } else {
         setCommittedChanges({});
       }
-
       setPendingTaskChanges(new Set());
     }
-  }, [checklist]);
+  }, [checklist, standardParams]);
 
-  // ── History ───────────────────────────────────────────────────────────────
+  // ── Automatically recompute effective weights when sliders change ──────
+  useEffect(() => {
+    if (checklist && currentPhase.allowsWeightAssignment) {
+      // Build list of all parameter IDs (standard + custom)
+      const allParamIds = new Set([
+        ...standardParams.map((p) => p.id),
+        ...customParams.map((c) => c.id),
+      ]);
+      const newLocalItems: Record<string, number> = {};
+      allParamIds.forEach((pid) => {
+        const cat =
+          standardParams.find((p) => p.id === pid)?.category ??
+          customParams.find((c) => c.id === pid)?.category;
+        if (cat && categoryWeights[cat] !== undefined) {
+          const localWeight = itemLocalWeights[pid] ?? 0;
+          const effective = (categoryWeights[cat] * localWeight) / 100;
+          newLocalItems[pid] = Math.round(effective * 100) / 100; // keep 2 decimals
+        } else {
+          // not yet categorised? just keep existing
+          newLocalItems[pid] = localItems[pid] ?? 0;
+        }
+      });
+      setLocalItems(newLocalItems);
+    }
+  }, [
+    categoryWeights,
+    itemLocalWeights,
+    standardParams,
+    customParams,
+    currentPhase.allowsWeightAssignment,
+    checklist,
+  ]);
 
+  // Load history when tab opens
   useEffect(() => {
     if (activeTab === "history" && checklist) {
       setLoadingHistory(true);
@@ -788,199 +923,40 @@ export default function ProjectChecklistClient({
     }
   }, [activeTab, projectId, checklist]);
 
-  // ── Derived ───────────────────────────────────────────────────────────────
-  //
-  console.log("logged in user", userSector);
-
-  const currentPhase = useMemo(
-    () => PHASES.find((p) => p.id === checklist?.status) || PHASES[0],
-    [checklist?.status],
-  );
-
-  const isReviewPhase = currentPhase.isReviewPhase;
-
-  const permissions = useMemo(() => {
-    const phase = currentPhase.id;
-    if (phase === "Approved")
-      return { canEdit: false, canReview: false, canView: true };
-    if (phase === "Draft")
-      return {
-        canEdit: userSector !== "Monitoring And Evaluation",
-        canReview: false,
-        canView: true,
-      };
-    if (phase === "DraftReview")
-      return {
-        canEdit: userSector === "Monitoring And Evaluation",
-        canReview: userSector === "Monitoring And Evaluation",
-        canView: true,
-      };
-    if (phase === "WeightsAssignment")
-      return {
-        canEdit: userSector !== "Monitoring And Evaluation",
-        canReview: false,
-        canView: true,
-      };
-    if (phase === "WeightsReview")
-      return {
-        canEdit: userSector === "Monitoring And Evaluation",
-        canReview: userSector === "Monitoring And Evaluation",
-        canView: true,
-      };
-    return { canEdit: false, canReview: false, canView: true };
-  }, [currentPhase.id, userRole]);
-
-  const effectiveCanEdit =
-    permissions.canEdit &&
-    (currentPhase.allowsTaskSelection || currentPhase.allowsWeightAssignment);
-
-  const effectiveCanReview = permissions.canReview;
-
-  const showWorkplanTab =
-    currentPhase.id === "WeightsAssignment" &&
-    userSector !== "Monitoring And Evaluation";
-
-  const weightedItems = useMemo(
-    () =>
-      checklist?.items
-        .filter((i) => i.weight > 0)
-        .map((i) => ({
-          parameterId: i.parameterId,
-          label: i.label,
-          category: i.category,
-          weight: i.weight,
-        })) ?? [],
-    [checklist?.items],
-  );
-
-  /** True if any local item differs from baseline AND is not yet committed */
+  // ── Pending changes detection ────────────────────────────────────────────
   const hasUncommittedChanges = useMemo(() => {
-    if (!isReviewPhase || userSector !== "Monitoring And Evaluation")
-      return false;
+    if (!isReviewPhase || !canApplyChanges) return false;
     for (const [pid, val] of Object.entries(localItems)) {
       const baseline = baselineItems.current[pid] ?? 0;
-      if (val !== baseline && !committedChanges[pid]) return true;
+      if (Math.abs(val - baseline) > 0.001 && !committedChanges[pid])
+        return true;
     }
     return false;
-  }, [localItems, committedChanges, isReviewPhase, userRole]);
+  }, [localItems, committedChanges, isReviewPhase, canApplyChanges]);
 
-  /** True if the ME officer has any committed changes queued to send back */
   const hasCommittedChanges = Object.keys(committedChanges).length > 0;
 
-  /** For non-review phases: any local value different from baseline */
   const hasPendingChanges = useMemo(() => {
-    if (isReviewPhase && userSector === "Monitoring And Evaluation")
-      return false; // handled differently
+    if (isReviewPhase && canApplyChanges) return false;
     for (const [pid, val] of Object.entries(localItems)) {
       const baseline = baselineItems.current[pid] ?? 0;
-      if (val !== baseline) return true;
+      if (Math.abs(val - baseline) > 0.001) return true;
     }
     return false;
-  }, [localItems, isReviewPhase, userRole]);
+  }, [localItems, isReviewPhase, canApplyChanges]);
 
-  const filteredParams = useMemo(() => {
-    // Merge standard params with custom params (shaped as StandardParam)
-    const customAsStandard: StandardParam[] = customParams.map((cp) => ({
-      id: cp.id,
-      label: cp.label,
-      category: cp.category,
-    }));
-    let params: StandardParam[] = [...standardParams, ...customAsStandard];
-
-    if (
-      currentPhase.id === "WeightsAssignment" ||
-      currentPhase.id === "WeightsReview" ||
-      currentPhase.id === "Approved"
-    ) {
-      params = params.filter((p) => (localItems[p.id] ?? 0) > 0);
-    }
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      params = params.filter(
-        (p) =>
-          p.label.toLowerCase().includes(q) ||
-          p.id.toLowerCase().includes(q) ||
-          p.category.toLowerCase().includes(q),
-      );
-    }
-    if (showIncludedOnly && currentPhase.allowsTaskSelection) {
-      params = params.filter((p) => (localItems[p.id] ?? 0) > 0);
-    }
-    return params;
-  }, [
-    standardParams,
-    customParams,
-    currentPhase,
-    searchQuery,
-    showIncludedOnly,
-    localItems,
-  ]);
-
-  const groupedParams = useMemo(() => {
-    const groups: Record<string, StandardParam[]> = {};
-    filteredParams.forEach((p) => {
-      if (!groups[p.category]) groups[p.category] = [];
-      groups[p.category].push(p);
-    });
-    Object.keys(groups).forEach((cat) =>
-      groups[cat].sort((a, b) => a.id.localeCompare(b.id)),
-    );
-    return groups;
-  }, [filteredParams]);
-
-  const stats = useMemo(() => {
-    const totalParams = standardParams.length;
-    const includedParams = Object.values(localItems).filter(
-      (w) => w > 0,
-    ).length;
-    const totalWeight = Object.values(localItems).reduce(
-      (sum, w) => sum + w,
-      0,
-    );
-    const categoryStats: Record<
-      string,
-      { included: number; total: number; weight: number }
-    > = {};
-    Object.entries(groupedParams).forEach(([cat, params]) => {
-      const included = params.filter((p) => (localItems[p.id] ?? 0) > 0).length;
-      const weight = params.reduce(
-        (sum, p) => sum + (localItems[p.id] ?? 0),
-        0,
-      );
-      categoryStats[cat] = { included, total: params.length, weight };
-    });
-    return { totalParams, includedParams, totalWeight, categoryStats };
-  }, [standardParams, groupedParams, localItems]);
-
-  const remainingWeight = useMemo(() => {
-    if (currentPhase.id !== "WeightsAssignment") return null;
-    return Math.max(0, 100 - stats.totalWeight);
-  }, [stats.totalWeight, currentPhase.id]);
-
-  const getRemainingWeightForTask = (paramId: string) => {
-    const total = Object.values(localItems).reduce(
-      (sum, w) => sum + (w ?? 0),
-      0,
-    );
-    const current = localItems[paramId] ?? 0;
-    return 100 - (total - current);
-  };
-
-  // ── Edit handlers ─────────────────────────────────────────────────────────
-
+  // ── Task selection (for Draft phases) ────────────────────────────────────
   const toggleTaskInclude = (paramId: string) => {
     if (!effectiveCanEdit || !currentPhase.allowsTaskSelection) return;
     const isIncluded = (localItems[paramId] ?? 0) > 0;
     const newValue = isIncluded ? 0 : 1;
     setLocalItems((prev) => ({ ...prev, [paramId]: newValue }));
-    // Mark as pending (unapplied) for review phases
-    if (isReviewPhase && userRole !== "Monitoring And Evaluation") {
+    if (isReviewPhase && canApplyChanges) {
       setPendingTaskChanges((prev) => {
         const next = new Set(prev);
         next.add(paramId);
         return next;
       });
-      // Remove from committed if re-editing
       setCommittedChanges((prev) => {
         const next = { ...prev };
         delete next[paramId];
@@ -989,33 +965,40 @@ export default function ProjectChecklistClient({
     }
   };
 
-  const setTaskWeight = (paramId: string, weight: number) => {
+  // ── Category weight adjustment ───────────────────────────────────────────
+  const setCategoryWeight = (category: string, weight: number) => {
     if (!effectiveCanEdit || !currentPhase.allowsWeightAssignment) return;
-    const totalWithoutCurrent = Object.entries(localItems).reduce(
-      (sum, [id, w]) => (id === paramId ? sum : sum + (w ?? 0)),
+    const totalOthers = Object.entries(categoryWeights).reduce(
+      (sum, [cat, w]) => (cat === category ? sum : sum + w),
       0,
     );
-    const maxAllowed = 100 - totalWithoutCurrent;
+    const maxAllowed = 100 - totalOthers;
     const newWeight = Math.max(0, Math.min(weight, maxAllowed));
-    setLocalItems((prev) => ({ ...prev, [paramId]: newWeight }));
-    if (isReviewPhase && userSector !== "Monitoring And Evaluation") {
-      setPendingTaskChanges((prev) => {
-        const next = new Set(prev);
-        next.add(paramId);
-        return next;
-      });
-      setCommittedChanges((prev) => {
-        const next = { ...prev };
-        delete next[paramId];
-        return next;
-      });
-    }
+    setCategoryWeights((prev) => ({ ...prev, [category]: newWeight }));
   };
 
-  /**
-   * Called when ME officer clicks "Apply" checkbox on a changed task.
-   * Opens the reason dialog.
-   */
+  // ── Item local weight adjustment ─────────────────────────────────────────
+  const setItemLocalWeight = (
+    paramId: string,
+    newLocalWeight: number,
+    category: string,
+  ) => {
+    if (!effectiveCanEdit || !currentPhase.allowsWeightAssignment) return;
+    // Find all items in this category
+    const catItems = [
+      ...standardParams.filter((p) => p.category === category).map((p) => p.id),
+      ...customParams.filter((c) => c.category === category).map((c) => c.id),
+    ];
+    const sumOthers = catItems.reduce(
+      (sum, id) => (id === paramId ? sum : sum + (itemLocalWeights[id] ?? 0)),
+      0,
+    );
+    const maxAllowed = 100 - sumOthers;
+    const capped = Math.max(0, Math.min(newLocalWeight, maxAllowed));
+    setItemLocalWeights((prev) => ({ ...prev, [paramId]: capped }));
+  };
+
+  // ── Apply change (review phase) ──────────────────────────────────────────
   const handleApplyChange = (paramId: string, paramLabel: string) => {
     const oldValue = baselineItems.current[paramId] ?? 0;
     const newValue = localItems[paramId] ?? 0;
@@ -1046,7 +1029,6 @@ export default function ProjectChecklistClient({
 
   const handleReasonCancel = () => {
     if (!reasonDialog) return;
-    // Revert local change back to baseline
     const { parameterId, oldValue } = reasonDialog;
     setLocalItems((prev) => ({ ...prev, [parameterId]: oldValue }));
     setPendingTaskChanges((prev) => {
@@ -1057,39 +1039,60 @@ export default function ProjectChecklistClient({
     setReasonDialog(null);
   };
 
-  // ── Save ──────────────────────────────────────────────────────────────────
-
+  // ── Save (computes effective weights) ────────────────────────────────────
   const handleSave = async (newStatus?: string) => {
     if (!checklist) return;
-
-    // In review phases, ME must apply (commit) all changes before sending back
-    if (
-      isReviewPhase &&
-      userSector === "Monitoring And Evaluation" &&
-      hasUncommittedChanges
-    ) {
+    if (isReviewPhase && canApplyChanges && hasUncommittedChanges) {
       toast.error(
         "Apply all your changes (click the Apply checkbox) before saving.",
       );
       return;
     }
-
     setSaving(true);
     try {
-      const items = Object.entries(localItems)
-        .filter(([, w]) => w > 0)
-        .map(([parameterId, weight]) => {
-          // Look up label/category in standard params first, then custom params
-          const std = standardParams.find((p) => p.id === parameterId);
-          const custom = customParams.find((p) => p.id === parameterId);
-          return {
-            parameterId,
-            weight,
-            label: std?.label || custom?.label || "",
-            category: std?.category || custom?.category || "",
-          };
+      let items: any[] = [];
+      if (currentPhase.allowsWeightAssignment) {
+        // Build items from two-level weights
+        const allParams = [
+          ...standardParams.map((p) => ({
+            id: p.id,
+            label: p.label,
+            category: p.category,
+          })),
+          ...customParams.map((c) => ({
+            id: c.id,
+            label: c.label,
+            category: c.category,
+          })),
+        ];
+        allParams.forEach((param) => {
+          const catWeight = categoryWeights[param.category] ?? 0;
+          const localWeight = itemLocalWeights[param.id] ?? 0;
+          const effectiveWeight = (catWeight * localWeight) / 100;
+          if (effectiveWeight > 0) {
+            items.push({
+              parameterId: param.id,
+              weight: effectiveWeight,
+              label: param.label,
+              category: param.category,
+            });
+          }
         });
-
+      } else {
+        // In task selection phases, localItems already holds selection (0/1)
+        items = Object.entries(localItems)
+          .filter(([, w]) => w > 0)
+          .map(([parameterId, weight]) => {
+            const std = standardParams.find((p) => p.id === parameterId);
+            const custom = customParams.find((p) => p.id === parameterId);
+            return {
+              parameterId,
+              weight,
+              label: std?.label || custom?.label || "",
+              category: std?.category || custom?.category || "",
+            };
+          });
+      }
       const res = await fetch(`/api/projects/${projectId}/checklist`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -1098,7 +1101,7 @@ export default function ProjectChecklistClient({
           status: newStatus || checklist.status,
           items,
           taskAnnotations: Object.values(committedChanges),
-          customItems: customParams, // ← always send so server keeps them in sync
+          customItems: customParams,
         }),
       });
       if (!res.ok) throw new Error("Save failed");
@@ -1116,6 +1119,7 @@ export default function ProjectChecklistClient({
   };
 
   const handleReset = async () => {
+    if (!canReset) return;
     try {
       const res = await fetch(`/api/projects/${projectId}/checklist`);
       if (!res.ok) throw new Error();
@@ -1136,6 +1140,7 @@ export default function ProjectChecklistClient({
   };
 
   const handleExport = () => {
+    if (!canExport) return;
     const data = {
       projectId,
       checklist,
@@ -1157,6 +1162,7 @@ export default function ProjectChecklistClient({
   };
 
   const handleCreateDraft = async () => {
+    if (!canCreateDraft) return;
     setIsCreating(true);
     try {
       const res = await fetch(`/api/projects/${projectId}/checklist`, {
@@ -1176,7 +1182,17 @@ export default function ProjectChecklistClient({
     }
   };
 
-  // ─── Conditional renders ──────────────────────────────────────────────────
+  // ⚠️ All hooks are now called – early returns are safe
+
+  if (!canView) {
+    return (
+      <div className="p-8 text-center border rounded-lg">
+        <p className="text-muted-foreground">
+          You do not have permission to view the checklist.
+        </p>
+      </div>
+    );
+  }
 
   if (!checklist) {
     return (
@@ -1186,54 +1202,137 @@ export default function ProjectChecklistClient({
           This project does not have a checklist. Click below to start a draft
           based on the project template.
         </p>
-        <Button onClick={handleCreateDraft} disabled={isCreating}>
-          {isCreating ? "Creating..." : "Start Draft"}
-        </Button>
-      </div>
-    );
-  }
-
-  if (
-    !effectiveCanEdit &&
-    !effectiveCanReview &&
-    currentPhase.id !== "Approved"
-  ) {
-    return (
-      <div className="p-8 text-center border rounded-lg">
-        <h2 className="text-xl font-semibold mb-2">View‑only Mode</h2>
-        <p className="text-muted-foreground mb-6">
-          You are viewing this checklist in the {currentPhase.label} phase. No
-          edits are allowed.
-        </p>
-        <Button variant="outline" asChild>
-          <Link href={`/projects/${projectId}`}>Back to Project</Link>
-        </Button>
-      </div>
-    );
-  }
-
-  if (loading) {
-    return (
-      <div className="space-y-6">
-        <Skeleton className="h-10 w-1/3" />
-        <Skeleton className="h-24 w-full" />
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Skeleton className="h-32 w-full" />
-          <Skeleton className="h-32 w-full" />
-          <Skeleton className="h-32 w-full" />
-        </div>
-        <Skeleton className="h-64 w-full" />
+        {canCreateDraft && (
+          <Button onClick={handleCreateDraft} disabled={isCreating}>
+            {isCreating ? "Creating..." : "Start Draft"}
+          </Button>
+        )}
       </div>
     );
   }
 
   const isReadOnly = currentPhase.id === "Approved";
 
-  // ─── Render ───────────────────────────────────────────────────────────────
+  // ── Statistics (based on effective weights) ──────────────────────────────
+  const stats = useMemo(() => {
+    const totalParams = standardParams.length + customParams.length;
+    const includedParams = Object.values(localItems).filter(
+      (w) => w > 0,
+    ).length;
+    const totalWeight = Object.values(localItems).reduce(
+      (sum, w) => sum + w,
+      0,
+    );
+    const categoryStats: Record<
+      string,
+      { included: number; total: number; weight: number }
+    > = {};
 
+    // Group all items by category
+    const allItems = [
+      ...standardParams,
+      ...customParams.map((c) => ({
+        id: c.id,
+        label: c.label,
+        category: c.category,
+      })),
+    ];
+    const grouped = allItems.reduce(
+      (acc, p) => {
+        if (!acc[p.category]) acc[p.category] = [];
+        acc[p.category].push(p);
+        return acc;
+      },
+      {} as Record<string, typeof allItems>,
+    );
+
+    Object.entries(grouped).forEach(([cat, params]) => {
+      const included = params.filter((p) => (localItems[p.id] ?? 0) > 0).length;
+      const weight = params.reduce(
+        (sum, p) => sum + (localItems[p.id] ?? 0),
+        0,
+      );
+      categoryStats[cat] = { included, total: params.length, weight };
+    });
+
+    return { totalParams, includedParams, totalWeight, categoryStats };
+  }, [standardParams, customParams, localItems]);
+
+  const remainingCategoryWeight = currentPhase.allowsWeightAssignment
+    ? Math.max(
+        0,
+        100 - Object.values(categoryWeights).reduce((a, b) => a + b, 0),
+      )
+    : null;
+
+  // ── Filtered & grouped params for display ────────────────────────────────
+  const filteredParams = useMemo(() => {
+    let params: { id: string; label: string; category: string }[] = [
+      ...standardParams,
+      ...customParams.map((cp) => ({
+        id: cp.id,
+        label: cp.label,
+        category: cp.category,
+      })),
+    ];
+
+    // In weight phases, only show items that are included (effective weight > 0)
+    if (currentPhase.allowsWeightAssignment) {
+      params = params.filter((p) => (localItems[p.id] ?? 0) > 0);
+    }
+
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      params = params.filter(
+        (p) =>
+          p.label.toLowerCase().includes(q) ||
+          p.id.toLowerCase().includes(q) ||
+          p.category.toLowerCase().includes(q),
+      );
+    }
+
+    if (showIncludedOnly && currentPhase.allowsTaskSelection) {
+      params = params.filter((p) => (localItems[p.id] ?? 0) > 0);
+    }
+
+    return params;
+  }, [
+    standardParams,
+    customParams,
+    currentPhase,
+    searchQuery,
+    showIncludedOnly,
+    localItems,
+  ]);
+
+  const groupedParams = useMemo(() => {
+    const groups: Record<string, typeof filteredParams> = {};
+    filteredParams.forEach((p) => {
+      if (!groups[p.category]) groups[p.category] = [];
+      groups[p.category].push(p);
+    });
+    Object.keys(groups).forEach((cat) =>
+      groups[cat].sort((a, b) => a.id.localeCompare(b.id)),
+    );
+    return groups;
+  }, [filteredParams]);
+
+  const weightedItems = useMemo(
+    () =>
+      checklist?.items
+        .filter((i) => i.weight > 0)
+        .map((i) => ({
+          parameterId: i.parameterId,
+          label: i.label,
+          category: i.category,
+          weight: i.weight,
+        })) ?? [],
+    [checklist?.items],
+  );
+
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
-      {/* Reason dialog */}
       {reasonDialog && (
         <ReasonDialog
           open={reasonDialog.open}
@@ -1254,12 +1353,13 @@ export default function ProjectChecklistClient({
           </h1>
           <p className="text-muted-foreground">{currentPhase.description}</p>
         </div>
-
         {!isReadOnly && (
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={handleExport}>
-              <Download className="w-4 h-4 mr-2" /> Export
-            </Button>
+            {canExport && (
+              <Button variant="outline" size="sm" onClick={handleExport}>
+                <Download className="w-4 h-4 mr-2" /> Export
+              </Button>
+            )}
             {currentPhase.allowsTaskSelection && effectiveCanEdit && (
               <Button
                 variant="outline"
@@ -1267,29 +1367,28 @@ export default function ProjectChecklistClient({
                 onClick={() => setShowIncludedOnly(!showIncludedOnly)}
               >
                 {showIncludedOnly ? (
-                  <>
-                    <EyeOff className="w-4 h-4 mr-2" /> Show All
-                  </>
+                  <EyeOff className="w-4 h-4 mr-2" />
                 ) : (
-                  <>
-                    <Eye className="w-4 h-4 mr-2" /> Included Only
-                  </>
+                  <Eye className="w-4 h-4 mr-2" />
                 )}
+                {showIncludedOnly ? "Show All" : "Included Only"}
               </Button>
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleReset}
-              disabled={
-                !hasPendingChanges &&
-                !hasCommittedChanges &&
-                !hasUncommittedChanges
-              }
-            >
-              <RefreshCw className="w-4 h-4 mr-2" /> Reset
-            </Button>
-            {effectiveCanEdit && !isReviewPhase && (
+            {canReset && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleReset}
+                disabled={
+                  !hasPendingChanges &&
+                  !hasCommittedChanges &&
+                  !hasUncommittedChanges
+                }
+              >
+                <RefreshCw className="w-4 h-4 mr-2" /> Reset
+              </Button>
+            )}
+            {canSave && !isReviewPhase && (
               <Button
                 onClick={() => handleSave()}
                 disabled={saving || !hasPendingChanges}
@@ -1302,8 +1401,8 @@ export default function ProjectChecklistClient({
         )}
       </div>
 
-      {/* ME officer review banner */}
-      {isReviewPhase && userSector === "Monitoring And Evaluation" && (
+      {/* Review mode banner */}
+      {isReviewPhase && canApplyChanges && (
         <div className="flex items-start gap-3 p-3 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/20 text-sm text-amber-800 dark:text-amber-300">
           <Info className="w-4 h-4 mt-0.5 shrink-0" />
           <div>
@@ -1317,7 +1416,6 @@ export default function ProjectChecklistClient({
         </div>
       )}
 
-      {/* Uncommitted changes warning */}
       {hasUncommittedChanges && (
         <div className="flex items-center gap-2 p-3 rounded-lg border border-red-200 bg-red-50 dark:bg-red-950/20 text-sm text-red-700 dark:text-red-400">
           <AlertCircle className="w-4 h-4 shrink-0" />
@@ -1327,19 +1425,7 @@ export default function ProjectChecklistClient({
         </div>
       )}
 
-      {/* Committed changes summary for ME */}
-      {isReviewPhase &&
-        userSector === "Monitoring And Evaluation" &&
-        hasCommittedChanges && (
-          <div className="flex items-center gap-2 p-3 rounded-lg border border-green-200 bg-green-50 dark:bg-green-950/20 text-sm text-green-700 dark:text-green-400">
-            <CheckCircle className="w-4 h-4 shrink-0" />
-            {Object.keys(committedChanges).length} change
-            {Object.keys(committedChanges).length > 1 ? "s" : ""} applied and
-            ready to send back.
-          </div>
-        )}
-
-      {/* Phase Progress Card */}
+      {/* Phase progress */}
       <Card>
         <CardContent className="pt-6">
           <div className="relative">
@@ -1349,8 +1435,6 @@ export default function ProjectChecklistClient({
                 const isCurrent = phase.id === checklist.status;
                 const isCompleted =
                   PHASES.findIndex((p) => p.id === checklist.status) > idx;
-                const isFuture =
-                  PHASES.findIndex((p) => p.id === checklist.status) < idx;
                 return (
                   <div
                     key={phase.id}
@@ -1363,9 +1447,9 @@ export default function ProjectChecklistClient({
                           "border-primary bg-primary text-primary-foreground",
                         isCompleted &&
                           "border-primary bg-primary text-primary-foreground",
-                        isFuture &&
+                        !isCurrent &&
+                          !isCompleted &&
                           "border-muted bg-background text-muted-foreground",
-                        isReadOnly && "opacity-60",
                       )}
                     >
                       {isCompleted ? (
@@ -1378,10 +1462,7 @@ export default function ProjectChecklistClient({
                       <p
                         className={cn(
                           "text-sm font-medium",
-                          isCurrent && "text-primary",
-                          isCompleted && "text-primary",
-                          isFuture && "text-muted-foreground",
-                          isReadOnly && "opacity-60",
+                          (isCurrent || isCompleted) && "text-primary",
                         )}
                       >
                         {phase.label}
@@ -1398,17 +1479,70 @@ export default function ProjectChecklistClient({
         </CardContent>
       </Card>
 
-      {/* Remaining weight indicator */}
-      {remainingWeight !== null && (
-        <Card className="bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
-          <CardContent className="pt-4">
-            <p className="text-sm">
-              Remaining weight to assign:{" "}
-              <span className="font-bold text-lg">{remainingWeight}</span> / 100
-              {remainingWeight < 0 && (
-                <span className="ml-2 text-red-600">(exceeded!)</span>
+      {/* Category weight indicator (only in weight phases) */}
+      {currentPhase.allowsWeightAssignment && (
+        <Card className="bg-muted/20">
+          <CardContent className="pt-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-sm">Category Weights</h3>
+              <div className="text-sm">
+                Total:{" "}
+                <span className="font-bold">
+                  {Object.values(categoryWeights).reduce((a, b) => a + b, 0)} /
+                  100
+                </span>
+              </div>
+            </div>
+            {Object.keys(groupedParams).map((category) => {
+              const weight = categoryWeights[category] ?? 0;
+              return (
+                <div key={category} className="flex items-center gap-4">
+                  <span className="w-32 text-sm truncate">{category}</span>
+                  <Slider
+                    value={[weight]}
+                    onValueChange={([v]) => setCategoryWeight(category, v)}
+                    max={100}
+                    step={1}
+                    className="flex-1"
+                  />
+                  <Input
+                    type="number"
+                    value={weight}
+                    onChange={(e) =>
+                      setCategoryWeight(category, +e.target.value)
+                    }
+                    className="w-20"
+                    min={0}
+                    max={100}
+                  />
+                </div>
+              );
+            })}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const cats = Object.keys(groupedParams);
+                const equal = Math.floor(100 / cats.length);
+                const dist: Record<string, number> = {};
+                cats.forEach(
+                  (c, i) =>
+                    (dist[c] =
+                      i === cats.length - 1
+                        ? 100 - equal * (cats.length - 1)
+                        : equal),
+                );
+                setCategoryWeights(dist);
+              }}
+            >
+              Auto‑distribute equally
+            </Button>
+            {remainingCategoryWeight !== null &&
+              remainingCategoryWeight > 0 && (
+                <p className="text-sm text-muted-foreground">
+                  Remaining for categories: {remainingCategoryWeight.toFixed(0)}
+                </p>
               )}
-            </p>
           </CardContent>
         </Card>
       )}
@@ -1421,13 +1555,7 @@ export default function ProjectChecklistClient({
       >
         <div className="flex flex-col sm:flex-row justify-between gap-4">
           <TabsList>
-            <TabsTrigger value="items">
-              {isReadOnly
-                ? "Checklist"
-                : effectiveCanEdit
-                  ? "Edit Checklist"
-                  : "View Checklist"}
-            </TabsTrigger>
+            <TabsTrigger value="items">Edit Checklist</TabsTrigger>
             <TabsTrigger value="preview">Preview</TabsTrigger>
             {showWorkplanTab && (
               <TabsTrigger value="workplan">
@@ -1452,7 +1580,7 @@ export default function ProjectChecklistClient({
             </div>
             {currentPhase.allowsWeightAssignment && (
               <div className="text-center">
-                <p className="font-bold">{stats.totalWeight}</p>
+                <p className="font-bold">{stats.totalWeight.toFixed(1)}</p>
                 <p className="text-sm text-muted-foreground">Total Weight</p>
               </div>
             )}
@@ -1527,10 +1655,15 @@ export default function ProjectChecklistClient({
           ) : (
             <Accordion type="multiple" className="space-y-4">
               {Object.entries(groupedParams).map(([category, params]) => {
-                const catStat = stats.categoryStats[category];
-                const allIncluded = params.every(
-                  (p) => (localItems[p.id] ?? 0) > 0,
-                );
+                const catStat = stats.categoryStats[category] || {
+                  included: 0,
+                  total: params.length,
+                  weight: 0,
+                };
+                const allIncluded =
+                  currentPhase.allowsTaskSelection &&
+                  params.every((p) => (localItems[p.id] ?? 0) > 0);
+
                 return (
                   <AccordionItem
                     key={category}
@@ -1542,7 +1675,7 @@ export default function ProjectChecklistClient({
                         <div className="flex items-center gap-4">
                           {currentPhase.allowsTaskSelection &&
                             effectiveCanEdit && (
-                              <Checkbox
+                              <SimpleCheckbox
                                 checked={allIncluded}
                                 onCheckedChange={() => {
                                   const newValue = allIncluded ? 0 : 1;
@@ -1551,7 +1684,7 @@ export default function ProjectChecklistClient({
                                     newItems[p.id] = newValue;
                                   });
                                   setLocalItems(newItems);
-                                  if (isReviewPhase && userRole === "me") {
+                                  if (isReviewPhase && canApplyChanges) {
                                     params.forEach((p) => {
                                       const baseline =
                                         baselineItems.current[p.id] ?? 0;
@@ -1565,7 +1698,6 @@ export default function ProjectChecklistClient({
                                     });
                                   }
                                 }}
-                                onClick={(e) => e.stopPropagation()}
                                 disabled={!effectiveCanEdit}
                               />
                             )}
@@ -1581,7 +1713,7 @@ export default function ProjectChecklistClient({
                         <div className="flex items-center gap-4">
                           {currentPhase.allowsWeightAssignment && (
                             <Badge variant="outline" className="font-mono">
-                              {catStat.weight} pts
+                              {categoryWeights[category] ?? 0} pts
                             </Badge>
                           )}
                           <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200" />
@@ -1591,20 +1723,21 @@ export default function ProjectChecklistClient({
                     <AccordionContent>
                       <div className="px-6 pb-4 space-y-3">
                         {params.map((param) => {
-                          const weight = localItems[param.id] ?? 0;
-                          const included = weight > 0;
-                          const maxWeight = getRemainingWeightForTask(param.id);
+                          const effectiveWeight = localItems[param.id] ?? 0;
+                          const included = effectiveWeight > 0;
                           const baseline = baselineItems.current[param.id] ?? 0;
-                          const isDirty = weight !== baseline;
+                          const isDirty =
+                            Math.abs(effectiveWeight - baseline) > 0.001;
                           const isApplied = !!committedChanges[param.id];
                           const isPending =
                             pendingTaskChanges.has(param.id) && isDirty;
-                          const annotation =
-                            // Show annotation for sector officer when checklist was sent back
-                            userSector !== "Monitoring And Evaluation" &&
-                            checklist.taskAnnotations?.find(
-                              (a) => a.parameterId === param.id,
-                            );
+                          const annotation = checklist.taskAnnotations?.find(
+                            (a) => a.parameterId === param.id,
+                          );
+
+                          // For weight phases, we need the local weight inside the category
+                          const localWeight = itemLocalWeights[param.id] ?? 0;
+                          const catWeight = categoryWeights[category] ?? 0;
 
                           return (
                             <div
@@ -1640,7 +1773,6 @@ export default function ProjectChecklistClient({
                                     >
                                       {param.id} — {param.label}
                                     </Label>
-                                    {/* Custom badge — shown when this param is not in standardParams */}
                                     {!standardParams.find(
                                       (p) => p.id === param.id,
                                     ) && (
@@ -1651,12 +1783,6 @@ export default function ProjectChecklistClient({
                                         Custom
                                       </Badge>
                                     )}
-                                    {param.description && (
-                                      <p className="text-sm text-muted-foreground">
-                                        {param.description}
-                                      </p>
-                                    )}
-                                    {/* Annotation visible to sector officer */}
                                     {annotation && (
                                       <TaskChangeBadge
                                         annotation={annotation}
@@ -1666,54 +1792,85 @@ export default function ProjectChecklistClient({
                                 </div>
 
                                 <div className="flex items-center gap-3">
-                                  {/* Weight controls */}
                                   {currentPhase.allowsWeightAssignment &&
                                   included ? (
                                     <div className="flex items-center gap-3">
                                       <div className="text-right">
                                         <div className="text-lg font-bold">
-                                          {weight}
+                                          {localWeight}
                                         </div>
                                         <div className="text-xs text-muted-foreground">
-                                          points
+                                          local
                                         </div>
                                       </div>
                                       {effectiveCanEdit ? (
                                         <>
                                           <div className="w-32">
                                             <Slider
-                                              value={[weight]}
+                                              value={[localWeight]}
                                               onValueChange={([v]) =>
-                                                setTaskWeight(param.id, v)
+                                                setItemLocalWeight(
+                                                  param.id,
+                                                  v,
+                                                  category,
+                                                )
                                               }
                                               max={100}
                                               step={1}
                                             />
                                             <div className="flex justify-between text-xs text-muted-foreground mt-1">
                                               <span>0</span>
-                                              <span>{maxWeight}</span>
+                                              <span>
+                                                {100 -
+                                                  Object.keys(itemLocalWeights)
+                                                    .filter(
+                                                      (id) =>
+                                                        id !== param.id &&
+                                                        groupedParams[
+                                                          category
+                                                        ]?.some(
+                                                          (p) => p.id === id,
+                                                        ),
+                                                    )
+                                                    .reduce(
+                                                      (sum, id) =>
+                                                        sum +
+                                                        (itemLocalWeights[id] ??
+                                                          0),
+                                                      0,
+                                                    )}
+                                              </span>
                                             </div>
                                           </div>
                                           <Input
                                             type="number"
-                                            value={weight}
+                                            value={localWeight}
                                             onChange={(e) =>
-                                              setTaskWeight(
+                                              setItemLocalWeight(
                                                 param.id,
                                                 +e.target.value,
+                                                category,
                                               )
                                             }
                                             className="w-20"
                                             min={0}
-                                            max={maxWeight}
+                                            max={100}
                                           />
+                                          <div className="text-right min-w-[60px]">
+                                            <div className="text-sm font-mono">
+                                              {effectiveWeight.toFixed(2)}%
+                                            </div>
+                                            <div className="text-xs text-muted-foreground">
+                                              effective
+                                            </div>
+                                          </div>
                                         </>
                                       ) : (
                                         <Badge
                                           variant="outline"
                                           className="font-mono"
                                         >
-                                          {weight} pts
+                                          {effectiveWeight.toFixed(1)} pts
                                         </Badge>
                                       )}
                                     </div>
@@ -1736,10 +1893,8 @@ export default function ProjectChecklistClient({
                                     </Badge>
                                   ) : null}
 
-                                  {/* Apply checkbox — only shown in review phases for ME on changed tasks */}
                                   {isReviewPhase &&
-                                    userSector ===
-                                      "Monitoring And Evaluation" &&
+                                    canApplyChanges &&
                                     isDirty &&
                                     !isApplied && (
                                       <div className="flex items-center gap-1.5 ml-2">
@@ -1762,17 +1917,14 @@ export default function ProjectChecklistClient({
                                         </Label>
                                       </div>
                                     )}
-
-                                  {/* Applied indicator */}
                                   {isReviewPhase &&
-                                    userSector ===
-                                      "Monitoring And Evaluation" &&
+                                    canApplyChanges &&
                                     isApplied && (
                                       <Badge
                                         variant="outline"
                                         className="ml-2 text-green-700 border-green-300 bg-green-50 dark:bg-green-950/20 text-xs"
                                       >
-                                        <CheckCircle className="w-3 h-3 mr-1" />
+                                        <CheckCircle className="w-3 h-3 mr-1" />{" "}
                                         Applied
                                       </Badge>
                                     )}
@@ -1789,76 +1941,72 @@ export default function ProjectChecklistClient({
             </Accordion>
           )}
 
-          {/* ── Add Custom Task (sector officer, Draft phase only) ── */}
-          {currentPhase.id === "Draft" &&
-            userSector !== "Monitoring And Evaluation" && (
-              <div className="mt-4 border border-dashed border-primary/30 rounded-xl p-4 bg-primary/5">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <p className="text-sm font-semibold text-primary">
-                      Add Custom Task
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Tasks added here are project-specific. They become
-                      permanent once the ME officer approves this draft.
-                    </p>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setShowAddCustom((v) => !v)}
-                  >
-                    <Plus className="w-3.5 h-3.5 mr-1.5" /> Add Custom Task
-                  </Button>
+          {/* Add custom task (only during Draft) */}
+          {currentPhase.id === "Draft" && canAddCustom && (
+            <div className="mt-4 border border-dashed border-primary/30 rounded-xl p-4 bg-primary/5">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <p className="text-sm font-semibold text-primary">
+                    Add Custom Task
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Tasks added here are project‑specific. They become permanent
+                    once the ME officer approves this draft.
+                  </p>
                 </div>
-
-                {showAddCustom && (
-                  <AddCustomItemForm
-                    existingCategories={[
-                      ...Object.keys(groupedParams),
-                      ...Array.from(
-                        new Set(customParams.map((p) => p.category)),
-                      ),
-                    ]}
-                    onAdd={(label, category) => {
-                      const newParam: any = {
-                        id: `custom-${uuid()}`,
-                        label,
-                        category,
-                        isPending: true,
-                        addedBy: "",
-                        addedAt: new Date().toISOString(),
-                      };
-                      setCustomParams((prev) => [...prev, newParam]);
-                      setLocalItems((prev) => ({ ...prev, [newParam.id]: 1 }));
-                      setShowAddCustom(false);
-                      toast.success(`Custom task "${label}" added`);
-                    }}
-                    onCancel={() => setShowAddCustom(false)}
-                  />
-                )}
-
-                {customParams.length > 0 && (
-                  <div className="space-y-2 mt-3">
-                    {customParams.map((cp) => (
-                      <div
-                        key={cp.id}
-                        className="flex items-center gap-3 p-2.5 rounded-lg border border-primary/20 bg-white dark:bg-card"
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowAddCustom((v) => !v)}
+                >
+                  <Plus className="w-3.5 h-3.5 mr-1.5" /> Add Custom Task
+                </Button>
+              </div>
+              {showAddCustom && (
+                <AddCustomItemForm
+                  existingCategories={[
+                    ...Object.keys(groupedParams),
+                    ...Array.from(new Set(customParams.map((p) => p.category))),
+                  ]}
+                  onAdd={(label, category) => {
+                    const newParam: any = {
+                      id: `custom-${uuidv4()}`,
+                      label,
+                      category,
+                      isPending: true,
+                      addedBy: "",
+                      addedAt: new Date().toISOString(),
+                    };
+                    setCustomParams((prev) => [...prev, newParam]);
+                    setLocalItems((prev) => ({ ...prev, [newParam.id]: 1 }));
+                    setShowAddCustom(false);
+                    toast.success(`Custom task "${label}" added`);
+                  }}
+                  onCancel={() => setShowAddCustom(false)}
+                />
+              )}
+              {customParams.length > 0 && (
+                <div className="space-y-2 mt-3">
+                  {customParams.map((cp) => (
+                    <div
+                      key={cp.id}
+                      className="flex items-center gap-3 p-2.5 rounded-lg border border-primary/20 bg-white dark:bg-card"
+                    >
+                      <Badge
+                        variant="outline"
+                        className="text-xs text-primary border-primary/30 shrink-0"
                       >
-                        <Badge
-                          variant="outline"
-                          className="text-xs text-primary border-primary/30 shrink-0"
-                        >
-                          Custom
-                        </Badge>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">
-                            {cp.label}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {cp.category}
-                          </p>
-                        </div>
+                        Custom
+                      </Badge>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">
+                          {cp.label}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {cp.category}
+                        </p>
+                      </div>
+                      {canDeleteCustom && (
                         <Button
                           size="sm"
                           variant="ghost"
@@ -1876,12 +2024,13 @@ export default function ProjectChecklistClient({
                         >
                           <X className="w-3.5 h-3.5" />
                         </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </TabsContent>
 
         {/* Preview Tab */}
@@ -1900,41 +2049,60 @@ export default function ProjectChecklistClient({
                     (p) => (localItems[p.id] ?? 0) > 0,
                   );
                   if (included.length === 0) return null;
+                  const catWeight = currentPhase.allowsWeightAssignment
+                    ? (categoryWeights[category] ?? 0)
+                    : null;
+                  const catEffective =
+                    catWeight !== null
+                      ? included.reduce(
+                          (sum, p) => sum + (localItems[p.id] ?? 0),
+                          0,
+                        )
+                      : included.reduce(
+                          (sum, p) => sum + (localItems[p.id] ?? 0),
+                          0,
+                        );
+
                   return (
                     <div key={category} className="space-y-3">
                       <div className="flex items-center justify-between">
-                        <h3 className="text-lg font-semibold">{category}</h3>
+                        <h3 className="text-lg font-semibold">
+                          {category}
+                          {catWeight !== null && ` (${catWeight}% of project)`}
+                        </h3>
                         <Badge variant="outline">
-                          {included.reduce(
-                            (sum, p) => sum + (localItems[p.id] ?? 0),
-                            0,
-                          )}{" "}
-                          pts
+                          {catEffective.toFixed(1)} pts
                         </Badge>
                       </div>
-                      {included.map((p) => (
-                        <div
-                          key={p.id}
-                          className="flex items-center justify-between p-3 border rounded-lg"
-                        >
-                          <div>
-                            <p className="font-medium">{p.label}</p>
-                            {p.description && (
-                              <p className="text-sm text-muted-foreground">
-                                {p.description}
-                              </p>
-                            )}
-                          </div>
-                          <div className="text-right">
-                            <div className="text-xl font-bold">
-                              {localItems[p.id]}
+                      {included.map((p) => {
+                        const weight = localItems[p.id] ?? 0;
+                        const localWeight = itemLocalWeights[p.id] ?? 0;
+                        const effective = weight;
+                        return (
+                          <div
+                            key={p.id}
+                            className="flex items-center justify-between p-3 border rounded-lg"
+                          >
+                            <div>
+                              <p className="font-medium">{p.label}</p>
+                              {currentPhase.allowsWeightAssignment && (
+                                <p className="text-sm text-muted-foreground">
+                                  Local: {localWeight}% → Effective:{" "}
+                                  {effective.toFixed(2)}%
+                                </p>
+                              )}
                             </div>
-                            <div className="text-sm text-muted-foreground">
-                              points
+                            <div className="text-right">
+                              <div className="text-xl font-bold">
+                                {effective.toFixed(2)}
+                              </div>
+                              <div className="text-sm text-muted-foreground">
+                                points
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   );
                 })}
@@ -2020,8 +2188,7 @@ export default function ProjectChecklistClient({
           <CardContent className="pt-6">
             <div className="space-y-4">
               <div className="flex flex-col sm:flex-row gap-3">
-                {/* Non-review phase: standard save */}
-                {effectiveCanEdit && !isReviewPhase && (
+                {canSave && !isReviewPhase && (
                   <Button
                     onClick={() => handleSave()}
                     disabled={saving || !hasPendingChanges}
@@ -2032,46 +2199,39 @@ export default function ProjectChecklistClient({
                   </Button>
                 )}
 
-                {/* Draft → DraftReview */}
-                {userSector !== "Monitoring And Evaluation" &&
-                  checklist.status === "Draft" && (
-                    <Button
-                      variant="outline"
-                      onClick={() => handleSave("DraftReview")}
-                      disabled={saving}
-                    >
-                      Submit for Draft Review
-                    </Button>
-                  )}
+                {canSubmitReview && checklist.status === "Draft" && (
+                  <Button
+                    variant="outline"
+                    onClick={() => handleSave("DraftReview")}
+                    disabled={saving}
+                  >
+                    Submit for Draft Review
+                  </Button>
+                )}
 
-                {/* DraftReview: ME sends back */}
-                {userSector === "Monitoring And Evaluation" &&
-                  checklist.status === "DraftReview" && (
-                    <Button
-                      variant="outline"
-                      onClick={() => handleSave("Draft")}
-                      disabled={
-                        saving || hasUncommittedChanges || !hasCommittedChanges
-                      }
-                    >
-                      Send Back to Draft
-                    </Button>
-                  )}
+                {canReview && checklist.status === "DraftReview" && (
+                  <Button
+                    variant="outline"
+                    onClick={() => handleSave("Draft")}
+                    disabled={
+                      saving || hasUncommittedChanges || !hasCommittedChanges
+                    }
+                  >
+                    Send Back to Draft
+                  </Button>
+                )}
 
-                {/* DraftReview: ME approves */}
-                {userSector === "Monitoring And Evaluation" &&
-                  checklist.status === "DraftReview" && (
-                    <Button
-                      variant="default"
-                      onClick={() => handleSave("WeightsAssignment")}
-                      disabled={saving || hasUncommittedChanges}
-                    >
-                      Approve Draft → Weights
-                    </Button>
-                  )}
+                {canReview && checklist.status === "DraftReview" && (
+                  <Button
+                    variant="default"
+                    onClick={() => handleSave("WeightsAssignment")}
+                    disabled={saving || hasUncommittedChanges}
+                  >
+                    Approve Draft → Weights
+                  </Button>
+                )}
 
-                {/* WeightsAssignment → WeightsReview */}
-                {userSector !== "Monitoring And Evaluation" &&
+                {canSubmitReview &&
                   checklist.status === "WeightsAssignment" && (
                     <Button
                       variant="outline"
@@ -2082,36 +2242,30 @@ export default function ProjectChecklistClient({
                     </Button>
                   )}
 
-                {/* WeightsReview: ME sends back */}
-                {userSector === "Monitoring And Evaluation" &&
-                  checklist.status === "WeightsReview" && (
-                    <Button
-                      variant="outline"
-                      onClick={() => handleSave("WeightsAssignment")}
-                      disabled={
-                        saving || hasUncommittedChanges || !hasCommittedChanges
-                      }
-                    >
-                      Send Back to Weights
-                    </Button>
-                  )}
+                {canReview && checklist.status === "WeightsReview" && (
+                  <Button
+                    variant="outline"
+                    onClick={() => handleSave("WeightsAssignment")}
+                    disabled={
+                      saving || hasUncommittedChanges || !hasCommittedChanges
+                    }
+                  >
+                    Send Back to Weights
+                  </Button>
+                )}
 
-                {/* WeightsReview: ME approves */}
-                {userSector === "Monitoring And Evaluation" &&
-                  checklist.status === "WeightsReview" && (
-                    <Button
-                      variant="default"
-                      onClick={() => handleSave("Approved")}
-                      disabled={saving || hasUncommittedChanges}
-                      className="bg-green-600 hover:bg-green-700"
-                    >
-                      <CheckCircle className="w-4 h-4 mr-2" /> Approve &
-                      Finalize
-                    </Button>
-                  )}
+                {canReview && checklist.status === "WeightsReview" && (
+                  <Button
+                    variant="default"
+                    onClick={() => handleSave("Approved")}
+                    disabled={saving || hasUncommittedChanges}
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    <CheckCircle className="w-4 h-4 mr-2" /> Approve & Finalize
+                  </Button>
+                )}
               </div>
 
-              {/* Helper messages */}
               {hasUncommittedChanges && (
                 <div className="flex items-center gap-2 text-sm text-amber-600">
                   <AlertCircle className="w-4 h-4" />
@@ -2121,7 +2275,7 @@ export default function ProjectChecklistClient({
               )}
 
               {isReviewPhase &&
-                userSector === "Monitoring And Evaluation" &&
+                canApplyChanges &&
                 !hasCommittedChanges &&
                 !hasUncommittedChanges && (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">

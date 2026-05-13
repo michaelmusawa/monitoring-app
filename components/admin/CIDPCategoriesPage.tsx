@@ -3,13 +3,15 @@
 /**
  * CIDPCategoriesPage
  *
- * Three-role workflow for CIDP Key Output project categories:
- *
- *  ADMIN   → uploads PDF, extracts categories, triggers AI name cleaning
- *  SECTOR  → reviews/edits/adds categories, saves draft, submits for ME review
- *  ME      → reviews submitted categories, can approve or request changes
- *            (per-field change suggestions each with a mandatory reason)
- *  SECTOR  → sees exactly what changed and why, acknowledges, re-edits, re-submits
+ * RBAC permissions:
+ * - cidp:view          → view categories
+ * - cidp:create        → add new category manually
+ * - cidp:edit          → edit category (only when DRAFT or CHANGES_REQUESTED)
+ * - cidp:delete        → delete category (only when DRAFT or CHANGES_REQUESTED)
+ * - cidp:submit        → submit for review (single or bulk)
+ * - cidp:approve       → approve categories (single or bulk)
+ * - cidp:request_changes → request changes with reasons
+ * - cidp:extract_pdf   → upload PDF and extract categories
  */
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -76,10 +78,14 @@ const FASTAPI_BASE =
 const EXTRACT_URL = `${FASTAPI_BASE}/extract-cidp-categories`;
 const CLEAN_URL = `${FASTAPI_BASE}/clean-category-names`;
 
-// Role passed as prop — in production derive from session
-type Role = "ADMIN" | "SECTOR" | "ME";
+// ─── Helper: Permission check ─────────────────────────────────────────────────
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+function hasPermission(perms: string[], required: string | string[]): boolean {
+  if (typeof required === "string") return perms.includes(required);
+  return required.some((p) => perms.includes(p));
+}
+
+// ─── Formatters ───────────────────────────────────────────────────────────────
 
 function formatBudget(n: number | null): string {
   if (n == null) return "—";
@@ -177,7 +183,6 @@ function ExtractionPreview({
 
   return (
     <div className="border border-border rounded-xl overflow-hidden bg-card">
-      {/* Header */}
       <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-muted/30">
         <div>
           <p className="text-sm font-semibold">
@@ -210,7 +215,6 @@ function ExtractionPreview({
         </div>
       </div>
 
-      {/* Table */}
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -463,7 +467,6 @@ function MEReviewDrawer({
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 backdrop-blur-sm">
       <div className="bg-background w-full max-w-xl sm:rounded-2xl shadow-2xl border border-border max-h-[90vh] flex flex-col">
-        {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <div>
             <p className="text-sm font-semibold">Review Category</p>
@@ -476,9 +479,7 @@ function MEReviewDrawer({
           </button>
         </div>
 
-        {/* Body */}
         <div className="overflow-y-auto flex-1 p-5 space-y-4">
-          {/* Mode toggle */}
           <div className="flex gap-2">
             <button
               onClick={() => setMode("view")}
@@ -506,7 +507,6 @@ function MEReviewDrawer({
           </div>
 
           {mode === "view" ? (
-            /* ── View mode ── */
             <div className="space-y-3">
               {fields.map((f) => (
                 <div
@@ -527,7 +527,6 @@ function MEReviewDrawer({
               ))}
             </div>
           ) : (
-            /* ── Edit/suggest mode ── */
             <div className="space-y-3">
               <p className="text-xs text-muted-foreground">
                 Suggest changes below. Each change requires a reason before
@@ -606,7 +605,6 @@ function MEReviewDrawer({
           )}
         </div>
 
-        {/* Footer actions */}
         <div className="px-5 py-4 border-t border-border flex gap-2">
           <Button
             className="flex-1"
@@ -645,7 +643,9 @@ function MEReviewDrawer({
 
 function CategoryRow({
   category,
-  role,
+  canEdit,
+  canDelete,
+  canRequestChanges,
   isSelected,
   onSelect,
   onUpdate,
@@ -653,7 +653,9 @@ function CategoryRow({
   onReviewOpen,
 }: {
   category: ProjectCategory;
-  role: string;
+  canEdit: boolean;
+  canDelete: boolean;
+  canRequestChanges: boolean;
   isSelected: boolean;
   onSelect: () => void;
   onUpdate: (data: Partial<ProjectCategory>) => Promise<void>;
@@ -665,11 +667,6 @@ function CategoryRow({
   const [draft, setDraft] = useState({ ...category });
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-
-  const canEdit =
-    role === "viewer" ||
-    (role === "sector" &&
-      (category.status === "DRAFT" || category.status === "CHANGES_REQUESTED"));
 
   const hasOpenNotes =
     category.reviewNotes?.some((n) => n.resolvedAt === null) ?? false;
@@ -707,7 +704,6 @@ function CategoryRow({
         hasOpenNotes && "border-orange-300",
       )}
     >
-      {/* Row summary */}
       <div
         className={cn(
           "flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-muted/30 transition-colors",
@@ -726,16 +722,12 @@ function CategoryRow({
             )}
           />
         </button>
-
-        {/* Name */}
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium truncate">{category.name}</p>
           <p className="text-xs text-muted-foreground truncate">
             {category.sector ?? "No sector"}
           </p>
         </div>
-
-        {/* Stats */}
         <div className="hidden sm:flex items-center gap-4 shrink-0">
           <div className="text-right">
             <p className="text-xs text-muted-foreground">Target</p>
@@ -750,11 +742,9 @@ function CategoryRow({
             </p>
           </div>
         </div>
-
-        {/* Status + actions */}
         <div className="flex items-center gap-2 shrink-0">
           <StatusBadge status={category.status} />
-          {role === "me" && category.status === "PENDING_REVIEW" && (
+          {canRequestChanges && category.status === "PENDING_REVIEW" && (
             <Button
               size="sm"
               variant="outline"
@@ -767,19 +757,17 @@ function CategoryRow({
               Review
             </Button>
           )}
-          {hasOpenNotes && role === "SECTOR" && (
+          {hasOpenNotes && (
             <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
           )}
         </div>
       </div>
 
-      {/* Expanded detail */}
       {expanded && (
         <div className="border-t border-border px-4 py-4 space-y-4 bg-muted/20">
-          {/* Review notes for SECTOR */}
-          {role === "sector" &&
-            category.reviewNotes &&
-            category.reviewNotes.length > 0 && (
+          {category.reviewNotes &&
+            category.reviewNotes.length > 0 &&
+            canEdit && (
               <ReviewNotesPanel
                 notes={category.reviewNotes}
                 onAcknowledge={async () => {
@@ -791,7 +779,6 @@ function CategoryRow({
               />
             )}
 
-          {/* Edit form */}
           {editing ? (
             <div className="space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -856,10 +843,7 @@ function CategoryRow({
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => {
-                    setDraft({ ...category });
-                    setEditing(false);
-                  }}
+                  onClick={() => setEditing(false)}
                 >
                   Cancel
                 </Button>
@@ -874,7 +858,6 @@ function CategoryRow({
               </div>
             </div>
           ) : (
-            /* Read-only detail view */
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
                 {
@@ -912,31 +895,34 @@ function CategoryRow({
             </div>
           )}
 
-          {/* Row actions */}
-          {canEdit && !editing && (
+          {(canEdit || canDelete) && !editing && (
             <div className="flex items-center gap-2 justify-end pt-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
-                onClick={handleDelete}
-                disabled={deleting}
-              >
-                {deleting ? (
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                ) : (
-                  <Trash2 className="w-3 h-3 mr-1" />
-                )}
-                Delete
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 text-xs"
-                onClick={() => setEditing(true)}
-              >
-                <Pencil className="w-3 h-3 mr-1" /> Edit
-              </Button>
+              {canDelete && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                  onClick={handleDelete}
+                  disabled={deleting}
+                >
+                  {deleting ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-3 h-3 mr-1" />
+                  )}
+                  Delete
+                </Button>
+              )}
+              {canEdit && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => setEditing(true)}
+                >
+                  <Pencil className="w-3 h-3 mr-1" /> Edit
+                </Button>
+              )}
             </div>
           )}
         </div>
@@ -959,7 +945,7 @@ function AddCategoryForm({
 }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
-  const [sector, setSector] = useState(""); // empty string = no sector
+  const [sector, setSector] = useState("");
   const [target, setTarget] = useState("");
   const [budget, setBudget] = useState("");
   const [saving, setSaving] = useState(false);
@@ -995,7 +981,6 @@ function AddCategoryForm({
     );
   }
 
-  // Filter out "ALL" from sector options for category assignment
   const sectorOptions = SECTORS.filter((s) => s !== "ALL");
 
   return (
@@ -1075,23 +1060,19 @@ function AddCategoryForm({
   );
 }
 
-// ─── Main page ────────────────────────────────────────────────────────────────
+// ─── Main Component ───────────────────────────────────────────────────────────
 
 interface CIDPCategoriesPageProps {
-  userRole: string;
-  userEmail?: string;
-  // Server-loaded initial categories (optional, for SSR usage)
-  initialCategories?: ProjectCategory[];
+  userPermissions: string[];
+  userRole?: string;
 }
 
 export default function CIDPCategoriesPage({
-  userRole,
-  userEmail,
-  initialCategories = [],
+  userPermissions,
+  userRole = "viewer",
 }: CIDPCategoriesPageProps) {
-  const [categories, setCategories] =
-    useState<ProjectCategory[]>(initialCategories);
-  const [loading, setLoading] = useState(initialCategories.length === 0);
+  const [categories, setCategories] = useState<ProjectCategory[]>([]);
+  const [loading, setLoading] = useState(true);
 
   // Extraction state (ADMIN only)
   const [file, setFile] = useState<File | null>(null);
@@ -1106,23 +1087,47 @@ export default function CIDPCategoriesPage({
     "ALL",
   );
   const [sectorFilter, setSectorFilter] = useState<string>("ALL");
-
-  // Selection for bulk actions
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-
-  // ME review drawer
   const [reviewTarget, setReviewTarget] = useState<ProjectCategory | null>(
     null,
   );
 
-  // ── Load ──────────────────────────────────────────────────────────────────
+  // Permissions checks
+  const canView = hasPermission(userPermissions, "category:view");
+  const canCreate = hasPermission(userPermissions, "category:create");
+  const canSubmit = hasPermission(userPermissions, "category:submit");
+  const canApprove = hasPermission(userPermissions, "category:approve");
+  const canRequestChanges = hasPermission(
+    userPermissions,
+    "category:request_changes",
+  );
+  const canExtractPDF = hasPermission(userPermissions, "category:extract_pdf");
 
+  const hasEditPermission = hasPermission(userPermissions, "category:edit");
+  const hasDeletePermission = hasPermission(userPermissions, "category:delete");
+
+  const canEdit = (status: CategoryStatus) =>
+    hasEditPermission && (status === "DRAFT" || status === "CHANGES_REQUESTED");
+  const canDelete = (status: CategoryStatus) =>
+    hasDeletePermission &&
+    (status === "DRAFT" || status === "CHANGES_REQUESTED");
+
+  // Display role badge
+  const displayRole =
+    userRole === "me"
+      ? "ME Officer"
+      : userRole === "sector"
+        ? "Sector Officer"
+        : "System Admin";
+
+  // ─── Load data ────────────────────────────────────────────────────────────
   const loadCategories = useCallback(async () => {
+    if (!canView) return;
     setLoading(true);
     try {
       const data = await getCategories();
-      // Enrich with review notes for SECTOR view
-      if (userRole === "sector") {
+      // Only fetch notes if user can edit (because notes are only relevant for editing)
+      if (hasEditPermission || hasDeletePermission) {
         const enriched = await Promise.all(
           data.map(async (c) => {
             if (c.status === "CHANGES_REQUESTED") {
@@ -1141,18 +1146,16 @@ export default function CIDPCategoriesPage({
     } finally {
       setLoading(false);
     }
-  }, [userRole]);
+  }, [canView, hasEditPermission, hasDeletePermission]); // ✅ stable dependencies
 
   useEffect(() => {
-    if (initialCategories.length === 0) loadCategories();
-  }, [loadCategories, initialCategories.length]);
+    loadCategories();
+  }, [loadCategories]);
 
-  // ── Derived ───────────────────────────────────────────────────────────────
-
+  // Derived stats
   const sectors = Array.from(
     new Set(categories.map((c) => c.sector).filter(Boolean)),
   ) as string[];
-
   const filtered = categories.filter((c) => {
     if (
       search &&
@@ -1164,7 +1167,6 @@ export default function CIDPCategoriesPage({
     if (sectorFilter !== "ALL" && c.sector !== sectorFilter) return false;
     return true;
   });
-
   const pendingReviewCount = categories.filter(
     (c) => c.status === "PENDING_REVIEW",
   ).length;
@@ -1175,14 +1177,12 @@ export default function CIDPCategoriesPage({
     (c) => c.status === "APPROVED",
   ).length;
 
-  // ── Extraction (ADMIN) ────────────────────────────────────────────────────
-
+  // ── Extraction ─────────────────────────────────────────────────────────────
   const handleExtract = async () => {
     if (!file) return;
     setExtracting(true);
     setExtractErr(null);
     setExtracted(null);
-
     try {
       setStep("Extracting categories from PDF…");
       const fd = new FormData();
@@ -1190,10 +1190,8 @@ export default function CIDPCategoriesPage({
       const res = await fetch(EXTRACT_URL, { method: "POST", body: fd });
       if (!res.ok) throw new Error(`Extraction failed (${res.status})`);
       const data = await res.json();
-      console.log("data", data);
       if (!data.categories?.length)
         throw new Error("No categories found in this PDF.");
-
       let items: ExtractedItem[] = data.categories
         .map((c: any) => ({
           name: String(c.name ?? "").trim(),
@@ -1202,8 +1200,6 @@ export default function CIDPCategoriesPage({
           budget: c.budget != null ? Number(c.budget) : null,
         }))
         .filter((c: ExtractedItem) => c.name.length > 0);
-
-      // AI name cleaning
       setStep(`Cleaning ${items.length} names with AI…`);
       try {
         const cleanRes = await fetch(CLEAN_URL, {
@@ -1226,7 +1222,6 @@ export default function CIDPCategoriesPage({
       } catch {
         // soft fail
       }
-
       setExtracted(items);
     } catch (err: any) {
       setExtractErr(err.message || "Extraction failed");
@@ -1238,7 +1233,7 @@ export default function CIDPCategoriesPage({
 
   const handleSaveExtracted = async () => {
     if (!extracted) return;
-    await batchCreateCategories(extracted as any, userEmail);
+    await batchCreateCategories(extracted as any);
     toast.success(`${extracted.length} categories saved`);
     setExtracted(null);
     setFile(null);
@@ -1246,7 +1241,6 @@ export default function CIDPCategoriesPage({
   };
 
   // ── Category mutations ────────────────────────────────────────────────────
-
   const handleUpdate = async (id: string, data: Partial<ProjectCategory>) => {
     await updateCategory(id, data as any);
     setCategories((prev) =>
@@ -1267,16 +1261,15 @@ export default function CIDPCategoriesPage({
     target?: number;
     budget?: number;
   }) => {
-    const created = await addCategory(data, userEmail);
+    const created = await addCategory(data);
     setCategories((prev) => [created, ...prev]);
     toast.success("Category added");
   };
 
   // ── Workflow actions ──────────────────────────────────────────────────────
-
   const handleSubmitSelected = async () => {
     if (selectedIds.size === 0) return;
-    await submitForReview([...selectedIds], userEmail);
+    await submitForReview([...selectedIds]);
     setCategories((prev) =>
       prev.map((c) =>
         selectedIds.has(c.id) &&
@@ -1297,7 +1290,7 @@ export default function CIDPCategoriesPage({
       toast.info("No draft categories to submit");
       return;
     }
-    await submitForReview(eligible, userEmail);
+    await submitForReview(eligible);
     setCategories((prev) =>
       prev.map((c) =>
         eligible.includes(c.id) ? { ...c, status: "PENDING_REVIEW" } : c,
@@ -1307,7 +1300,7 @@ export default function CIDPCategoriesPage({
   };
 
   const handleApprove = async (id: string) => {
-    await approveCategories([id], userEmail);
+    await approveCategories([id]);
     setCategories((prev) =>
       prev.map((c) => (c.id === id ? { ...c, status: "APPROVED" } : c)),
     );
@@ -1316,7 +1309,7 @@ export default function CIDPCategoriesPage({
   };
 
   const handleRequestChanges = async (id: string, changes: FieldChange[]) => {
-    await requestChanges(id, changes, userEmail);
+    await requestChanges(id, changes);
     setCategories((prev) =>
       prev.map((c) =>
         c.id === id ? { ...c, status: "CHANGES_REQUESTED" } : c,
@@ -1331,7 +1324,7 @@ export default function CIDPCategoriesPage({
       .filter((c) => c.status === "PENDING_REVIEW")
       .map((c) => c.id);
     if (pending.length === 0) return;
-    await approveCategories(pending, userEmail);
+    await approveCategories(pending);
     setCategories((prev) =>
       prev.map((c) =>
         pending.includes(c.id) ? { ...c, status: "APPROVED" } : c,
@@ -1339,8 +1332,6 @@ export default function CIDPCategoriesPage({
     );
     toast.success(`${pending.length} categories approved`);
   };
-
-  // ── Selection ─────────────────────────────────────────────────────────────
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -1350,12 +1341,18 @@ export default function CIDPCategoriesPage({
     });
   };
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Render
-  // ─────────────────────────────────────────────────────────────────────────
+  if (!canView) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-muted-foreground">
+          You do not have permission to view this page.
+        </p>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen">
       {/* Header */}
       <header className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur-sm">
         <div className="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between gap-4">
@@ -1365,32 +1362,17 @@ export default function CIDPCategoriesPage({
               {categories.length} categories · {approvedCount} approved
             </p>
           </div>
-
           <div className="flex items-center gap-2">
-            {/* Role badge */}
-            <span
-              className={cn(
-                "text-xs px-2.5 py-1 rounded-full border font-medium",
-                userRole === "me" && "bg-blue-50 text-blue-700 border-blue-200",
-                userRole === "sector" &&
-                  "bg-purple-50 text-purple-700 border-purple-200",
-                userRole === "viewer" &&
-                  "bg-slate-100 text-slate-700 border-slate-200",
-              )}
-            >
-              {userRole}
+            <span className="text-xs px-2.5 py-1 rounded-full border font-medium bg-slate-100 text-slate-700 border-slate-200">
+              {displayRole}
             </span>
-
-            {/* Sector: submit all */}
-            {userRole === "sector" && (
+            {canSubmit && (
               <Button size="sm" onClick={handleSubmitAll}>
                 <Send className="w-3.5 h-3.5 mr-1.5" />
                 Submit All for Review
               </Button>
             )}
-
-            {/* ME: approve all */}
-            {userRole === "me" && pendingReviewCount > 0 && (
+            {canApprove && pendingReviewCount > 0 && (
               <Button size="sm" onClick={handleApproveAll}>
                 <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
                 Approve All ({pendingReviewCount})
@@ -1400,7 +1382,7 @@ export default function CIDPCategoriesPage({
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-6 py-6 space-y-6">
+      <main className="max-w-5xl mx-auto px-6 py-6 space-y-6 bg-background rounded-2xl mt-6">
         {/* Stats banner */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
@@ -1443,14 +1425,13 @@ export default function CIDPCategoriesPage({
           ))}
         </div>
 
-        {/* ADMIN: PDF Upload section */}
-        {userRole === "viewer" && (
+        {/* Admin PDF extraction */}
+        {canExtractPDF && (
           <div className="border border-border rounded-xl p-5 space-y-4">
             <div className="flex items-center gap-2">
               <FileText className="w-4 h-4 text-primary" />
               <h2 className="text-sm font-semibold">Extract from CIDP PDF</h2>
             </div>
-
             {!extracted ? (
               <div className="flex items-end gap-3">
                 <div className="flex-1">
@@ -1482,14 +1463,12 @@ export default function CIDPCategoriesPage({
                 </Button>
               </div>
             ) : null}
-
             {extractErr && (
               <div className="flex items-start gap-2 p-3 rounded-lg border border-destructive/30 bg-destructive/5 text-sm text-destructive">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                 {extractErr}
               </div>
             )}
-
             {extracted && (
               <ExtractionPreview
                 items={extracted}
@@ -1500,8 +1479,8 @@ export default function CIDPCategoriesPage({
           </div>
         )}
 
-        {/* Changes-requested alert for SECTOR */}
-        {userRole === "sector" && changesRequestedCount > 0 && (
+        {/* Changes-requested alert for sector */}
+        {canEdit && changesRequestedCount > 0 && (
           <div className="flex items-center gap-3 p-4 rounded-xl border border-orange-200 bg-orange-50">
             <AlertCircle className="w-5 h-5 text-orange-600 shrink-0" />
             <div className="flex-1">
@@ -1537,7 +1516,6 @@ export default function CIDPCategoriesPage({
               className="w-full pl-9 pr-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:ring-1 focus:ring-primary/30"
             />
           </div>
-
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as any)}
@@ -1549,7 +1527,6 @@ export default function CIDPCategoriesPage({
             <option value="CHANGES_REQUESTED">Changes Requested</option>
             <option value="APPROVED">Approved</option>
           </select>
-
           <select
             value={sectorFilter}
             onChange={(e) => setSectorFilter(e.target.value)}
@@ -1562,7 +1539,6 @@ export default function CIDPCategoriesPage({
               </option>
             ))}
           </select>
-
           {(search || statusFilter !== "ALL" || sectorFilter !== "ALL") && (
             <button
               onClick={() => {
@@ -1578,7 +1554,7 @@ export default function CIDPCategoriesPage({
         </div>
 
         {/* Bulk submit bar */}
-        {userRole === "sector" && selectedIds.size > 0 && (
+        {canSubmit && selectedIds.size > 0 && (
           <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl border border-primary/30 bg-primary/5">
             <p className="text-sm font-medium">{selectedIds.size} selected</p>
             <div className="flex gap-2">
@@ -1615,8 +1591,7 @@ export default function CIDPCategoriesPage({
           <div className="space-y-2">
             {filtered.map((cat) => (
               <div key={cat.id} className="flex items-start gap-2">
-                {/* Checkbox for SECTOR bulk select */}
-                {userRole === "sector" &&
+                {canSubmit &&
                   (cat.status === "DRAFT" ||
                     cat.status === "CHANGES_REQUESTED") && (
                     <input
@@ -1629,7 +1604,9 @@ export default function CIDPCategoriesPage({
                 <div className="flex-1 min-w-0">
                   <CategoryRow
                     category={cat}
-                    role={userRole}
+                    canEdit={canEdit(cat.status)}
+                    canDelete={canDelete(cat.status)}
+                    canRequestChanges={canRequestChanges}
                     isSelected={selectedIds.has(cat.id)}
                     onSelect={() => {}}
                     onUpdate={(data) => handleUpdate(cat.id, data)}
@@ -1642,14 +1619,12 @@ export default function CIDPCategoriesPage({
           </div>
         )}
 
-        {/* SECTOR / ADMIN: Add category manually */}
-        {(userRole === "sector" || userRole === "viewer") && !loading && (
-          <AddCategoryForm onAdd={handleAdd} />
-        )}
+        {/* Add new category (only if canCreate) */}
+        {canCreate && !loading && <AddCategoryForm onAdd={handleAdd} />}
       </main>
 
       {/* ME Review Drawer */}
-      {reviewTarget && userRole === "me" && (
+      {reviewTarget && canRequestChanges && (
         <MEReviewDrawer
           category={reviewTarget}
           onApprove={() => handleApprove(reviewTarget.id)}
