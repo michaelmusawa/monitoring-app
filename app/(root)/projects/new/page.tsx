@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import CreateProjectClient from "@/components/projects/createProjectClient";
 import { getUser } from "@/lib/actions/usersActions";
+import { safeQuery } from "@/lib/db";
 
 export default async function NewProjectPage(props: {
   searchParams?: Promise<{
@@ -15,8 +16,6 @@ export default async function NewProjectPage(props: {
   const userRole = user?.role;
   const userSector = user?.sector;
 
-  console.log(userRole);
-
   if (userSector === "Monitoring And Evaluation") {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -28,14 +27,40 @@ export default async function NewProjectPage(props: {
   }
 
   const searchParams = await props.searchParams;
-  // Prefer user's sector over URL param, but allow URL param if user has no sector
   const defaultSector = userSector || searchParams?.sector || "";
+  const categoryId = searchParams?.categoryId;
+  const categoryName = searchParams?.categoryName;
+
+  let categoryTarget: number | null = null;
+  let categoryTargetType: "NUMBER" | "PERCENT" | null = null;
+  let remainingTarget: number | null = null;
+
+  if (categoryId) {
+    const catRes = await safeQuery<{ target: number; targetType: string }>(
+      `SELECT target, targetType FROM ProjectCategory WHERE id = @p1`,
+      [categoryId],
+    );
+    if (catRes.rows.length > 0) {
+      categoryTarget = catRes.rows[0].target;
+      categoryTargetType = catRes.rows[0].targetType as "NUMBER" | "PERCENT";
+      const contribRes = await safeQuery<{ sum: number }>(
+        `SELECT SUM(contributionValue) AS sum FROM Project WHERE categoryId = @p1 AND status != 'ARCHIVED'`,
+        [categoryId],
+      );
+      const currentSum = contribRes.rows[0]?.sum ?? 0;
+      remainingTarget = categoryTarget - currentSum;
+      if (remainingTarget < 0) remainingTarget = 0;
+    }
+  }
 
   return (
     <CreateProjectClient
-      categoryId={searchParams?.categoryId}
-      categoryName={searchParams?.categoryName}
+      categoryId={categoryId}
+      categoryName={categoryName}
       defaultSector={defaultSector}
+      categoryTarget={categoryTarget}
+      categoryTargetType={categoryTargetType}
+      remainingTarget={remainingTarget}
     />
   );
 }

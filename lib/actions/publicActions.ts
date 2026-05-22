@@ -452,46 +452,78 @@ export async function getCIDPPerformance(): Promise<CIDPPerformance> {
 }
 
 export async function fetchPublicStats() {
-  // Option A – if you have a 'STALLED' status in the Project table
-  const { rows } = await safeQuery<any>(
-    `SELECT
-       COUNT(*) AS total,
-       SUM(CASE WHEN status = 'ACTIVE' THEN 1 ELSE 0 END) AS active,
-       SUM(CASE WHEN status = 'STALLED' THEN 1 ELSE 0 END) AS stalled,
-       SUM(CASE WHEN status = 'PENDING' AND progress = 0 THEN 1 ELSE 0 END) AS notStarted,
-       SUM(budget) AS totalBudget,
-       COUNT(DISTINCT subCounty) AS subCounties,
-       ROUND(100.0 * SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) / COUNT(*), 0) AS completionRate
-     FROM Project`,
+  // Get latest tracker percent for each project
+  const { rows: trackerRows } = await safeQuery<any>(
+    `SELECT projectId, overallPercent
+     FROM (
+       SELECT projectId, overallPercent,
+              ROW_NUMBER() OVER (PARTITION BY projectId ORDER BY submittedAt DESC) AS rn
+       FROM TrackerSubmission
+     ) ranked WHERE rn = 1`,
+    [],
+  );
+  const trackerMap = new Map<string, number>();
+  for (const row of trackerRows) {
+    trackerMap.set(row.projectId, Number(row.overallPercent));
+  }
+
+  // Get all projects
+  const { rows: projects } = await safeQuery<any>(
+    `SELECT id, budget, subCounty, ward, sector, status FROM Project`,
     [],
   );
 
-  // Alternative if you don't have STALLED status – use a heuristic
-  // const { rows } = await safeQuery<any>(
-  //   `SELECT
-  //      COUNT(*) AS total,
-  //      SUM(CASE WHEN status = 'ACTIVE' THEN 1 ELSE 0 END) AS active,
-  //      SUM(CASE WHEN (progress < 5 AND latestTrackerDate IS NOT NULL AND latestTrackerDate < DATEADD(day, -90, GETDATE())) OR status = 'STALLED' THEN 1 ELSE 0 END) AS stalled,
-  //      SUM(CASE WHEN status = 'PENDING' AND progress = 0 THEN 1 ELSE 0 END) AS notStarted,
-  //      …
-  //    FROM Project
-  //    LEFT JOIN (
-  //      SELECT projectId, MAX(submittedAt) as latestTrackerDate
-  //      FROM TrackerSubmission
-  //      GROUP BY projectId
-  //    ) ts ON ts.projectId = Project.id`,
-  //   []
-  // );
+  let totalProjects = 0;
+  let completed = 0;
+  let ongoing = 0;
+  let notStarted = 0;
+  let totalBudget = 0;
+  const subCountiesSet = new Set<string>();
+  const wardsSet = new Set<string>();
+  const sectorsSet = new Set<string>();
 
-  const r = rows[0];
+  for (const proj of projects) {
+    totalProjects++;
+    totalBudget += Number(proj.budget ?? 0);
+    if (proj.subCounty) subCountiesSet.add(proj.subCounty);
+    if (proj.ward) wardsSet.add(proj.ward);
+    if (proj.sector) sectorsSet.add(proj.sector);
+
+    const trackerPct = trackerMap.get(proj.id) ?? 0;
+    if (trackerPct === 100) completed++;
+    else if (trackerPct === 0) notStarted++;
+    else if (trackerPct > 0 && trackerPct < 100) ongoing++;
+  }
+
+  // Stalled: projects with any STALLED item in latest submission
+  const { rows: stalledRows } = await safeQuery<{ cnt: number }>(
+    `SELECT COUNT(*) AS cnt FROM Project WHERE status = 'STALLED'`,
+    [],
+  );
+  const stalledProjects = stalledRows[0]?.cnt ?? 0;
+
+  // Terminated: projects with status = 'CANCELLED'
+  const { rows: terminatedRows } = await safeQuery<{ cnt: number }>(
+    `SELECT COUNT(*) AS cnt FROM Project WHERE status = 'TERMINATED'`,
+    [],
+  );
+  const terminatedProjects = terminatedRows[0]?.cnt ?? 0;
+
+  const completionRate =
+    totalProjects > 0 ? (completed / totalProjects) * 100 : 0;
+
   return {
-    totalProjects: Number(r.total ?? 0),
-    activeProjects: Number(r.active ?? 0),
-    stalledProjects: Number(r.stalled ?? 0),
-    notStartedProjects: Number(r.notStarted ?? 0),
-    totalBudget: Number(r.totalBudget ?? 0),
-    subCounties: Number(r.subCounties ?? 0),
-    completionRate: Number(r.completionRate ?? 0),
+    totalProjects,
+    completedProjects: completed,
+    ongoingProjects: ongoing,
+    notStartedProjects: notStarted,
+    stalledProjects,
+    terminatedProjects,
+    totalBudget,
+    subCounties: subCountiesSet.size,
+    totalSectors: sectorsSet.size,
+    totalWards: wardsSet.size,
+    completionRate: Math.round(completionRate),
   };
 }
 

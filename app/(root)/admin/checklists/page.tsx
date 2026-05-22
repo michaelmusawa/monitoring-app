@@ -10,11 +10,11 @@ export default async function AdminChecklistsPage() {
   const role = user?.role || "";
   const sector = user?.sector || "";
 
-  const hasAccess = (role: string) => ["system admin", "admin"].includes(role);
+  // const hasAccess = (role: string) => ["system admin", "admin"].includes(role);
 
-  if (!user || !hasAccess(role)) {
-    redirect("/");
-  }
+  // if (!user || !hasAccess(role)) {
+  //   redirect("/");
+  // }
 
   // Fetch all templates from the API (server‑side)
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";

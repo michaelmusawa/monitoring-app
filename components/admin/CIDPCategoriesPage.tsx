@@ -4,14 +4,14 @@
  * CIDPCategoriesPage
  *
  * RBAC permissions:
- * - cidp:view          → view categories
- * - cidp:create        → add new category manually
- * - cidp:edit          → edit category (only when DRAFT or CHANGES_REQUESTED)
- * - cidp:delete        → delete category (only when DRAFT or CHANGES_REQUESTED)
- * - cidp:submit        → submit for review (single or bulk)
- * - cidp:approve       → approve categories (single or bulk)
- * - cidp:request_changes → request changes with reasons
- * - cidp:extract_pdf   → upload PDF and extract categories
+ * - category:view          → view categories
+ * - category:create        → add new category manually
+ * - category:edit          → edit category (only when DRAFT or CHANGES_REQUESTED)
+ * - category:delete        → delete category (only when DRAFT or CHANGES_REQUESTED)
+ * - category:submit        → submit for review (single or bulk)
+ * - category:approve       → approve categories (single or bulk)
+ * - category:request_changes → request changes with reasons
+ * - category:extract_pdf   → upload PDF and extract categories
  */
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -85,7 +85,7 @@ function hasPermission(perms: string[], required: string | string[]): boolean {
   return required.some((p) => perms.includes(p));
 }
 
-// ─── Formatters ───────────────────────────────────────────────────────────────
+// ─── Formatters (target now uses targetType) ──────────────────────────────────
 
 function formatBudget(n: number | null): string {
   if (n == null) return "—";
@@ -95,8 +95,9 @@ function formatBudget(n: number | null): string {
   return `KES ${n.toLocaleString()}`;
 }
 
-function formatTarget(n: number | null): string {
+function formatTarget(n: number | null, type?: "NUMBER" | "PERCENT"): string {
   if (n == null) return "—";
+  if (type === "PERCENT") return `${n}%`;
   return n.toLocaleString();
 }
 
@@ -130,6 +131,7 @@ const FIELD_LABELS: Record<string, string> = {
   name: "Category Name",
   sector: "Sector",
   target: "Target",
+  targetType: "Target Type",
   budget: "Budget (KSh)",
 };
 
@@ -156,6 +158,7 @@ interface ExtractedItem {
   name: string;
   sector: string | null;
   target: number | null;
+  targetType?: "NUMBER" | "PERCENT";
   budget: number | null;
 }
 
@@ -214,7 +217,6 @@ function ExtractionPreview({
           </Button>
         </div>
       </div>
-
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -255,7 +257,7 @@ function ExtractionPreview({
                   )}
                 </td>
                 <td className="px-4 py-2.5 text-right font-mono text-xs">
-                  {formatTarget(item.target)}
+                  {formatTarget(item.target, item.targetType)}
                 </td>
                 <td className="px-4 py-2.5 text-right font-mono text-xs">
                   {formatBudget(item.budget)}
@@ -265,7 +267,6 @@ function ExtractionPreview({
           </tbody>
         </table>
       </div>
-
       {remaining > 0 && (
         <div className="px-4 py-3 border-t border-border/60 text-xs text-muted-foreground text-center">
           …and {remaining} more categories not shown
@@ -353,10 +354,10 @@ function ReviewNotesPanel({
   );
 }
 
-// ─── MEReviewDrawer ───────────────────────────────────────────────────────────
+// ─── MEReviewDrawer (unchanged except adding targetType field) ────────────────
 
 interface PendingChange {
-  field: "name" | "target" | "budget" | "sector";
+  field: "name" | "target" | "budget" | "sector" | "targetType";
   suggestedValue: string;
   reason: string;
 }
@@ -378,10 +379,11 @@ function MEReviewDrawer({
   const [changes, setChanges] = useState<Record<string, PendingChange>>({});
 
   const fields: Array<{
-    key: "name" | "target" | "budget" | "sector";
+    key: "name" | "target" | "budget" | "sector" | "targetType";
     label: string;
     value: string;
-    type: "text" | "number";
+    type: "text" | "number" | "select";
+    options?: string[];
   }> = [
     { key: "name", label: "Category Name", value: category.name, type: "text" },
     {
@@ -392,9 +394,16 @@ function MEReviewDrawer({
     },
     {
       key: "target",
-      label: "Target (5-yr sum)",
+      label: "Target",
       value: String(category.target ?? ""),
       type: "number",
+    },
+    {
+      key: "targetType",
+      label: "Target Type",
+      value: category.targetType,
+      type: "select",
+      options: ["NUMBER", "PERCENT"],
     },
     {
       key: "budget",
@@ -405,7 +414,7 @@ function MEReviewDrawer({
   ];
 
   function setChange(
-    field: "name" | "target" | "budget" | "sector",
+    field: "name" | "target" | "budget" | "sector" | "targetType",
     val: string,
     reason: string,
     original: string,
@@ -520,8 +529,12 @@ function MEReviewDrawer({
                     {f.key === "budget"
                       ? formatBudget(category.budget)
                       : f.key === "target"
-                        ? formatTarget(category.target)
-                        : f.value || "—"}
+                        ? formatTarget(category.target, category.targetType)
+                        : f.key === "targetType"
+                          ? category.targetType === "PERCENT"
+                            ? "Percentage"
+                            : "Number"
+                          : f.value || "—"}
                   </p>
                 </div>
               ))}
@@ -562,24 +575,49 @@ function MEReviewDrawer({
                         {f.key === "budget"
                           ? formatBudget(category.budget)
                           : f.key === "target"
-                            ? formatTarget(category.target)
+                            ? formatTarget(category.target, category.targetType)
                             : f.value || "—"}
                       </span>
                       <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0" />
-                      <Input
-                        type={f.type}
-                        placeholder={`New ${f.label.toLowerCase()}…`}
-                        className="h-7 text-xs"
-                        value={pending?.suggestedValue ?? ""}
-                        onChange={(e) =>
-                          setChange(
-                            f.key,
-                            e.target.value,
-                            pending?.reason ?? "",
-                            f.value,
-                          )
-                        }
-                      />
+                      {f.type === "select" ? (
+                        <Select
+                          value={pending?.suggestedValue ?? f.value}
+                          onValueChange={(val) =>
+                            setChange(
+                              f.key,
+                              val,
+                              pending?.reason ?? "",
+                              f.value,
+                            )
+                          }
+                        >
+                          <SelectTrigger className="h-7 text-xs w-28">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {f.options?.map((opt) => (
+                              <SelectItem key={opt} value={opt}>
+                                {opt === "NUMBER" ? "Number" : "Percentage"}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input
+                          type={f.type}
+                          placeholder={`New ${f.label.toLowerCase()}…`}
+                          className="h-7 text-xs"
+                          value={pending?.suggestedValue ?? ""}
+                          onChange={(e) =>
+                            setChange(
+                              f.key,
+                              e.target.value,
+                              pending?.reason ?? "",
+                              f.value,
+                            )
+                          }
+                        />
+                      )}
                     </div>
                     {pending?.suggestedValue && (
                       <div>
@@ -639,7 +677,7 @@ function MEReviewDrawer({
   );
 }
 
-// ─── CategoryRow ──────────────────────────────────────────────────────────────
+// ─── CategoryRow (updated target display) ─────────────────────────────────────
 
 function CategoryRow({
   category,
@@ -678,6 +716,7 @@ function CategoryRow({
         name: draft.name,
         sector: draft.sector ?? undefined,
         target: draft.target ?? undefined,
+        targetType: draft.targetType,
         budget: draft.budget ?? undefined,
       });
       setEditing(false);
@@ -732,7 +771,7 @@ function CategoryRow({
           <div className="text-right">
             <p className="text-xs text-muted-foreground">Target</p>
             <p className="text-xs font-semibold font-mono">
-              {formatTarget(category.target)}
+              {formatTarget(category.target, category.targetType)}
             </p>
           </div>
           <div className="text-right">
@@ -782,7 +821,7 @@ function CategoryRow({
           {editing ? (
             <div className="space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
+                <div className="sm:col-span-2">
                   <label className="text-xs text-muted-foreground font-medium">
                     Category Name
                   </label>
@@ -808,7 +847,7 @@ function CategoryRow({
                 </div>
                 <div>
                   <label className="text-xs text-muted-foreground font-medium">
-                    Target (5-yr sum)
+                    Target
                   </label>
                   <Input
                     type="number"
@@ -821,6 +860,25 @@ function CategoryRow({
                     }
                     className="mt-1 h-8 text-sm"
                   />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground font-medium">
+                    Target Type
+                  </label>
+                  <Select
+                    value={draft.targetType}
+                    onValueChange={(val: "NUMBER" | "PERCENT") =>
+                      setDraft((d) => ({ ...d, targetType: val }))
+                    }
+                  >
+                    <SelectTrigger className="mt-1 h-8 text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="NUMBER">Number</SelectItem>
+                      <SelectItem value="PERCENT">Percentage (%)</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div>
                   <label className="text-xs text-muted-foreground font-medium">
@@ -868,7 +926,7 @@ function CategoryRow({
                 {
                   icon: <Target className="w-3.5 h-3.5" />,
                   label: "Target",
-                  value: formatTarget(category.target),
+                  value: formatTarget(category.target, category.targetType),
                 },
                 {
                   icon: <Wallet className="w-3.5 h-3.5" />,
@@ -931,7 +989,7 @@ function CategoryRow({
   );
 }
 
-// ─── AddCategoryForm ──────────────────────────────────────────────────────────
+// ─── AddCategoryForm (with targetType selector) ───────────────────────────────
 
 function AddCategoryForm({
   onAdd,
@@ -940,6 +998,7 @@ function AddCategoryForm({
     name: string;
     sector?: string;
     target?: number;
+    targetType?: "NUMBER" | "PERCENT";
     budget?: number;
   }) => Promise<void>;
 }) {
@@ -947,6 +1006,7 @@ function AddCategoryForm({
   const [name, setName] = useState("");
   const [sector, setSector] = useState("");
   const [target, setTarget] = useState("");
+  const [targetType, setTargetType] = useState<"NUMBER" | "PERCENT">("NUMBER");
   const [budget, setBudget] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -958,11 +1018,13 @@ function AddCategoryForm({
         name: name.trim(),
         sector: sector.trim() === "" ? undefined : sector.trim(),
         target: target ? Number(target) : undefined,
+        targetType,
         budget: budget ? Number(budget) : undefined,
       });
       setName("");
       setSector("");
       setTarget("");
+      setTargetType("NUMBER");
       setBudget("");
       setOpen(false);
     } finally {
@@ -1018,7 +1080,7 @@ function AddCategoryForm({
         </div>
         <div>
           <label className="text-xs text-muted-foreground font-medium">
-            Target (5-yr sum)
+            Target
           </label>
           <Input
             type="number"
@@ -1026,6 +1088,23 @@ function AddCategoryForm({
             onChange={(e) => setTarget(e.target.value)}
             className="mt-1 h-8 text-sm"
           />
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground font-medium">
+            Target Type
+          </label>
+          <Select
+            value={targetType}
+            onValueChange={(val: "NUMBER" | "PERCENT") => setTargetType(val)}
+          >
+            <SelectTrigger className="mt-1 h-8 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="NUMBER">Number</SelectItem>
+              <SelectItem value="PERCENT">Percentage (%)</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <div>
           <label className="text-xs text-muted-foreground font-medium">
@@ -1074,14 +1153,12 @@ export default function CIDPCategoriesPage({
   const [categories, setCategories] = useState<ProjectCategory[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Extraction state (ADMIN only)
   const [file, setFile] = useState<File | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [step, setStep] = useState("");
   const [extracted, setExtracted] = useState<ExtractedItem[] | null>(null);
   const [extractErr, setExtractErr] = useState<string | null>(null);
 
-  // Filter/search
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<CategoryStatus | "ALL">(
     "ALL",
@@ -1092,7 +1169,7 @@ export default function CIDPCategoriesPage({
     null,
   );
 
-  // Permissions checks
+  // Permissions checks (unchanged)
   const canView = hasPermission(userPermissions, "category:view");
   const canCreate = hasPermission(userPermissions, "category:create");
   const canSubmit = hasPermission(userPermissions, "category:submit");
@@ -1102,17 +1179,14 @@ export default function CIDPCategoriesPage({
     "category:request_changes",
   );
   const canExtractPDF = hasPermission(userPermissions, "category:extract_pdf");
-
   const hasEditPermission = hasPermission(userPermissions, "category:edit");
   const hasDeletePermission = hasPermission(userPermissions, "category:delete");
-
   const canEdit = (status: CategoryStatus) =>
     hasEditPermission && (status === "DRAFT" || status === "CHANGES_REQUESTED");
   const canDelete = (status: CategoryStatus) =>
     hasDeletePermission &&
     (status === "DRAFT" || status === "CHANGES_REQUESTED");
 
-  // Display role badge
   const displayRole =
     userRole === "me"
       ? "ME Officer"
@@ -1120,13 +1194,12 @@ export default function CIDPCategoriesPage({
         ? "Sector Officer"
         : "System Admin";
 
-  // ─── Load data ────────────────────────────────────────────────────────────
+  // Load data
   const loadCategories = useCallback(async () => {
     if (!canView) return;
     setLoading(true);
     try {
       const data = await getCategories();
-      // Only fetch notes if user can edit (because notes are only relevant for editing)
       if (hasEditPermission || hasDeletePermission) {
         const enriched = await Promise.all(
           data.map(async (c) => {
@@ -1146,13 +1219,12 @@ export default function CIDPCategoriesPage({
     } finally {
       setLoading(false);
     }
-  }, [canView, hasEditPermission, hasDeletePermission]); // ✅ stable dependencies
+  }, [canView, hasEditPermission, hasDeletePermission]);
 
   useEffect(() => {
     loadCategories();
   }, [loadCategories]);
 
-  // Derived stats
   const sectors = Array.from(
     new Set(categories.map((c) => c.sector).filter(Boolean)),
   ) as string[];
@@ -1177,7 +1249,7 @@ export default function CIDPCategoriesPage({
     (c) => c.status === "APPROVED",
   ).length;
 
-  // ── Extraction ─────────────────────────────────────────────────────────────
+  // Extraction
   const handleExtract = async () => {
     if (!file) return;
     setExtracting(true);
@@ -1197,6 +1269,8 @@ export default function CIDPCategoriesPage({
           name: String(c.name ?? "").trim(),
           sector: c.sector ?? null,
           target: c.target != null ? Number(c.target) : null,
+          targetType:
+            c.target_type?.toUpperCase() === "PERCENT" ? "PERCENT" : "NUMBER",
           budget: c.budget != null ? Number(c.budget) : null,
         }))
         .filter((c: ExtractedItem) => c.name.length > 0);
@@ -1220,7 +1294,7 @@ export default function CIDPCategoriesPage({
           }
         }
       } catch {
-        // soft fail
+        /* soft fail */
       }
       setExtracted(items);
     } catch (err: any) {
@@ -1240,9 +1314,9 @@ export default function CIDPCategoriesPage({
     await loadCategories();
   };
 
-  // ── Category mutations ────────────────────────────────────────────────────
+  // Mutations
   const handleUpdate = async (id: string, data: Partial<ProjectCategory>) => {
-    await updateCategory(id, data as any);
+    await updateCategory(id, data);
     setCategories((prev) =>
       prev.map((c) => (c.id === id ? { ...c, ...data } : c)),
     );
@@ -1259,6 +1333,7 @@ export default function CIDPCategoriesPage({
     name: string;
     sector?: string;
     target?: number;
+    targetType?: "NUMBER" | "PERCENT";
     budget?: number;
   }) => {
     const created = await addCategory(data);
@@ -1266,7 +1341,6 @@ export default function CIDPCategoriesPage({
     toast.success("Category added");
   };
 
-  // ── Workflow actions ──────────────────────────────────────────────────────
   const handleSubmitSelected = async () => {
     if (selectedIds.size === 0) return;
     await submitForReview([...selectedIds]);

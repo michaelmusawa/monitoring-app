@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, memo } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useDebouncedCallback } from "use-debounce";
 import Link from "next/link";
@@ -34,6 +34,7 @@ import {
   type AdminUser,
   type Role,
 } from "@/lib/actions/adminActions";
+
 import {
   Dialog,
   DialogContent,
@@ -42,9 +43,11 @@ import {
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+
 import {
   Select,
   SelectContent,
@@ -52,6 +55,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -59,10 +63,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+
 import Image from "next/image";
 import { SECTORS } from "@/lib/data/data";
 
-// ─── Avatar ───────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Avatar
+// ─────────────────────────────────────────────────────────────────────────────
 
 function Avatar({ user }: { user: AdminUser }) {
   const initials = (user.name ?? user.email)
@@ -71,6 +78,7 @@ function Avatar({ user }: { user: AdminUser }) {
     .join("")
     .toUpperCase()
     .slice(0, 2);
+
   return user.image ? (
     <Image
       src={user.image}
@@ -86,12 +94,15 @@ function Avatar({ user }: { user: AdminUser }) {
   );
 }
 
-// ─── Multi-role badges ────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Role badges
+// ─────────────────────────────────────────────────────────────────────────────
 
 function RoleBadges({ roles }: { roles: Role[] }) {
-  if (!roles || roles.length === 0) {
+  if (!roles?.length) {
     return <span className="text-xs text-zinc-400">—</span>;
   }
+
   return (
     <div className="flex flex-wrap gap-1">
       {roles.map((role) => (
@@ -106,9 +117,11 @@ function RoleBadges({ roles }: { roles: Role[] }) {
   );
 }
 
-// ─── User form dialog (with multi-role select) ────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// User Form Dialog
+// ─────────────────────────────────────────────────────────────────────────────
 
-function UserFormDialog({
+const UserFormDialog = memo(function UserFormDialog({
   open,
   onClose,
   initialData,
@@ -128,47 +141,23 @@ function UserFormDialog({
     sector?: string;
   }) => Promise<void>;
 }) {
-  const [name, setName] = useState(initialData?.name ?? "");
-  const [email, setEmail] = useState(initialData?.email ?? "");
-  const [sector, setSector] = useState(initialData?.sector ?? "none");
-  const [selectedRoleIds, setSelectedRoleIds] =
-    useState<number[]>(initialRoleIds);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [sector, setSector] = useState("none");
+  const [selectedRoleIds, setSelectedRoleIds] = useState<number[]>([]);
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (open) {
-      setName(initialData?.name ?? "");
-      setEmail(initialData?.email ?? "");
-      setSector(initialData?.sector ?? "none");
-      setSelectedRoleIds(initialRoleIds);
-    }
-  }, [open, initialData, initialRoleIds]);
 
   const isEdit = !!initialData;
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim() || !email.trim()) {
-      toast.error("Name and email are required");
-      return;
-    }
-    if (selectedRoleIds.length === 0) {
-      toast.error("At least one role is required");
-      return;
-    }
-    setSaving(true);
-    try {
-      await onSave({
-        name: name.trim(),
-        email: email.trim(),
-        roleIds: selectedRoleIds,
-        sector: sector === "none" ? undefined : sector,
-      });
-      onClose();
-    } finally {
-      setSaving(false);
-    }
-  };
+  // ✅ FIXED
+  useEffect(() => {
+    if (!open) return;
+
+    setName(initialData?.name ?? "");
+    setEmail(initialData?.email ?? "");
+    setSector(initialData?.sector ?? "none");
+    setSelectedRoleIds([...initialRoleIds]);
+  }, [open]);
 
   const toggleRole = (roleId: number) => {
     setSelectedRoleIds((prev) =>
@@ -178,22 +167,61 @@ function UserFormDialog({
     );
   };
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!name.trim() || !email.trim()) {
+      toast.error("Name and email are required");
+      return;
+    }
+
+    if (selectedRoleIds.length === 0) {
+      toast.error("At least one role is required");
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      await onSave({
+        name: name.trim(),
+        email: email.trim(),
+        roleIds: selectedRoleIds,
+        sector: sector === "none" ? undefined : sector,
+      });
+
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) {
+          onClose();
+        }
+      }}
+    >
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>{isEdit ? "Edit User" : "Add New User"}</DialogTitle>
+
           <DialogDescription>
             {isEdit
               ? "Update user details and assign roles."
               : "Create a new user account."}
           </DialogDescription>
         </DialogHeader>
+
         <form onSubmit={handleSubmit} className="space-y-4 pt-2">
           <div className="space-y-1.5">
             <Label className="text-xs font-semibold">
               Full Name <span className="text-destructive">*</span>
             </Label>
+
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -201,10 +229,12 @@ function UserFormDialog({
               className="h-9 text-sm"
             />
           </div>
+
           <div className="space-y-1.5">
             <Label className="text-xs font-semibold">
               Email Address <span className="text-destructive">*</span>
             </Label>
+
             <Input
               type="email"
               value={email}
@@ -214,10 +244,12 @@ function UserFormDialog({
               disabled={isEdit}
             />
           </div>
+
           <div className="space-y-1.5">
             <Label className="text-xs font-semibold">
               Roles (select one or more)
             </Label>
+
             <div className="flex flex-wrap gap-2 border rounded-lg p-3 bg-muted/20">
               {allRoles.map((role) => (
                 <button
@@ -235,12 +267,15 @@ function UserFormDialog({
               ))}
             </div>
           </div>
+
           <div className="space-y-1.5">
             <Label className="text-xs font-semibold">Sector</Label>
+
             <Select value={sector} onValueChange={setSector}>
               <SelectTrigger className="h-9 text-sm">
                 <SelectValue placeholder="Select…" />
               </SelectTrigger>
+
               <SelectContent>
                 <SelectItem
                   value="none"
@@ -248,6 +283,7 @@ function UserFormDialog({
                 >
                   None
                 </SelectItem>
+
                 {SECTORS.map((s) => (
                   <SelectItem key={s} value={s} className="text-sm">
                     {s}
@@ -256,6 +292,7 @@ function UserFormDialog({
               </SelectContent>
             </Select>
           </div>
+
           <DialogFooter className="pt-2">
             <Button
               type="button"
@@ -266,6 +303,7 @@ function UserFormDialog({
             >
               Cancel
             </Button>
+
             <Button
               type="submit"
               size="sm"
@@ -288,11 +326,13 @@ function UserFormDialog({
       </DialogContent>
     </Dialog>
   );
-}
+});
 
-// ─── Confirm dialog (unchanged) ───────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Confirm Dialog
+// ─────────────────────────────────────────────────────────────────────────────
 
-function ConfirmDialog({
+const ConfirmDialog = memo(function ConfirmDialog({
   open,
   onClose,
   onConfirm,
@@ -308,8 +348,16 @@ function ConfirmDialog({
   variant?: "destructive" | "warning";
 }) {
   const [pending, setPending] = useState(false);
+
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) {
+          onClose();
+        }
+      }}
+    >
       <DialogContent className="max-w-sm">
         <DialogHeader>
           <div
@@ -325,9 +373,12 @@ function ConfirmDialog({
               }`}
             />
           </div>
+
           <DialogTitle>{title}</DialogTitle>
+
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
+
         <DialogFooter className="pt-2">
           <Button
             variant="outline"
@@ -337,12 +388,14 @@ function ConfirmDialog({
           >
             Cancel
           </Button>
+
           <Button
             size="sm"
             variant={variant === "destructive" ? "destructive" : "default"}
             disabled={pending}
             onClick={async () => {
               setPending(true);
+
               try {
                 await onConfirm();
                 onClose();
@@ -361,17 +414,15 @@ function ConfirmDialog({
       </DialogContent>
     </Dialog>
   );
-}
+});
 
-// ─── Main component ───────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Main Component
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function AdminUsersClient({
-  query: initialQuery,
-  startDate,
-  endDate,
   currentPage,
   totalPages,
-  showArchived: initialShowArchived,
 }: {
   query: string;
   startDate: string;
@@ -382,63 +433,101 @@ export default function AdminUsersClient({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const params = useSearchParams();
+  const searchParams = useSearchParams();
+
+  const queryParam = searchParams.get("query") ?? "";
+  const startDateParam = searchParams.get("startDate") ?? "";
+  const endDateParam = searchParams.get("endDate") ?? "";
+  const showArchivedParam = searchParams.get("showArchived") === "true";
 
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
+
   const [allRoles, setAllRoles] = useState<Role[]>([]);
   const [usersRoles, setUsersRoles] = useState<Record<string, Role[]>>({});
 
-  // Dialog state
   const [createOpen, setCreateOpen] = useState(false);
+
   const [editTarget, setEditTarget] = useState<AdminUser | null>(null);
+
   const [editRoleIds, setEditRoleIds] = useState<number[]>([]);
+
   const [archiveTarget, setArchiveTarget] = useState<AdminUser | null>(null);
+
   const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null);
 
-  // Load users and roles
-  const loadData = useCallback(async () => {
+  const loadingRef = useRef(false);
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Refresh data
+  // ───────────────────────────────────────────────────────────────────────────
+
+  const refreshData = useCallback(async () => {
+    if (loadingRef.current) return;
+
+    loadingRef.current = true;
     setLoading(true);
+
     try {
       const [usersData, rolesData] = await Promise.all([
         fetchFilteredUsers({
-          query: params.get("query") ?? "",
-          startDate: params.get("startDate") ?? "",
-          endDate: params.get("endDate") ?? "",
+          query: queryParam,
+          startDate: startDateParam,
+          endDate: endDateParam,
           currentPage,
-          showArchived: params.get("showArchived") === "true",
+          showArchived: showArchivedParam,
         }),
+
         fetchAllRolesForSelect(),
       ]);
+
       setUsers(usersData);
       setAllRoles(rolesData);
 
-      // Load roles for each user
       const rolesMap: Record<string, Role[]> = {};
+
       await Promise.all(
         usersData.map(async (u) => {
           const roles = await getUserRoles(u.id);
           rolesMap[u.id] = roles;
         }),
       );
+
       setUsersRoles(rolesMap);
     } catch (error) {
-      console.error("Failed to load data", error);
+      console.error(error);
+      toast.error("Failed to load users");
     } finally {
       setLoading(false);
+      loadingRef.current = false;
     }
-  }, [params, currentPage]);
+  }, [
+    queryParam,
+    startDateParam,
+    endDateParam,
+    currentPage,
+    showArchivedParam,
+  ]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    refreshData();
+  }, [refreshData]);
 
-  // URL helpers
+  // ───────────────────────────────────────────────────────────────────────────
+  // URL Helpers
+  // ───────────────────────────────────────────────────────────────────────────
+
   function updateParam(key: string, value: string) {
-    const p = new URLSearchParams(params.toString());
-    if (value) p.set(key, value);
-    else p.delete(key);
+    const p = new URLSearchParams(searchParams.toString());
+
+    if (value) {
+      p.set(key, value);
+    } else {
+      p.delete(key);
+    }
+
     p.delete("page");
+
     router.replace(`${pathname}?${p.toString()}`);
   }
 
@@ -446,16 +535,23 @@ export default function AdminUsersClient({
     (q: string) => updateParam("query", q),
     300,
   );
-  const toggleArchived = () =>
+
+  const toggleArchived = () => {
     updateParam(
       "showArchived",
-      params.get("showArchived") === "true" ? "" : "true",
+      searchParams.get("showArchived") === "true" ? "" : "true",
     );
+  };
 
-  const showArchived = params.get("showArchived") === "true";
+  const showArchived = searchParams.get("showArchived") === "true";
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Actions
+  // ───────────────────────────────────────────────────────────────────────────
 
   const openEdit = async (user: AdminUser) => {
     const roles = await getUserRoles(user.id);
+
     setEditTarget(user);
     setEditRoleIds(roles.map((r) => r.id));
   };
@@ -467,8 +563,10 @@ export default function AdminUsersClient({
     sector?: string;
   }) => {
     await createUser(data);
+
     toast.success("User created");
-    loadData();
+
+    await refreshData();
   };
 
   const handleUpdateUser = async (data: {
@@ -478,14 +576,26 @@ export default function AdminUsersClient({
     sector?: string;
   }) => {
     if (!editTarget) return;
-    await updateUser(editTarget.id, { name: data.name, sector: data.sector });
+
+    await updateUser(editTarget.id, {
+      name: data.name,
+      sector: data.sector,
+    });
+
     await assignRolesToUser(editTarget.id, data.roleIds);
+
     toast.success("User updated");
-    loadData();
+
+    await refreshData();
   };
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Render
+  // ───────────────────────────────────────────────────────────────────────────
 
   return (
     <div className="min-h-screen bg-[#F7F8FC] dark:bg-[#0E1117] p-4 md:p-6 lg:p-8">
+      {/* KEEP YOUR EXISTING TABLE/UI EXACTLY THE SAME */}
       <div className="max-w-6xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-start justify-between gap-4">
@@ -525,7 +635,7 @@ export default function AdminUsersClient({
             <input
               type="text"
               placeholder="Search by name or email…"
-              defaultValue={params.get("query") ?? ""}
+              defaultValue={searchParams.get("query") ?? ""}
               onChange={(e) => handleSearch(e.target.value)}
               className="w-full pl-9 pr-3 py-2 text-sm rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400"
             />
@@ -699,7 +809,7 @@ export default function AdminUsersClient({
               <div className="flex gap-1">
                 <Link
                   href={`?${new URLSearchParams({
-                    ...Object.fromEntries(params),
+                    ...Object.fromEntries(searchParams),
                     page: String(currentPage - 1),
                   })}`}
                   className={`w-8 h-8 rounded-lg flex items-center justify-center border text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors ${
@@ -712,7 +822,7 @@ export default function AdminUsersClient({
                 </Link>
                 <Link
                   href={`?${new URLSearchParams({
-                    ...Object.fromEntries(params),
+                    ...Object.fromEntries(searchParams),
                     page: String(currentPage + 1),
                   })}`}
                   className={`w-8 h-8 rounded-lg flex items-center justify-center border text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors ${
@@ -728,8 +838,8 @@ export default function AdminUsersClient({
           )}
         </div>
       </div>
+      {/* Dialogs */}
 
-      {/* Create dialog */}
       <UserFormDialog
         open={createOpen}
         onClose={() => setCreateOpen(false)}
@@ -737,7 +847,6 @@ export default function AdminUsersClient({
         onSave={handleCreateUser}
       />
 
-      {/* Edit dialog */}
       <UserFormDialog
         open={!!editTarget}
         onClose={() => setEditTarget(null)}
@@ -747,7 +856,6 @@ export default function AdminUsersClient({
         onSave={handleUpdateUser}
       />
 
-      {/* Archive/activate confirm */}
       {archiveTarget && (
         <ConfirmDialog
           open={!!archiveTarget}
@@ -757,8 +865,12 @@ export default function AdminUsersClient({
           }
           description={
             archiveTarget.status === "active"
-              ? `Archive ${archiveTarget.name ?? archiveTarget.email}? They will lose access to the platform.`
-              : `Re-activate ${archiveTarget.name ?? archiveTarget.email}? They will regain platform access.`
+              ? `Archive ${
+                  archiveTarget.name ?? archiveTarget.email
+                }? They will lose access to the platform.`
+              : `Re-activate ${
+                  archiveTarget.name ?? archiveTarget.email
+                }? They will regain platform access.`
           }
           variant="warning"
           onConfirm={async () => {
@@ -769,23 +881,27 @@ export default function AdminUsersClient({
               await activateUser(archiveTarget.id);
               toast.success("User activated");
             }
-            loadData();
+
+            await refreshData();
           }}
         />
       )}
 
-      {/* Delete confirm */}
       {deleteTarget && (
         <ConfirmDialog
           open={!!deleteTarget}
           onClose={() => setDeleteTarget(null)}
           title="Delete User"
-          description={`Permanently delete ${deleteTarget.name ?? deleteTarget.email}? This cannot be undone.`}
+          description={`Permanently delete ${
+            deleteTarget.name ?? deleteTarget.email
+          }? This cannot be undone.`}
           variant="destructive"
           onConfirm={async () => {
             await deleteUser(deleteTarget.id);
+
             toast.success("User deleted");
-            loadData();
+
+            await refreshData();
           }}
         />
       )}

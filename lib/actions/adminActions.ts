@@ -206,6 +206,7 @@ export async function createUser(data: {
   roleIds: number[]; // new: array of role IDs
   sector?: string;
 }): Promise<AdminUser> {
+  const role = "user";
   try {
     // Insert user without setting the deprecated 'role' column (set to NULL)
     const { rows } = await safeQuery<any>(
@@ -213,9 +214,11 @@ export async function createUser(data: {
        OUTPUT INSERTED.id, INSERTED.name, INSERTED.email, INSERTED.role,
               INSERTED.sector, INSERTED.status, INSERTED.image, INSERTED.createdAt
        VALUES (@p1, @p2, NULL, @p3, 'active', GETDATE())`,
-      [data.name, data.email, data.sector ?? null],
+      [data.name, data.email, role, data.sector ?? null],
     );
     const newUser = mapUser(rows[0]);
+
+    console.log("user role");
 
     // Assign roles to the new user
     if (data.roleIds.length > 0) {

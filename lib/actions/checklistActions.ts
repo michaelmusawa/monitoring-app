@@ -3,6 +3,64 @@
 import sql from "mssql";
 import { DatabaseError, pool, poolConnect, safeQuery } from "@/lib/db";
 
+async function createNotification(data: {
+  userId: string;
+  type: string;
+  title: string;
+  message: string;
+  link?: string | null;
+  metadata?: any;
+}) {
+  try {
+    await safeQuery(
+      `INSERT INTO Notification (userId, type, title, message, link, metadata)
+       VALUES (@p1, @p2, @p3, @p4, @p5, @p6)`,
+      [
+        data.userId,
+        data.type,
+        data.title,
+        data.message,
+        data.link ?? null,
+        data.metadata ? JSON.stringify(data.metadata) : null,
+      ],
+    );
+  } catch (error) {
+    console.error("Failed to create notification:", error);
+  }
+}
+
+async function getMEOfficerIds(): Promise<string[]> {
+  const { rows } = await safeQuery<{ id: string }>(
+    `SELECT id FROM [User] WHERE sector = 'Monitoring And Evaluation' AND status = 'active'`,
+  );
+  return rows.map((r) => r.id);
+}
+
+async function getUserIdByEmail(email: string | null): Promise<string | null> {
+  if (!email) return null;
+  const { rows } = await safeQuery<{ id: string }>(
+    `SELECT id FROM [User] WHERE email = @p1`,
+    [email],
+  );
+  return rows[0]?.id || null;
+}
+
+async function getProjectCreator(projectId: string): Promise<string | null> {
+  const { rows } = await safeQuery<{ createdBy: string }>(
+    `SELECT createdBy FROM Project WHERE id = @p1`,
+    [projectId],
+  );
+  return rows[0]?.createdBy || null;
+}
+
+async function getProjectName(projectId: string): Promise<string> {
+  const { rows } = await safeQuery<{ name: string }>(
+    `SELECT name FROM Project WHERE id = @p1`,
+    [projectId],
+  );
+  return rows[0]?.name || "a project";
+}
+
 export async function withTransaction<T>(
   callback: (trx: sql.Transaction) => Promise<T>,
 ): Promise<T> {
@@ -249,44 +307,45 @@ export async function saveChecklist(
       category: string;
     }[];
     lastModifiedBy: string;
-    /** Per-task annotations from the ME officer. */
     taskAnnotations?: TaskAnnotation[];
-    /** Custom items to promote to the Template on Approved transition. */
     customItemsToPromote?: CustomParam[];
-    /** The sector name (= Template.name) needed for promotion. */
     sector?: string;
   },
 ): Promise<Checklist> {
   const numericId = parseInt(checklistId, 10);
   if (isNaN(numericId)) throw new Error("Invalid checklist ID");
 
-  return await withTransaction(async (trx) => {
-    // 1. Get current status for history
-    const getStatusReq = new sql.Request(trx);
-    getStatusReq.input("id", sql.Int, numericId);
-    const statusResult = await getStatusReq.query(
-      "SELECT status FROM Checklist WHERE id = @id",
-    );
-    const oldStatus = statusResult.recordset[0]?.status;
+  // Transaction returns the updated checklist, oldStatus, and projectId
+  const { updatedChecklist, oldStatus, projectId } = await withTransaction(
+    async (trx) => {
+      // 1. Get current status and projectId
+      const getInfoReq = new sql.Request(trx);
+      getInfoReq.input("id", sql.Int, numericId);
+      const infoResult = await getInfoReq.query(
+        "SELECT status, projectId FROM Checklist WHERE id = @id",
+      );
+      if (infoResult.recordset.length === 0)
+        throw new Error("Checklist not found");
+      const currentStatus = infoResult.recordset[0].status;
+      const currentProjectId = infoResult.recordset[0].projectId;
 
-    // 2. Determine taskAnnotations to persist
-    //    • Sending back  → persist the new annotations from ME officer
-    //    • Approving forward / sector saves → clear annotations
-    const isSendingBack = isSendBackTransition(oldStatus, data.status);
-    const annotationsToStore = isSendingBack
-      ? (data.taskAnnotations ?? [])
-      : [];
+      // 2. Determine annotations to store
+      const isSendingBack = isSendBackTransition(currentStatus, data.status);
+      const annotationsToStore = isSendingBack
+        ? (data.taskAnnotations ?? [])
+        : [];
+      const annotationsJson =
+        annotationsToStore.length > 0
+          ? JSON.stringify(annotationsToStore)
+          : null;
 
-    const annotationsJson =
-      annotationsToStore.length > 0 ? JSON.stringify(annotationsToStore) : null;
-
-    // 3. Update checklist header
-    const updateHeader = new sql.Request(trx);
-    updateHeader.input("id", sql.Int, numericId);
-    updateHeader.input("status", sql.NVarChar, data.status);
-    updateHeader.input("lastModifiedBy", sql.NVarChar, data.lastModifiedBy);
-    updateHeader.input("taskAnnotations", sql.NVarChar, annotationsJson);
-    await updateHeader.query(`
+      // 3. Update header
+      const updateHeader = new sql.Request(trx);
+      updateHeader.input("id", sql.Int, numericId);
+      updateHeader.input("status", sql.NVarChar, data.status);
+      updateHeader.input("lastModifiedBy", sql.NVarChar, data.lastModifiedBy);
+      updateHeader.input("taskAnnotations", sql.NVarChar, annotationsJson);
+      await updateHeader.query(`
       UPDATE Checklist
       SET status           = @status,
           version          = version + 1,
@@ -297,200 +356,279 @@ export async function saveChecklist(
       WHERE id = @id
     `);
 
-    // 4. Delete old items
-    const deleteItems = new sql.Request(trx);
-    deleteItems.input("checklistId", sql.Int, numericId);
-    await deleteItems.query(
-      "DELETE FROM ChecklistItem WHERE checklistId = @checklistId",
-    );
+      // 4. Delete old items
+      const deleteItems = new sql.Request(trx);
+      deleteItems.input("checklistId", sql.Int, numericId);
+      await deleteItems.query(
+        "DELETE FROM ChecklistItem WHERE checklistId = @checklistId",
+      );
 
-    // 5. Insert new items
-    for (const item of data.items) {
-      if (item.weight > 0) {
-        const insertItem = new sql.Request(trx);
-        insertItem.input("checklistId", sql.Int, numericId);
-        insertItem.input("parameterId", sql.NVarChar, item.parameterId);
-        insertItem.input("weight", sql.Int, item.weight);
-        insertItem.input("label", sql.NVarChar, item.label);
-        insertItem.input("category", sql.NVarChar, item.category);
-        await insertItem.query(`
+      // 5. Insert new items (only weights > 0)
+      for (const item of data.items) {
+        if (item.weight > 0) {
+          const insertItem = new sql.Request(trx);
+          insertItem.input("checklistId", sql.Int, numericId);
+          insertItem.input("parameterId", sql.NVarChar, item.parameterId);
+          insertItem.input("weight", sql.Int, item.weight);
+          insertItem.input("label", sql.NVarChar, item.label);
+          insertItem.input("category", sql.NVarChar, item.category);
+          await insertItem.query(`
           INSERT INTO ChecklistItem (checklistId, parameterId, weight, label, category)
           VALUES (@checklistId, @parameterId, @weight, @label, @category)
         `);
+        }
       }
-    }
 
-    // 6. Promote custom items to Template on final approval ──────────────────
-    //
-    // Trigger: WeightsReview → Approved (ME's final sign-off).
-    // For each custom item:
-    //   a) Find or create the Category in the sector Template.
-    //   b) Insert the Task if it doesn't already exist (idempotent).
-    //   c) Delete from ChecklistCustomItem — now a permanent template task.
-
-    const isApproving =
-      oldStatus === "WeightsReview" && data.status === "Approved";
-
-    if (
-      isApproving &&
-      data.sector &&
-      data.customItemsToPromote &&
-      data.customItemsToPromote.length > 0
-    ) {
-      const tplReq = new sql.Request(trx);
-      tplReq.input("sector", sql.NVarChar, data.sector);
-      const tplResult = await tplReq.query(
-        "SELECT id FROM Template WHERE name = @sector",
-      );
-      const templateId: number | null = tplResult.recordset[0]?.id ?? null;
-
-      if (templateId !== null) {
-        for (const cp of data.customItemsToPromote) {
-          // a) Find or create Category
-          const catLookup = new sql.Request(trx);
-          catLookup.input("templateId", sql.Int, templateId);
-          catLookup.input("catName", sql.NVarChar, cp.category);
-          const catResult = await catLookup.query(
-            "SELECT id FROM Category WHERE templateId = @templateId AND name = @catName",
-          );
-
-          let categoryId: number;
-          if (catResult.recordset.length > 0) {
-            categoryId = catResult.recordset[0].id;
-          } else {
-            const catInsert = new sql.Request(trx);
-            catInsert.input("templateId", sql.Int, templateId);
-            catInsert.input("catName", sql.NVarChar, cp.category);
-            const catInsertResult = await catInsert.query(`
+      // 6. Promote custom items to template on final approval
+      const isApproving =
+        oldStatus === "WeightsReview" && data.status === "Approved";
+      if (isApproving && data.sector && data.customItemsToPromote?.length) {
+        const tplReq = new sql.Request(trx);
+        tplReq.input("sector", sql.NVarChar, data.sector);
+        const tplResult = await tplReq.query(
+          "SELECT id FROM Template WHERE name = @sector",
+        );
+        const templateId = tplResult.recordset[0]?.id ?? null;
+        if (templateId !== null) {
+          for (const cp of data.customItemsToPromote) {
+            // Find or create Category
+            const catLookup = new sql.Request(trx);
+            catLookup.input("templateId", sql.Int, templateId);
+            catLookup.input("catName", sql.NVarChar, cp.category);
+            let catResult = await catLookup.query(
+              "SELECT id FROM Category WHERE templateId = @templateId AND name = @catName",
+            );
+            let categoryId: number;
+            if (catResult.recordset.length) {
+              categoryId = catResult.recordset[0].id;
+            } else {
+              const catInsert = new sql.Request(trx);
+              catInsert.input("templateId", sql.Int, templateId);
+              catInsert.input("catName", sql.NVarChar, cp.category);
+              const catInsertResult = await catInsert.query(`
               INSERT INTO Category (templateId, name)
               OUTPUT INSERTED.id
               VALUES (@templateId, @catName)
             `);
-            categoryId = catInsertResult.recordset[0].id;
-          }
-
-          // b) Insert Task only if name doesn't already exist in this category
-          const taskCheck = new sql.Request(trx);
-          taskCheck.input("categoryId", sql.Int, categoryId);
-          taskCheck.input("taskName", sql.NVarChar, cp.label);
-          const taskExists = await taskCheck.query(
-            "SELECT id FROM Task WHERE categoryId = @categoryId AND name = @taskName",
-          );
-
-          if (taskExists.recordset.length === 0) {
-            const taskInsert = new sql.Request(trx);
-            taskInsert.input("categoryId", sql.Int, categoryId);
-            taskInsert.input("taskName", sql.NVarChar, cp.label);
-            await taskInsert.query(
-              "INSERT INTO Task (categoryId, name) VALUES (@categoryId, @taskName)",
+              categoryId = catInsertResult.recordset[0].id;
+            }
+            // Insert Task if not exists
+            const taskCheck = new sql.Request(trx);
+            taskCheck.input("categoryId", sql.Int, categoryId);
+            taskCheck.input("taskName", sql.NVarChar, cp.label);
+            const taskExists = await taskCheck.query(
+              "SELECT id FROM Task WHERE categoryId = @categoryId AND name = @taskName",
+            );
+            if (taskExists.recordset.length === 0) {
+              const taskInsert = new sql.Request(trx);
+              taskInsert.input("categoryId", sql.Int, categoryId);
+              taskInsert.input("taskName", sql.NVarChar, cp.label);
+              await taskInsert.query(
+                "INSERT INTO Task (categoryId, name) VALUES (@categoryId, @taskName)",
+              );
+            }
+            // Delete from custom items
+            const delCustom = new sql.Request(trx);
+            delCustom.input("customId", sql.NVarChar, cp.id);
+            await delCustom.query(
+              "DELETE FROM ChecklistCustomItem WHERE id = @customId",
             );
           }
-
-          // c) Remove from ChecklistCustomItem — now a real template task
-          const delCustom = new sql.Request(trx);
-          delCustom.input("customId", sql.NVarChar, cp.id);
-          await delCustom.query(
-            "DELETE FROM ChecklistCustomItem WHERE id = @customId",
-          );
         }
       }
-    }
 
-    // 7. Record history
-    if (oldStatus !== data.status) {
-      const historyReason =
-        annotationsToStore.length > 0
-          ? `Sent back with ${annotationsToStore.length} task change(s)`
-          : isApproving && (data.customItemsToPromote?.length ?? 0) > 0
-            ? `Approved — ${data.customItemsToPromote!.length} custom task(s) promoted to template`
-            : undefined;
-
-      await addHistoryEntry(
-        trx,
-        numericId,
-        data.status,
-        data.lastModifiedBy,
-        historyReason,
-        {
-          items: data.items,
-          taskAnnotations: annotationsToStore,
-        },
-      );
-    }
-
-    // 7. Return updated checklist (including custom items)
-    const fetchReq = new sql.Request(trx);
-    fetchReq.input("id", sql.Int, numericId);
-    const fetchResult = await fetchReq.query(`
-      SELECT
-        c.id, c.status, c.version, c.lastModified,
-        c.lastModifiedBy, c.editReason, c.taskAnnotations,
-        ci.id AS itemId, ci.parameterId, ci.weight, ci.label, ci.category
-      FROM Checklist c
-      LEFT JOIN ChecklistItem ci ON ci.checklistId = c.id
-      WHERE c.id = @id
-      ORDER BY ci.id
-    `);
-
-    const rows = fetchResult.recordset;
-    let parsedAnnotations: TaskAnnotation[] = [];
-    if (rows[0]?.taskAnnotations) {
-      try {
-        parsedAnnotations = JSON.parse(rows[0].taskAnnotations);
-      } catch {
-        parsedAnnotations = [];
+      // 7. Add history entry
+      if (oldStatus !== data.status) {
+        const historyReason =
+          annotationsToStore.length > 0
+            ? `Sent back with ${annotationsToStore.length} task change(s)`
+            : isApproving && (data.customItemsToPromote?.length ?? 0) > 0
+              ? `Approved — ${data.customItemsToPromote!.length} custom task(s) promoted to template`
+              : undefined;
+        await addHistoryEntry(
+          trx,
+          numericId,
+          data.status,
+          data.lastModifiedBy,
+          historyReason,
+          {
+            items: data.items,
+            taskAnnotations: annotationsToStore,
+          },
+        );
       }
-    }
 
-    const updated: any = {
-      id: rows[0].id.toString(),
-      projectId: "", // filled by caller via API route
-      status: rows[0].status,
-      version: rows[0].version,
-      lastModified:
-        rows[0].lastModified?.toISOString() ?? new Date().toISOString(),
-      lastModifiedBy: rows[0].lastModifiedBy,
-      editReason: rows[0].editReason,
-      taskAnnotations: parsedAnnotations,
-      items: [],
-      customItems: [],
-    };
-
-    for (const row of rows) {
-      if (row.itemId) {
-        updated.items.push({
-          id: row.itemId.toString(),
-          parameterId: row.parameterId,
-          weight: row.weight,
-          label: row.label,
-          category: row.category,
-        });
+      // 8. Fetch updated checklist (including custom items)
+      const fetchReq = new sql.Request(trx);
+      fetchReq.input("id", sql.Int, numericId);
+      const fetchResult = await fetchReq.query(`
+          SELECT
+            c.id, c.status, c.version, c.lastModified,
+            c.lastModifiedBy, c.editReason, c.taskAnnotations,
+            ci.id AS itemId, ci.parameterId, ci.weight, ci.label, ci.category
+          FROM Checklist c
+          LEFT JOIN ChecklistItem ci ON ci.checklistId = c.id
+          WHERE c.id = @id
+          ORDER BY ci.id
+        `);
+      const rows = fetchResult.recordset;
+      let parsedAnnotations: TaskAnnotation[] = [];
+      if (rows[0]?.taskAnnotations) {
+        try {
+          parsedAnnotations = JSON.parse(rows[0].taskAnnotations);
+        } catch {
+          parsedAnnotations = [];
+        }
       }
+      const updated: any = {
+        id: rows[0].id.toString(),
+        projectId: currentProjectId,
+        status: rows[0].status,
+        version: rows[0].version,
+        lastModified:
+          rows[0].lastModified?.toISOString() ?? new Date().toISOString(),
+        lastModifiedBy: rows[0].lastModifiedBy,
+        editReason: rows[0].editReason,
+        taskAnnotations: parsedAnnotations,
+        items: [],
+        customItems: [],
+      };
+      for (const row of rows) {
+        if (row.itemId) {
+          updated.items.push({
+            id: row.itemId.toString(),
+            parameterId: row.parameterId,
+            weight: row.weight,
+            label: row.label,
+            category: row.category,
+          });
+        }
+      }
+      const customReq = new sql.Request(trx);
+      customReq.input("customChecklistId", sql.Int, numericId);
+      const customResult = await customReq.query(`
+          SELECT id, label, category, addedBy, addedAt
+          FROM ChecklistCustomItem
+          WHERE checklistId = @customChecklistId
+          ORDER BY addedAt
+        `);
+      updated.customItems = customResult.recordset.map((r: any) => ({
+        id: r.id,
+        label: r.label,
+        category: r.category,
+        isPending: true as const,
+        addedBy: r.addedBy ?? "",
+        addedAt: r.addedAt?.toISOString() ?? new Date().toISOString(),
+      }));
+      return {
+        updatedChecklist: updated,
+        oldStatus: currentStatus,
+        projectId: currentProjectId,
+      };
+    },
+  );
+
+  // Now `updatedChecklist`, `oldStatus`, `projectId` are guaranteed to be assigned
+  const projectName = await getProjectName(projectId);
+  const actor = data.lastModifiedBy;
+
+  // Helper to send to sector officer (project creator)
+  async function notifySector(
+    type: string,
+    title: string,
+    message: string,
+    link?: string,
+    metadata?: any,
+  ) {
+    const creatorEmail = await getProjectCreator(projectId);
+    const userId = creatorEmail ? await getUserIdByEmail(creatorEmail) : null;
+    if (userId) {
+      await createNotification({
+        userId,
+        type,
+        title,
+        message,
+        link,
+        metadata,
+      });
     }
+  }
 
-    // Fetch custom items within the same transaction so the caller
-    // immediately gets the up-to-date list without a second round-trip.
-    const customReq = new sql.Request(trx);
-    customReq.input("customChecklistId", sql.Int, numericId);
-    const customResult = await customReq.query(`
-      SELECT id, label, category, addedBy, addedAt
-      FROM ChecklistCustomItem
-      WHERE checklistId = @customChecklistId
-      ORDER BY addedAt
-    `);
-    updated.customItems = customResult.recordset.map((r: any) => ({
-      id: r.id,
-      label: r.label,
-      category: r.category,
-      isPending: true as const,
-      addedBy: r.addedBy ?? "",
-      addedAt: r.addedAt?.toISOString() ?? new Date().toISOString(),
-    }));
+  async function notifyME(
+    type: string,
+    title: string,
+    message: string,
+    link?: string,
+    metadata?: any,
+  ) {
+    const meIds = await getMEOfficerIds();
+    for (const userId of meIds) {
+      await createNotification({
+        userId,
+        type,
+        title,
+        message,
+        link,
+        metadata,
+      });
+    }
+  }
 
-    return updated;
-  });
+  // Determine transition and send notifications
+  const from = oldStatus;
+  const to = data.status;
+
+  if (from === "Draft" && to === "DraftReview") {
+    await notifyME(
+      "checklist_submitted",
+      "Checklist Ready for Review",
+      `${actor} submitted the checklist for project "${projectName}" for draft review.`,
+      `/projects/${projectId}?tab=checklist`,
+      { projectId, transition: "draft_review" },
+    );
+  } else if (from === "DraftReview" && to === "WeightsAssignment") {
+    await notifySector(
+      "checklist_approved",
+      "Checklist Draft Approved",
+      `Your checklist for "${projectName}" has been approved. Proceed to assign weights.`,
+      `/projects/${projectId}?tab=checklist`,
+      { projectId, transition: "weights_assignment" },
+    );
+  } else if (from === "WeightsAssignment" && to === "WeightsReview") {
+    await notifyME(
+      "weights_submitted",
+      "Weights Ready for Review",
+      `${actor} submitted weights for project "${projectName}" for review.`,
+      `/projects/${projectId}?tab=checklist`,
+      { projectId, transition: "weights_review" },
+    );
+  } else if (from === "WeightsReview" && to === "Approved") {
+    await notifySector(
+      "weights_approved",
+      "Weights Approved",
+      `Your weights for "${projectName}" have been approved. The checklist is now finalized.`,
+      `/projects/${projectId}?tab=checklist`,
+      { projectId, transition: "approved" },
+    );
+  } else if (
+    (from === "DraftReview" && to === "Draft") ||
+    (from === "WeightsReview" && to === "WeightsAssignment")
+  ) {
+    const annotations = data.taskAnnotations ?? [];
+    const reasons = annotations
+      .map((a) => `${a.parameterId}: ${a.reason}`)
+      .join("; ");
+    await notifySector(
+      "checklist_sent_back",
+      "Checklist Sent Back for Changes",
+      `Your checklist for "${projectName}" was sent back with the following comments: ${reasons}`,
+      `/projects/${projectId}?tab=checklist`,
+      { projectId, transition: "send_back", annotations },
+    );
+  }
+
+  return updatedChecklist;
 }
-
 // ─── History ──────────────────────────────────────────────────────────────────
 
 export async function getChecklistHistory(checklistId: string) {

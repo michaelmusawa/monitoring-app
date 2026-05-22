@@ -25,6 +25,7 @@ export async function getUser(email: string): Promise<LoginUser | undefined> {
   try {
     const sql = `
       SELECT TOP 1
+      u.id,
         u.email,
         u.password,
         u.role,

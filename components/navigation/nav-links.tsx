@@ -12,6 +12,7 @@ import {
   ChevronRight,
   File,
   ExternalLink,
+  BellRingIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -47,6 +48,12 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Reports",
     items: [{ name: "Reports", href: "/reports", icon: File }],
+  },
+  {
+    label: "Notifications",
+    items: [
+      { name: "Notifications", href: "/notifications", icon: BellRingIcon },
+    ],
   },
   {
     label: "Public",

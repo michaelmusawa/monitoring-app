@@ -100,6 +100,15 @@ const basicsSchema = z.object({
     )
     .pipe(z.number().positive("Budget must be a positive number").optional()),
   description: z.string().max(2000, "Description too long").optional(),
+  contributionValue: z
+    .union([
+      z.string().transform((val) => (val.trim() === "" ? undefined : val)),
+      z.number().optional(),
+    ])
+    .pipe(
+      z.number().positive("Contribution must be a positive number").optional(),
+    )
+    .optional(),
 });
 
 const locationSchema = z
@@ -113,13 +122,12 @@ const locationSchema = z
 
 type LocationData = z.infer<typeof locationSchema>;
 
-// Updated ContractDetails: removed employerRep, added tenderNumber, projectScope, projectObjective
 interface ContractDetails {
   fundingSource: string;
   employer: string;
-  tenderNumber: string; // new
-  projectScope: string; // new
-  projectObjective: string; // new
+  tenderNumber: string;
+  projectScope: string;
+  projectObjective: string;
   projectManager: string;
   fiscalYear: string;
   contractSum: string;
@@ -145,7 +153,6 @@ const EMPTY_CONTRACT: ContractDetails = {
 };
 
 type Step = "basics" | "location" | "contract" | "documents";
-
 const STEPS: { id: Step; label: string; description: string }[] = [
   {
     id: "basics",
@@ -157,31 +164,19 @@ const STEPS: { id: Step; label: string; description: string }[] = [
     label: "Location",
     description: "Sub-county, ward & coordinates",
   },
-  {
-    id: "contract",
-    label: "Contract",
-    description: "Funding, scope & dates",
-  },
+  { id: "contract", label: "Contract", description: "Funding, scope & dates" },
   { id: "documents", label: "Documents", description: "Supporting files" },
 ];
-
 const STEP_ORDER: Step[] = ["basics", "location", "contract", "documents"];
 
-// ─── Small helper: auto‑calculate fiscal year ────────────────────────────────
 function getFiscalYearFromDate(dateStr: string): string {
   if (!dateStr) return "";
   const date = new Date(dateStr);
   if (isNaN(date.getTime())) return "";
   const year = date.getFullYear();
-  const month = date.getMonth(); // 0‑based (0 = Jan)
-  // Fiscal year ends in June. For dates July (month >= 6) to Dec, fiscal year spans (year)‑(year+1)
-  // For dates Jan to June, fiscal year spans (year-1)‑year
-  if (month >= 6) {
-    // July (6) to December (11)
-    return `${year}/${year + 1}`;
-  } else {
-    return `${year - 1}/${year}`;
-  }
+  const month = date.getMonth();
+  if (month >= 6) return `${year}/${year + 1}`;
+  else return `${year - 1}/${year}`;
 }
 
 // ─── Step Indicator ───────────────────────────────────────────────────────────
@@ -244,7 +239,12 @@ function SectionBasics({
   setBudget,
   description,
   setDescription,
+  contributionValue,
+  setContributionValue,
   categoryName,
+  categoryTarget,
+  categoryTargetType,
+  remainingTarget,
   errors,
   touched,
   setTouched,
@@ -257,7 +257,12 @@ function SectionBasics({
   setBudget: (v: string) => void;
   description: string;
   setDescription: (v: string) => void;
+  contributionValue: string;
+  setContributionValue: (v: string) => void;
   categoryName?: string;
+  categoryTarget?: number | null;
+  categoryTargetType?: "NUMBER" | "PERCENT" | null;
+  remainingTarget?: number | null;
   errors: Record<string, string>;
   touched: Record<string, boolean>;
   setTouched: (field: string) => void;
@@ -274,6 +279,16 @@ function SectionBasics({
             <p className="text-sm text-blue-800 dark:text-blue-300 font-medium leading-snug">
               {categoryName}
             </p>
+            {categoryTarget !== undefined && (
+              <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                Target:{" "}
+                {categoryTargetType === "PERCENT"
+                  ? `${categoryTarget}%`
+                  : categoryTarget?.toLocaleString()}
+                {remainingTarget !== undefined &&
+                  ` · Remaining: ${categoryTargetType === "PERCENT" ? `${remainingTarget}%` : remainingTarget?.toLocaleString()}`}
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -318,7 +333,7 @@ function SectionBasics({
             </SelectTrigger>
             <SelectContent>
               {SECTORS.map((s) => (
-                <SelectItem key={s} value={s} className="text-sm">
+                <SelectItem key={s} value={s}>
                   {s}
                 </SelectItem>
               ))}
@@ -328,7 +343,6 @@ function SectionBasics({
             <p className="text-xs text-destructive mt-1">{errors.sector}</p>
           )}
         </div>
-
         <div className="space-y-1.5">
           <Label htmlFor="proj-budget" className="text-xs font-semibold">
             Budget (KES)
@@ -350,6 +364,47 @@ function SectionBasics({
         </div>
       </div>
 
+      {categoryName && (
+        <div className="space-y-1.5">
+          <Label className="text-xs font-semibold">
+            Contribution to Category Target{" "}
+            <span className="text-destructive">*</span>
+          </Label>
+          <div className="flex items-center gap-2">
+            <Input
+              type="number"
+              step="any"
+              value={contributionValue}
+              onChange={(e) => {
+                setContributionValue(e.target.value);
+                if (touched.contributionValue) setTouched("contributionValue");
+              }}
+              onBlur={() => setTouched("contributionValue")}
+              placeholder="e.g., 30"
+              className={`h-9 text-sm ${errors.contributionValue && touched.contributionValue ? "border-destructive" : ""}`}
+            />
+            {remainingTarget !== undefined && remainingTarget !== null && (
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                (Max:{" "}
+                {categoryTargetType === "PERCENT"
+                  ? `${remainingTarget}%`
+                  : remainingTarget.toLocaleString()}
+                )
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            How much of the category target will this project achieve when
+            completed?
+          </p>
+          {errors.contributionValue && touched.contributionValue && (
+            <p className="text-xs text-destructive mt-1">
+              {errors.contributionValue}
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="space-y-1.5">
         <Label htmlFor="proj-description" className="text-xs font-semibold">
           Description
@@ -358,7 +413,7 @@ function SectionBasics({
           id="proj-description"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder="Brief overview of the project scope, objectives and expected outcomes…"
+          placeholder="Brief overview..."
           className="text-sm resize-none"
           rows={3}
         />
@@ -793,31 +848,35 @@ function Sidebar({
 
 // ─── Main Component (updated handleCreate) ───────────────────────────────────
 
+interface Props {
+  categoryId?: string;
+  categoryName?: string;
+  defaultSector?: string;
+  categoryTarget?: number | null;
+  categoryTargetType?: "NUMBER" | "PERCENT" | null;
+  remainingTarget?: number | null;
+}
+
 export default function CreateProjectClient({
   categoryId,
   categoryName,
   defaultSector,
-}: {
-  categoryId?: string;
-  categoryName?: string;
-  defaultSector?: string;
-}) {
+  categoryTarget,
+  categoryTargetType,
+  remainingTarget,
+}: Props) {
   const router = useRouter();
 
-  // Step state
   const [currentStep, setCurrentStep] = useState<Step>("basics");
   const [done, setDone] = useState<Set<Step>>(new Set());
 
-  // Basic info
   const [name, setName] = useState("");
   const [sector, setSector] = useState(defaultSector || "");
   const [budget, setBudget] = useState("");
   const [description, setDescription] = useState("");
+  const [contributionValue, setContributionValue] = useState("");
 
-  // Location
   const [location, setLocation] = useState<LocationData>(null);
-
-  // Contract (updated)
   const [contract, setContract] = useState<ContractDetails>(EMPTY_CONTRACT);
   const setContractField = useCallback(
     (key: keyof ContractDetails, val: string) => {
@@ -829,13 +888,9 @@ export default function CreateProjectClient({
     String(v).trim(),
   ).length;
 
-  // Documents
   const [files, setFiles] = useState<File[]>([]);
-
-  // Submit
   const [submitting, setSubmitting] = useState(false);
 
-  // Validation state
   const [basicsErrors, setBasicsErrors] = useState<Record<string, string>>({});
   const [basicsTouched, setBasicsTouched] = useState<Record<string, boolean>>(
     {},
@@ -843,52 +898,73 @@ export default function CreateProjectClient({
   const setBasicsTouchedField = (field: string) =>
     setBasicsTouched((prev) => ({ ...prev, [field]: true }));
 
-  // Validate basics on change
+  // Validate basics including contribution if category is provided
   useEffect(() => {
     const result = basicsSchema.safeParse({
       name,
       sector,
       budget: budget === "" ? undefined : budget,
       description: description || undefined,
+      contributionValue:
+        contributionValue === "" ? undefined : contributionValue,
     });
-
     if (!result.success) {
       const errors: Record<string, string> = {};
-
       result.error.issues.forEach((issue) => {
         const key = issue.path[0];
-        if (typeof key === "string") {
-          errors[key] = issue.message;
-        }
+        if (typeof key === "string") errors[key] = issue.message;
       });
-
       setBasicsErrors(errors);
     } else {
       setBasicsErrors({});
+      // Additional custom validation: contribution must not exceed remaining target
+      if (categoryId && contributionValue) {
+        const val = parseFloat(contributionValue);
+        if (
+          remainingTarget !== undefined &&
+          remainingTarget !== null &&
+          val > remainingTarget
+        ) {
+          setBasicsErrors((prev) => ({
+            ...prev,
+            contributionValue: `Contribution cannot exceed remaining target (${remainingTarget})`,
+          }));
+        }
+      }
     }
-  }, [name, sector, budget, description]);
+  }, [
+    name,
+    sector,
+    budget,
+    description,
+    contributionValue,
+    categoryId,
+    remainingTarget,
+  ]);
 
   const isBasicsValid =
-    basicsErrors.name === undefined && basicsErrors.sector === undefined;
-
-  // Location validation
+    !basicsErrors.name &&
+    !basicsErrors.sector &&
+    (!categoryId ||
+      (!basicsErrors.contributionValue &&
+        contributionValue &&
+        parseFloat(contributionValue) > 0));
   const isLocationValid = location !== null;
-
-  // Basic date validation for contract dates (cannot be past)
   const isContractDatesValid = () => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    if (contract.commencementDate) {
-      const commencement = new Date(contract.commencementDate);
-      if (commencement < today) return false;
-    }
-    if (contract.plannedCompletion) {
-      const completion = new Date(contract.plannedCompletion);
-      if (completion < today) return false;
-    }
+    if (
+      contract.commencementDate &&
+      new Date(contract.commencementDate) < today
+    )
+      return false;
+    if (
+      contract.plannedCompletion &&
+      new Date(contract.plannedCompletion) < today
+    )
+      return false;
     return true;
   };
-
   const canProceed = () => {
     if (currentStep === "basics") return isBasicsValid;
     if (currentStep === "location") return isLocationValid;
@@ -907,15 +983,15 @@ export default function CreateProjectClient({
           sector: true,
           budget: true,
           description: true,
+          contributionValue: true,
         });
         toast.error("Please fix the errors before continuing");
-      } else if (currentStep === "location") {
+      } else if (currentStep === "location")
         toast.error("Please save a valid location before continuing");
-      } else if (currentStep === "contract") {
+      else if (currentStep === "contract")
         toast.error(
           "Commencement and planned completion dates cannot be in the past",
         );
-      }
       return;
     }
     setDone((prev) => new Set([...prev, currentStep]));
@@ -934,20 +1010,19 @@ export default function CreateProjectClient({
         setLocation(data);
         setDone((prev) => new Set([...prev, "location" as Step]));
         toast.success("Location saved");
-      } else {
-        toast.error("Invalid location data");
-      }
+      } else toast.error("Invalid location data");
     },
     [],
   );
 
   async function handleCreate() {
-    // Final validation of basics
     const basicsResult = basicsSchema.safeParse({
       name,
       sector,
       budget: budget === "" ? undefined : budget,
       description: description || undefined,
+      contributionValue:
+        contributionValue === "" ? undefined : contributionValue,
     });
     if (!basicsResult.success) {
       setBasicsTouched({
@@ -955,13 +1030,17 @@ export default function CreateProjectClient({
         sector: true,
         budget: true,
         description: true,
+        contributionValue: true,
       });
       toast.error("Please fill in the required fields correctly");
       setCurrentStep("basics");
       return;
     }
-
-    // Validate contract dates (not past)
+    if (categoryId && !contributionValue) {
+      toast.error("Contribution value is required for this category");
+      setCurrentStep("basics");
+      return;
+    }
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     if (
@@ -989,15 +1068,18 @@ export default function CreateProjectClient({
         budget: budget ? Number(budget) : undefined,
         description: description || undefined,
         categoryId,
+        contributionValue: contributionValue
+          ? Number(contributionValue)
+          : undefined,
         subCounty: location?.subCounty,
         ward: location?.ward,
         lat: location?.lat,
         long: location?.long,
         fundingSource: contract.fundingSource || undefined,
         employer: contract.employer || undefined,
-        tenderNumber: contract.tenderNumber || undefined, // new
-        projectScope: contract.projectScope || undefined, // new
-        projectObjective: contract.projectObjective || undefined, // new
+        tenderNumber: contract.tenderNumber || undefined,
+        projectScope: contract.projectScope || undefined,
+        projectObjective: contract.projectObjective || undefined,
         projectManager: contract.projectManager || undefined,
         fiscalYear: contract.fiscalYear || undefined,
         contractSum: contract.contractSum || undefined,
@@ -1022,8 +1104,7 @@ export default function CreateProjectClient({
       <div className="mb-8">
         <Button variant="ghost" asChild className="mb-4 -ml-2">
           <Link href="/projects">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Projects
+            <ArrowLeft className="w-4 h-4 mr-2" /> Back to Projects
           </Link>
         </Button>
         <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
@@ -1047,8 +1128,7 @@ export default function CreateProjectClient({
           </div>
           {sector && (
             <Badge variant="outline" className="px-3 py-1 text-sm shrink-0">
-              <CircleDot className="w-3 h-3 mr-1.5" />
-              {sector}
+              <CircleDot className="w-3 h-3 mr-1.5" /> {sector}
             </Badge>
           )}
         </div>
@@ -1087,7 +1167,12 @@ export default function CreateProjectClient({
                   setBudget={setBudget}
                   description={description}
                   setDescription={setDescription}
+                  contributionValue={contributionValue}
+                  setContributionValue={setContributionValue}
                   categoryName={categoryName}
+                  categoryTarget={categoryTarget}
+                  categoryTargetType={categoryTargetType}
+                  remainingTarget={remainingTarget}
                   errors={basicsErrors}
                   touched={basicsTouched}
                   setTouched={setBasicsTouchedField}
@@ -1127,8 +1212,7 @@ export default function CreateProjectClient({
                 onClick={goBack}
                 disabled={stepIndex === 0}
               >
-                <ArrowLeft className="w-3.5 h-3.5 mr-1.5" />
-                Back
+                <ArrowLeft className="w-3.5 h-3.5 mr-1.5" /> Back
               </Button>
               <div className="flex items-center gap-2">
                 {(currentStep === "contract" ||
@@ -1152,20 +1236,18 @@ export default function CreateProjectClient({
                   >
                     {submitting ? (
                       <>
-                        <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
+                        <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />{" "}
                         Creating…
                       </>
                     ) : (
                       <>
-                        <Check className="w-3.5 h-3.5 mr-2" />
-                        Create Project
+                        <Check className="w-3.5 h-3.5 mr-2" /> Create Project
                       </>
                     )}
                   </Button>
                 ) : (
                   <Button onClick={advance} size="sm" className="min-w-[100px]">
-                    Continue
-                    <ChevronRight className="w-3.5 h-3.5 ml-1.5" />
+                    Continue <ChevronRight className="w-3.5 h-3.5 ml-1.5" />
                   </Button>
                 )}
               </div>

@@ -260,9 +260,9 @@ function mapProjectRow(row: any): Project {
     subCounty: row.subCounty ?? null,
     ward: row.ward ?? null,
     categoryId: row.categoryId ?? null,
+    contributionValue: row.contributionValue ?? null,
   };
 }
-
 // ─── getProjects ──────────────────────────────────────────────────────────────
 
 export async function getProjects(): Promise<Project[]> {
@@ -342,7 +342,9 @@ export async function createProject(data: {
 
 export async function updateProject(
   id: string,
-  data: Partial<Omit<Project, "id" | "slug" | "createdAt" | "updatedAt">>,
+  data: Partial<Omit<Project, "id" | "slug" | "createdAt" | "updatedAt">> & {
+    contributionValue?: number;
+  },
 ): Promise<Project> {
   const updates: string[] = [];
   const params: any[] = [];
@@ -355,6 +357,7 @@ export async function updateProject(
     ["lat", "lat"],
     ["long", "long"],
     ["description", "description"],
+    ["contributionValue", "contributionValue"],
   ];
 
   for (const [key, col] of fields) {
@@ -366,17 +369,17 @@ export async function updateProject(
 
   if (updates.length === 0) throw new Error("No fields to update");
   updates.push("updatedAt = GETDATE()");
+  params.push(id);
 
   const sqlQuery = `
     UPDATE Project
     SET ${updates.join(", ")}
     OUTPUT INSERTED.id, INSERTED.name, INSERTED.sector,
            INSERTED.budget, INSERTED.status, INSERTED.lat, INSERTED.long,
-           INSERTED.description, INSERTED.createdAt, INSERTED.updatedAt
-    WHERE id = @p${params.length + 1}
+           INSERTED.description, INSERTED.createdAt, INSERTED.updatedAt,
+           INSERTED.contributionValue
+    WHERE id = @p${params.length}
   `;
-  params.push(id);
-
   try {
     const { rows } = await safeQuery<any>(sqlQuery, params);
     if (rows.length === 0) throw new Error("Project not found");
@@ -393,6 +396,7 @@ export async function updateProject(
       description: row.description,
       createdAt: row.createdAt?.toISOString(),
       updatedAt: row.updatedAt?.toISOString(),
+      contributionValue: row.contributionValue ?? null,
     };
   } catch (error) {
     console.error("updateProject error:", error);
@@ -563,23 +567,21 @@ export async function initializeProject(projectId: string): Promise<void> {
 // Used by the new "Create Project" form that replaces the old init flow.
 
 export async function createFullProject(data: {
-  // Core
   name: string;
   sector?: string;
   budget?: number;
   description?: string;
   categoryId?: string;
-  // Location
+  contributionValue?: number; // new
   subCounty?: string;
   ward?: string;
   lat?: number;
   long?: number;
-  // Contract details (updated)
   fundingSource?: string;
   employer?: string;
-  tenderNumber?: string; // new
-  projectScope?: string; // new
-  projectObjective?: string; // new
+  tenderNumber?: string;
+  projectScope?: string;
+  projectObjective?: string;
   projectManager?: string;
   fiscalYear?: string;
   contractSum?: string;
@@ -590,9 +592,27 @@ export async function createFullProject(data: {
 }): Promise<any> {
   const slug = generateSlug(data.name);
   try {
+    // Optional: validate contribution does not exceed category target (soft check)
+    if (data.categoryId && data.contributionValue !== undefined) {
+      const catRes = await safeQuery<{ target: number }>(
+        `SELECT target FROM ProjectCategory WHERE id = @p1`,
+        [data.categoryId],
+      );
+      if (catRes.rows.length > 0) {
+        const existingRes = await safeQuery<{ sum: number }>(
+          `SELECT SUM(contributionValue) AS sum FROM Project WHERE categoryId = @p1 AND status != 'ARCHIVED'`,
+          [data.categoryId],
+        );
+        const existing = existingRes.rows[0]?.sum ?? 0;
+        if (existing + data.contributionValue > catRes.rows[0].target) {
+          console.warn(`Contribution exceeds remaining target`);
+        }
+      }
+    }
+
     const { rows } = await safeQuery<any>(
       `INSERT INTO Project (
-         id, name, sector, budget, description, status, categoryId,
+         id, name, sector, budget, description, status, categoryId, contributionValue,
          subCounty, ward, lat, long,
          fundingSource, employer, tenderNumber, projectScope, projectObjective,
          projectManager, fiscalYear, contractSum, contractDuration,
@@ -607,13 +627,13 @@ export async function createFullProject(data: {
          INSERTED.projectScope, INSERTED.projectObjective,
          INSERTED.projectManager, INSERTED.fiscalYear, INSERTED.contractSum,
          INSERTED.contractDuration, INSERTED.commencementDate,
-         INSERTED.plannedCompletion, INSERTED.costToCompletion
+         INSERTED.plannedCompletion, INSERTED.costToCompletion, INSERTED.contributionValue
        VALUES (
-         @p1,  @p2,  @p3,  @p4,  @p5,  'ACTIVE', @p6,
-         @p7,  @p8,  @p9,  @p10,
-         @p11, @p12, @p13, @p14, @p15,
-         @p16, @p17, @p18, @p19,
-         @p20, @p21, @p22
+         @p1,  @p2,  @p3,  @p4,  @p5,  'ACTIVE', @p6, @p7,
+         @p8,  @p9,  @p10, @p11,
+         @p12, @p13, @p14, @p15, @p16,
+         @p17, @p18, @p19, @p20,
+         @p21, @p22, @p23
        )`,
       [
         slug,
@@ -622,6 +642,7 @@ export async function createFullProject(data: {
         data.budget ?? null,
         data.description ?? null,
         data.categoryId ?? null,
+        data.contributionValue ?? null,
         data.subCounty ?? null,
         data.ward ?? null,
         data.lat ?? null,
@@ -650,6 +671,7 @@ export async function createFullProject(data: {
       status: row.status,
       description: row.description,
       categoryId: row.categoryId ?? null,
+      contributionValue: row.contributionValue ?? null,
       subCounty: row.subCounty ?? null,
       ward: row.ward ?? null,
       lat: row.lat,

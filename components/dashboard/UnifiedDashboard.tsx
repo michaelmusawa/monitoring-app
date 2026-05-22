@@ -34,6 +34,7 @@ import {
   Rocket,
   ArrowUpRight,
   Clock,
+  ChevronDown,
 } from "lucide-react";
 import ReportGenerator, { type ReportProject } from "./ReportGenerator";
 import type {
@@ -42,6 +43,7 @@ import type {
   CategoryPerformance,
   ProjectPerformance,
 } from "@/lib/actions/dashboardActions";
+import { usePathname, useRouter } from "next/navigation";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types for the stats dashboard (same as before)
@@ -50,6 +52,7 @@ export interface DashboardStats {
   totalProjects: number;
   activeProjects: number;
   pendingProjects: number;
+  notStartedProjects: number; // new
   completedProjects: number;
   totalBudget: number;
   avgProgress: number;
@@ -75,7 +78,6 @@ export interface DashboardStats {
   budgetBySize: { size: string; budget: number; count: number }[];
   monthlyTrackers: { month: string; submissions: number }[];
 }
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Helper functions (copied from original dashboards)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -352,16 +354,15 @@ function CumulativeView({
     name: s.sector.length > 18 ? s.sector.slice(0, 18) + "…" : s.sector,
     fullName: s.sector,
     score: Number(s.score.toFixed(1)),
-    actual: Number(s.totalActual.toFixed(1)),
     fill: scoreColor(s.score),
   }));
 
   return (
     <div className="space-y-6">
-      {/* Cumulative hero */}
+      {/* Hero cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Big gauge */}
-        <div className="md:col-span-1 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-6 flex flex-col items-center justify-center gap-3">
+        {/* Big gauge: Score (tracker-based performance) */}
+        <div className="md:col-span-1 bg-white dark:bg-zinc-900 rounded-2xl border p-6 flex flex-col items-center justify-center gap-3">
           <ScoreGauge
             score={data.cumulativeScore}
             size={140}
@@ -369,90 +370,58 @@ function CumulativeView({
           />
           <div className="text-center">
             <p className="text-xs text-zinc-400 uppercase tracking-widest font-semibold">
-              Cumulative KPI Performance
+              Performance Score
             </p>
             <p className="text-xs text-zinc-400 mt-0.5">
-              {data.totalProjects} projects · {data.totalCategories} categories
+              {data.totalProjects} projects · {data.totalCategories} initiatives
             </p>
           </div>
         </div>
 
-        {/* Stat cards */}
+        {/* Stat cards: Target & Coverage (absolute numbers) */}
         <div className="md:col-span-2 grid grid-cols-2 gap-4">
-          {[
-            {
-              label: "Target (100%)",
-              value: "100%",
-              sub: "KPI 5-year cumulative target",
-              icon: (
-                <Target className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-              ),
-              border: "border-blue-100 dark:border-blue-900/40",
-              bg: "bg-blue-50 dark:bg-blue-950/30",
-            },
-            {
-              label: "Actual Delivery",
-              value: pct(data.cumulativeActual),
-              sub: `Weighted across all ${data.totalCategories} categories`,
-              icon: (
-                <TrendingUp className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-              ),
-              border: "border-emerald-100 dark:border-emerald-900/40",
-              bg: "bg-emerald-50 dark:bg-emerald-950/30",
-            },
-            {
-              label: "Score",
-              value: pct(data.cumulativeScore),
-              sub: "Actual as % of target",
-              icon: (
-                <CheckCircle2 className="w-5 h-5 text-violet-600 dark:text-violet-400" />
-              ),
-              border: "border-violet-100 dark:border-violet-900/40",
-              bg: "bg-violet-50 dark:bg-violet-950/30",
-            },
-            {
-              label: "Sectors",
-              value: data.sectors.length,
-              sub: `${data.totalCategories} approved categories`,
-              icon: (
-                <Layers className="w-5 h-5 text-amber-600 dark:text-amber-400" />
-              ),
-              border: "border-amber-100 dark:border-amber-900/40",
-              bg: "bg-amber-50 dark:bg-amber-950/30",
-            },
-          ].map((c) => (
-            <div
-              key={c.label}
-              className={`bg-white dark:bg-zinc-900 rounded-2xl border ${c.border} dark:border-zinc-800 p-4 space-y-2`}
-            >
-              <div
-                className={`w-9 h-9 rounded-xl flex items-center justify-center ${c.bg}`}
-              >
-                {c.icon}
-              </div>
-              <p className="text-2xl font-black text-zinc-900 dark:text-zinc-100">
-                {c.value}
-              </p>
-              <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
-                {c.label}
-              </p>
-              <p className="text-xs text-zinc-400 dark:text-zinc-500">
-                {c.sub}
-              </p>
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-blue-100 dark:border-blue-900/40 p-4 space-y-2">
+            <div className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-950/30 flex items-center justify-center">
+              <Target className="w-5 h-5 text-blue-600 dark:text-blue-400" />
             </div>
-          ))}
+            <p className="text-2xl font-black">{100}%</p>
+            <p className="text-xs font-semibold text-zinc-500">Total Target</p>
+            <p className="text-xs text-zinc-400">Sum of all category targets</p>
+          </div>
+
+          {/*<div className="bg-white dark:bg-zinc-900 rounded-2xl border border-emerald-100 dark:border-emerald-900/40 p-4 space-y-2">
+            <div className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-center">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <p className="text-2xl font-black">{data.totalProjects}</p>
+            <p className="text-xs font-semibold text-zinc-500">
+              Total projects
+            </p>
+            <p className="text-xs text-zinc-400">
+              Number of initiated projects
+            </p>
+          </div>*/}
+
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-amber-100 dark:border-amber-900/40 p-4 space-y-2 col-span-2">
+            <div className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-950/30 flex items-center justify-center">
+              <TrendingUp className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+            </div>
+            <p className="text-2xl font-black">{data.totalCategories}</p>
+            <p className="text-xs font-semibold text-zinc-500">KPI</p>
+            <p className="text-xs text-zinc-400">Total number of KPIs</p>
+          </div>
         </div>
       </div>
 
-      {/* Sector comparison chart */}
-      <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5">
+      {/* Sector chart: Score */}
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl border p-5">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-sm font-bold text-zinc-800 dark:text-zinc-200 uppercase tracking-widest">
-              Sector Comparison
+            <h3 className="text-sm font-bold uppercase tracking-widest">
+              Sector Performance Score
             </h3>
-            <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
-              Score = actual delivery ÷ target × 100. Click a bar to drill down.
+            <p className="text-xs text-zinc-400 mt-0.5">
+              Click a bar to drill down
             </p>
           </div>
         </div>
@@ -499,23 +468,23 @@ function CumulativeView({
         </ResponsiveContainer>
       </div>
 
-      {/* Sector table */}
-      <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden">
-        <div className="px-5 py-4 border-b border-zinc-100 dark:border-zinc-800">
-          <h3 className="text-sm font-bold text-zinc-800 dark:text-zinc-200 uppercase tracking-widest">
+      {/* Sector table: Score + coverage stats */}
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl border overflow-hidden">
+        <div className="px-5 py-4 border-b">
+          <h3 className="text-sm font-bold uppercase tracking-widest">
             Breakdown by Sector
           </h3>
         </div>
-        <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+        <div className="divide-y">
           {data.sectors.map((sector) => (
             <button
               key={sector.sector}
               onClick={() => onDrillSector(sector)}
-              className="w-full flex items-center gap-4 px-5 py-4 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors text-left group"
+              className="w-full flex items-center gap-4 px-5 py-4 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 text-left group"
             >
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1.5">
-                  <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 truncate">
+                  <span className="text-sm font-semibold truncate">
                     {sector.sector}
                   </span>
                   <span
@@ -525,13 +494,17 @@ function CumulativeView({
                   </span>
                 </div>
                 <Bar2 value={sector.score} color={scoreColor(sector.score)} />
-                <div className="flex gap-4 mt-1.5 text-xs text-zinc-400 dark:text-zinc-500">
+                <div className="flex gap-4 mt-1.5 text-xs text-zinc-400">
                   <span>{sector.categoryCount} categories</span>
                   <span>{sector.projectCount} projects</span>
-                  <span>Actual: {sector.totalActual.toFixed(1)}%</span>
+                  <span>
+                    Covered: {sector.totalCovered.toLocaleString()} /{" "}
+                    {sector.totalTarget.toLocaleString()}
+                  </span>
+                  <span>Coverage: {sector.coveragePercent.toFixed(1)}%</span>
                 </div>
               </div>
-              <ChevronRight className="w-4 h-4 text-zinc-400 shrink-0 group-hover:text-zinc-700 dark:group-hover:text-zinc-300 transition-colors" />
+              <ChevronRight className="w-4 h-4 text-zinc-400 group-hover:text-zinc-700" />
             </button>
           ))}
         </div>
@@ -551,64 +524,54 @@ function SectorView({
     name: c.name.length > 22 ? c.name.slice(0, 22) + "…" : c.name,
     fullName: c.name,
     score: Number(c.score.toFixed(1)),
-    actual: Number(c.actualPercent.toFixed(1)),
     fill: scoreColor(c.score),
   }));
 
   return (
     <div className="space-y-6">
-      {/* Sector header */}
+      {/* Sector header: Score gauge + stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 flex flex-col items-center justify-center">
+        <div className="bg-white dark:bg-zinc-900 rounded-2xl border p-5 flex flex-col items-center justify-center">
           <ScoreGauge score={sector.score} size={110} />
-          <p className="text-xs text-zinc-400 dark:text-zinc-500 text-center mt-2 font-medium">
+          <p className="text-xs text-zinc-400 text-center mt-2 font-medium">
             Sector Score
           </p>
         </div>
         {[
           {
-            label: "Categories",
+            label: "Initiatives",
             value: sector.categoryCount,
-            icon: (
-              <FolderKanban className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-            ),
+            icon: <FolderKanban className="w-4 h-4 text-blue-600" />,
           },
+          // {
+          //   label: "Projects",
+          //   value: sector.projectCount,
+          //   icon: <FolderOpen className="w-4 h-4 text-emerald-600" />,
+          // },
           {
-            label: "Projects",
-            value: sector.projectCount,
-            icon: (
-              <FolderOpen className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-            ),
-          },
-          {
-            label: "Actual",
-            value: pct(sector.totalActual),
-            icon: (
-              <TrendingUp className="w-4 h-4 text-violet-600 dark:text-violet-400" />
-            ),
+            // label: "Covered / Target",
+            label: "Target",
+            value: `${sector.totalTarget.toLocaleString()}`,
+            icon: <Target className="w-4 h-4 text-amber-600" />,
           },
         ].map((s) => (
           <div
             key={s.label}
-            className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 flex flex-col justify-between"
+            className="bg-white dark:bg-zinc-900 rounded-2xl border p-5 flex flex-col justify-between"
           >
             <div className="w-8 h-8 rounded-lg bg-zinc-50 dark:bg-zinc-800 flex items-center justify-center mb-3">
               {s.icon}
             </div>
-            <p className="text-2xl font-black text-zinc-900 dark:text-zinc-100">
-              {s.value}
-            </p>
-            <p className="text-xs font-medium text-zinc-400 dark:text-zinc-500">
-              {s.label}
-            </p>
+            <p className="text-2xl font-black">{s.value}</p>
+            <p className="text-xs font-medium text-zinc-400">{s.label}</p>
           </div>
         ))}
       </div>
 
-      {/* Category comparison chart */}
-      <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5">
-        <h3 className="text-sm font-bold text-zinc-800 dark:text-zinc-200 uppercase tracking-widest mb-4">
-          Categories — Score Comparison
+      {/* Category chart: Score */}
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl border p-5">
+        <h3 className="text-sm font-bold uppercase tracking-widest mb-4">
+          Performance Score
         </h3>
         <ResponsiveContainer width="100%" height={200}>
           <BarChart
@@ -653,42 +616,45 @@ function SectorView({
         </ResponsiveContainer>
       </div>
 
-      {/* Category list */}
-      <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden">
-        <div className="px-5 py-4 border-b border-zinc-100 dark:border-zinc-800">
-          <h3 className="text-sm font-bold text-zinc-800 dark:text-zinc-200 uppercase tracking-widest">
-            Categories in {sector.sector}
+      {/* Category list: Score + coverage numbers */}
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl border overflow-hidden">
+        <div className="px-5 py-4 border-b">
+          <h3 className="text-sm font-bold uppercase tracking-widest">
+            Initiatives in {sector.sector}
           </h3>
         </div>
-        <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+        <div className="divide-y">
           {sector.categories.map((cat) => (
             <button
               key={cat.id}
               onClick={() => onDrillCategory(cat)}
-              className="w-full flex items-center gap-4 px-5 py-4 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors text-left group"
+              className="w-full flex items-center gap-4 px-5 py-4 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 text-left group"
             >
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                  <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 truncate">
+                  <span className="text-sm font-semibold truncate">
                     {cat.name}
                   </span>
                   <span
-                    className={`text-xs font-semibold px-2 py-0.5 rounded-full border shrink-0 ${scoreBg(cat.score)}`}
+                    className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${scoreBg(cat.score)}`}
                   >
                     {cat.score.toFixed(1)}%
                   </span>
                 </div>
                 <Bar2 value={cat.score} color={scoreColor(cat.score)} />
-                <div className="flex gap-4 mt-1.5 text-xs text-zinc-400 dark:text-zinc-500 flex-wrap">
-                  <span>Target: {cat.target.toFixed(0)}</span>
-                  <span>Actual: {cat.actualPercent.toFixed(1)}%</span>
+                <div className="flex gap-4 mt-1.5 text-xs text-zinc-400">
                   <span>
-                    {cat.projectCount} project
-                    {cat.projectCount !== 1 ? "s" : ""}
+                    Target: {cat.target.toLocaleString()}{" "}
+                    {cat.targetType === "PERCENT" ? "%" : ""}
                   </span>
+                  <span>
+                    Covered: {cat.covered.toLocaleString()}{" "}
+                    {cat.targetType === "PERCENT" ? "%" : ""}
+                  </span>
+                  <span>{cat.projectCount} projects</span>
                 </div>
               </div>
-              <ChevronRight className="w-4 h-4 text-zinc-400 shrink-0 group-hover:text-zinc-700 dark:group-hover:text-zinc-300 transition-colors" />
+              <ChevronRight className="w-4 h-4 text-zinc-400 group-hover:text-zinc-700" />
             </button>
           ))}
         </div>
@@ -701,11 +667,11 @@ function CategoryView({ category }: { category: CategoryPerformance }) {
   if (category.projects.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center">
-        <FolderOpen className="w-12 h-12 text-zinc-300 dark:text-zinc-600 mb-3" />
-        <p className="text-sm font-semibold text-zinc-500 dark:text-zinc-400">
+        <FolderOpen className="w-12 h-12 text-zinc-300 mb-3" />
+        <p className="text-sm font-semibold text-zinc-500">
           No projects in this category yet
         </p>
-        <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
+        <p className="text-xs text-zinc-400 mt-1">
           Add projects under this CIDP category to see performance.
         </p>
       </div>
@@ -715,99 +681,108 @@ function CategoryView({ category }: { category: CategoryPerformance }) {
   const chartData = category.projects.map((p) => ({
     name: p.name.length > 22 ? p.name.slice(0, 22) + "…" : p.name,
     fullName: p.name,
-    score: Number(p.latestTrackerPercent.toFixed(1)),
-    fill: scoreColor(p.latestTrackerPercent),
+    tracker: p.latestTrackerPercent,
   }));
+
+  const showPercentUnit = category.targetType === "PERCENT";
 
   return (
     <div className="space-y-6">
-      {/* Category header */}
+      {/* Category header: Score + coverage numbers */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 flex flex-col items-center justify-center">
+        <div className="bg-white dark:bg-zinc-900 rounded-2xl border p-5 flex flex-col items-center justify-center">
           <ScoreGauge score={category.score} size={110} />
-          <p className="text-xs text-zinc-400 dark:text-zinc-500 text-center mt-2 font-medium">
-            Category Score
+          <p className="text-xs text-zinc-400 text-center mt-2 font-medium">
+            KPI Score
           </p>
         </div>
         {[
           {
-            label: "KPI Target",
-            value: category.target.toFixed(0),
-            sub: "5-year KPI target",
+            label: "Target",
+            value: `${category.target.toLocaleString()}${showPercentUnit ? "%" : ""}`,
+            icon: <Target className="w-4 h-4 text-blue-600" />,
           },
           {
-            label: "Actual Delivery",
-            value: pct(category.actualPercent),
-            sub: "Avg tracker % across projects",
+            label: "Covered",
+            value: `${category.covered.toLocaleString()}${showPercentUnit ? "%" : ""}`,
+            icon: <CheckCircle2 className="w-4 h-4 text-emerald-600" />,
           },
           {
             label: "Projects",
             value: category.projectCount,
-            sub: "Linked to this category",
+            icon: <FolderOpen className="w-4 h-4 text-amber-600" />,
           },
         ].map((s) => (
           <div
             key={s.label}
-            className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5"
+            className="bg-white dark:bg-zinc-900 rounded-2xl border p-5"
           >
-            <p className="text-2xl font-black text-zinc-900 dark:text-zinc-100 mt-4">
-              {s.value}
-            </p>
-            <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 mt-1">
-              {s.label}
-            </p>
-            <p className="text-xs text-zinc-400 dark:text-zinc-500">{s.sub}</p>
+            <div className="w-8 h-8 rounded-lg bg-zinc-50 dark:bg-zinc-800 flex items-center justify-center mb-3">
+              {s.icon}
+            </div>
+            <p className="text-2xl font-black">{s.value}</p>
+            <p className="text-xs font-medium text-zinc-400">{s.label}</p>
           </div>
         ))}
       </div>
 
-      {/* Project chart */}
-      {chartData.length > 0 && (
-        <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5">
-          <h3 className="text-sm font-bold text-zinc-800 dark:text-zinc-200 uppercase tracking-widest mb-4">
-            Projects — Tracker Progress
-          </h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart
-              data={chartData}
-              barSize={24}
-              margin={{ top: 4, right: 0, left: -15, bottom: 70 }}
-            >
-              <XAxis
-                dataKey="name"
-                tick={{ fontSize: 9, fill: "#9ca3af" }}
-                axisLine={false}
-                tickLine={false}
-                angle={-35}
-                textAnchor="end"
-                interval={0}
-              />
-              <YAxis
-                domain={[0, 100]}
-                tick={{ fontSize: 10, fill: "#9ca3af" }}
-                axisLine={false}
-                tickLine={false}
-                tickFormatter={(v) => `${v}%`}
-              />
-              <Tooltip content={<ChartTip />} />
-              <Bar dataKey="score" name="Progress" radius={[4, 4, 0, 0]}>
-                {chartData.map((e, i) => (
-                  <Cell key={i} fill={e.fill} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      )}
+      {/* Project chart: Tracker progress only (score is the average of these) */}
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl border p-5">
+        <h3 className="text-sm font-bold uppercase tracking-widest mb-4">
+          Projects — Tracker Progress
+        </h3>
+        <ResponsiveContainer width="100%" height={200}>
+          <BarChart
+            data={chartData}
+            barSize={20}
+            margin={{ top: 4, right: 0, left: -15, bottom: 70 }}
+          >
+            <XAxis
+              dataKey="name"
+              tick={{ fontSize: 9, fill: "#9ca3af" }}
+              axisLine={false}
+              tickLine={false}
+              angle={-35}
+              textAnchor="end"
+              interval={0}
+            />
+            <YAxis
+              domain={[0, 100]}
+              tick={{ fontSize: 10, fill: "#9ca3af" }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <Tooltip
+              content={({ active, payload }) => {
+                if (!active || !payload?.length) return null;
+                return (
+                  <div className="bg-zinc-900 text-zinc-100 text-xs px-3 py-2 rounded-lg shadow-xl border border-zinc-700">
+                    <p className="font-semibold mb-1">
+                      {payload[0].payload.fullName}
+                    </p>
+                    <p>Tracker: {payload[0].value}%</p>
+                  </div>
+                );
+              }}
+            />
+            <Bar
+              dataKey="tracker"
+              name="Tracker Progress"
+              fill="#3b82f6"
+              radius={[4, 4, 0, 0]}
+            />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
 
-      {/* Project list */}
-      <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden">
-        <div className="px-5 py-4 border-b border-zinc-100 dark:border-zinc-800">
-          <h3 className="text-sm font-bold text-zinc-800 dark:text-zinc-200 uppercase tracking-widest">
+      {/* Project list: Score (tracker) + contribution value */}
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl border overflow-hidden">
+        <div className="px-5 py-4 border-b">
+          <h3 className="text-sm font-bold uppercase tracking-widest">
             Projects in "{category.name}"
           </h3>
         </div>
-        <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+        <div className="divide-y">
           {category.projects.map((proj) => (
             <div key={proj.id} className="flex items-center gap-4 px-5 py-4">
               <div
@@ -818,33 +793,30 @@ function CategoryView({ category }: { category: CategoryPerformance }) {
               />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                  <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 truncate">
+                  <span className="text-sm font-semibold truncate">
                     {proj.name}
                   </span>
                   <span
-                    className={`text-xs px-2 py-0.5 rounded-full border font-medium shrink-0 ${
+                    className={`text-xs px-2 py-0.5 rounded-full border font-medium ${
                       proj.status === "ACTIVE"
-                        ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800"
-                        : "bg-zinc-50 text-zinc-500 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700"
+                        ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                        : "bg-zinc-50 text-zinc-500 border-zinc-200"
                     }`}
                   >
                     {proj.status}
                   </span>
                 </div>
-                <Bar2
-                  value={proj.latestTrackerPercent}
-                  color={scoreColor(proj.latestTrackerPercent)}
-                />
-                <div className="flex gap-4 mt-1.5 text-xs text-zinc-400 dark:text-zinc-500">
+                <div className="flex gap-4 text-xs text-zinc-400">
                   <span>Tracker: {proj.latestTrackerPercent.toFixed(1)}%</span>
                   <span>
-                    Contribution: {proj.contribution.toFixed(1)}% of target
+                    Contribution: {proj.contributionValue}
+                    {showPercentUnit ? "%" : ""}
                   </span>
                 </div>
               </div>
               <a
                 href={`/projects/${proj.id}`}
-                className="shrink-0 text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium flex items-center gap-1"
+                className="shrink-0 text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
               >
                 View <ChevronRight className="w-3 h-3" />
               </a>
@@ -865,6 +837,8 @@ interface UnifiedDashboardProps {
   userRole: "me" | "sector" | "admin";
   userName: string;
   reportProjects: ReportProject[];
+  fiscalYears: string[];
+  currentFiscalYear?: string;
 }
 
 export default function UnifiedDashboard({
@@ -873,12 +847,24 @@ export default function UnifiedDashboard({
   userRole,
   userName,
   reportProjects,
+  fiscalYears,
+  currentFiscalYear,
 }: UnifiedDashboardProps) {
   const [showReport, setShowReport] = useState(false);
   const [activeView, setActiveView] = useState<"dashboard" | "cidp">(
     "dashboard",
   );
   const isME = userRole === "me";
+
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const handleFiscalYearChange = (value: string) => {
+    const params = new URLSearchParams(window.location.search);
+    if (value && value !== "ALL") params.set("fiscalYear", value);
+    else params.delete("fiscalYear");
+    router.push(`${pathname}?${params.toString()}`);
+  };
 
   // Drill state for CIDP section
   type DrillState =
@@ -925,10 +911,9 @@ export default function UnifiedDashboard({
     stats.totalProjects > 0
       ? Math.round((stats.stalledProjects / stats.totalProjects) * 100)
       : 0;
-
   const notRate =
     stats.totalProjects > 0
-      ? Math.round((stats.pendingProjects / stats.totalProjects) * 100)
+      ? Math.round((stats.notStartedProjects / stats.totalProjects) * 100)
       : 0;
 
   const actionCount =
@@ -977,6 +962,17 @@ export default function UnifiedDashboard({
         cls: "bg-violet-50 text-violet-600 border-violet-100 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-800",
       },
     };
+
+  const activitiesBySector = useMemo(() => {
+    const groups: Record<string, typeof stats.recentActivity> = {};
+    for (const activity of stats.recentActivity) {
+      const sector = activity.sector || "Unknown";
+      if (!groups[sector]) groups[sector] = [];
+      groups[sector].push(activity);
+    }
+    // Sort sectors alphabetically
+    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
+  }, [stats.recentActivity]);
 
   return (
     <div className="min-h-screen bg-[#F7F8FC] dark:bg-[#0E1117] p-4 md:p-6 lg:p-8">
@@ -1031,6 +1027,23 @@ export default function UnifiedDashboard({
               >
                 KPI Performance
               </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">
+                Fiscal Year:
+              </span>
+              <select
+                value={currentFiscalYear || "ALL"}
+                onChange={(e) => handleFiscalYearChange(e.target.value)}
+                className="text-sm border rounded-lg px-3 py-1.5 bg-white dark:bg-zinc-900"
+              >
+                <option value="ALL">All Years</option>
+                {fiscalYears.map((fy) => (
+                  <option key={fy} value={fy}>
+                    {fy}
+                  </option>
+                ))}
+              </select>
             </div>
 
             {/* Role badge */}
@@ -1165,8 +1178,8 @@ export default function UnifiedDashboard({
               />
               <StatCard
                 label="Terminated projects"
-                value={<Counter value={0} />}
-                sub={`${0}%`}
+                value={<Counter value={stats.terminatedProjects} />}
+                sub={`${(stats.terminatedProjects / stats.totalProjects) * 100}%`}
                 icon={
                   <Rocket className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
                 }
@@ -1186,7 +1199,7 @@ export default function UnifiedDashboard({
 
               <StatCard
                 label="Not Started"
-                value={<Counter value={stats.pendingProjects} />}
+                value={<Counter value={stats.notStartedProjects} />}
                 sub={`${notRate}%`}
                 icon={
                   <Clock className="w-5 h-5 text-amber-600 dark:text-amber-400" />
@@ -1197,11 +1210,7 @@ export default function UnifiedDashboard({
 
               <StatCard
                 label="Avg Progress"
-                value={
-                  <>
-                    <Counter value={stats.avgProgress} decimals={1} />%
-                  </>
-                }
+                value={<Counter value={stats.avgProgress} decimals={1} />}
                 sub={`${stats.nearCompleteProjects} near complete`}
                 icon={
                   <TrendingUp className="w-5 h-5 text-violet-600 dark:text-violet-400" />
@@ -1421,44 +1430,65 @@ export default function UnifiedDashboard({
               </div>
             </div>
 
-            {/* ── Recent Activity ────────────────────────────────────────────────── */}
+            {/* ── Recent Activity (grouped by sector) ── */}
             <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5">
               <SectionHeader
                 title="Recent Activity"
-                sub="Latest events across all projects"
+                sub="Latest events across all projects, grouped by sector"
               />
               {stats.recentActivity.length === 0 ? (
                 <p className="text-sm text-zinc-400 dark:text-zinc-500 text-center py-10">
                   No recent activity
                 </p>
               ) : (
-                <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                  {stats.recentActivity.slice(0, 8).map((ev) => {
-                    const meta = ACTIVITY_META[ev.type];
-                    return (
-                      <div
-                        key={ev.id}
-                        className="flex items-start gap-3 py-3 first:pt-0 last:pb-0"
-                      >
-                        <div
-                          className={`shrink-0 w-7 h-7 rounded-lg border flex items-center justify-center mt-0.5 ${meta.cls} dark:border-zinc-700`}
-                        >
-                          {meta.icon}
+                <div className="space-y-4">
+                  {activitiesBySector.map(([sector, activities]) => (
+                    <details
+                      key={sector}
+                      className="group border rounded-xl overflow-hidden bg-white dark:bg-zinc-900"
+                    >
+                      <summary className="flex items-center justify-between px-5 py-3 cursor-pointer list-none hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-blue-500" />
+                          <span className="text-sm font-semibold">
+                            {sector}
+                          </span>
+                          <span className="text-xs text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-full">
+                            {activities.length}
+                          </span>
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200 truncate">
-                            {ev.projectName}
-                          </p>
-                          <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
-                            {ev.detail}
-                          </p>
-                        </div>
-                        <span className="text-xs text-zinc-400 dark:text-zinc-500 shrink-0 mt-0.5">
-                          {timeAgo(ev.date)}
-                        </span>
+                        <ChevronDown className="w-4 h-4 text-zinc-400 transition-transform group-open:rotate-180" />
+                      </summary>
+                      <div className="divide-y divide-zinc-100 dark:divide-zinc-800 border-t">
+                        {activities.map((ev) => {
+                          const meta = ACTIVITY_META[ev.type];
+                          return (
+                            <div
+                              key={ev.id}
+                              className="flex items-start gap-3 px-5 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors"
+                            >
+                              <div
+                                className={`shrink-0 w-7 h-7 rounded-lg border flex items-center justify-center mt-0.5 ${meta.cls}`}
+                              >
+                                {meta.icon}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200 truncate">
+                                  {ev.projectName}
+                                </p>
+                                <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
+                                  {ev.detail}
+                                </p>
+                              </div>
+                              <span className="text-xs text-zinc-400 dark:text-zinc-500 shrink-0 mt-0.5 tabular-nums">
+                                {timeAgo(ev.date)}
+                              </span>
+                            </div>
+                          );
+                        })}
                       </div>
-                    );
-                  })}
+                    </details>
+                  ))}
                 </div>
               )}
               <a

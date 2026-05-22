@@ -6,7 +6,6 @@ import { withTransaction } from "./checklistActions";
 import sql from "mssql";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
 export type CategoryStatus =
   | "DRAFT"
   | "PENDING_REVIEW"
@@ -30,6 +29,7 @@ export interface ProjectCategory {
   name: string;
   sector: string | null;
   target: number | null;
+  targetType: "NUMBER" | "PERCENT";
   budget: number | null;
   status: CategoryStatus;
   createdBy: string | null;
@@ -40,8 +40,53 @@ export interface ProjectCategory {
   reviewNotes?: ReviewNote[];
 }
 
-// ─── Slug ─────────────────────────────────────────────────────────────────────
+export interface CategoryProject {
+  id: string;
+  name: string;
+  sector: string | null;
+  status: string;
+  budget: number | null;
+  progress: number | null;
+  size: "Small" | "Medium" | "Large" | null;
+  subCounty: string | null;
+  ward: string | null;
+  createdAt: string;
+  latestTrackerPercent: number | null;
+  latestTrackerDate: string | null;
+  trackerCount: number;
+  contributionValue: number | null;
+}
 
+export interface CategoryWithProjects extends ProjectCategory {
+  projects: CategoryProject[];
+  projectCount: number;
+  activeCount: number;
+  pendingCount: number;
+  avgProgress: number | null;
+}
+
+export interface FlatProject {
+  id: string;
+  name: string;
+  categoryId: string | null;
+  categoryName: string | null;
+  sector: string | null;
+  status: string;
+  budget: number | null;
+  progress: number;
+  ward: string | null;
+  subCounty: string | null;
+  createdAt: string;
+}
+
+export interface FieldChange {
+  field: "name" | "target" | "budget" | "sector" | "targetType";
+  originalValue: string;
+  suggestedValue: string;
+  reason: string;
+}
+
+// ─── Slug generator ───────────────────────────────────────────────────────────
 function generateSlug(name: string): string {
   const base = name
     .toLowerCase()
@@ -52,6 +97,91 @@ function generateSlug(name: string): string {
   return `${base}-${suffix}`;
 }
 
+// ─── Mappers (unchanged) ─────────────────────────────────────────────────────
+function mapCategory(row: any): ProjectCategory {
+  return {
+    id: row.id,
+    name: row.name,
+    sector: row.sector ?? null,
+    target: row.target != null ? Number(row.target) : null,
+    targetType: row.targetType ?? "NUMBER",
+    budget: row.budget != null ? Number(row.budget) : null,
+    status: row.status as CategoryStatus,
+    createdBy: row.createdBy ?? null,
+    submittedAt: row.submittedAt?.toISOString() ?? null,
+    reviewedAt: row.reviewedAt?.toISOString() ?? null,
+    createdAt: row.createdAt?.toISOString() ?? new Date().toISOString(),
+    updatedAt: row.updatedAt?.toISOString() ?? new Date().toISOString(),
+  };
+}
+
+function mapNote(row: any): ReviewNote {
+  return {
+    id: row.id,
+    categoryId: row.categoryId,
+    field: row.field,
+    originalValue: row.originalValue ?? null,
+    suggestedValue: row.suggestedValue ?? null,
+    reason: row.reason,
+    reviewerEmail: row.reviewerEmail ?? null,
+    resolvedAt: row.resolvedAt?.toISOString() ?? null,
+    createdAt: row.createdAt?.toISOString() ?? new Date().toISOString(),
+  };
+}
+
+// ─── NOTIFICATION HELPERS ────────────────────────────────────────────────────
+
+/**
+ * Create a notification for a specific user.
+ */
+async function createNotification(data: {
+  userId: string;
+  type: string; // e.g. 'category_submitted', 'category_approved', 'changes_requested', 'acknowledged'
+  title: string;
+  message: string;
+  link?: string | null; // URL to the relevant page (e.g., `/cidp?category=${id}`)
+  metadata?: any; // JSON extra data (e.g., { categoryId, reviewerEmail })
+}) {
+  try {
+    await safeQuery(
+      `INSERT INTO Notification (userId, type, title, message, link, metadata)
+        VALUES (@p1, @p2, @p3, @p4, @p5, @p6)`,
+      [
+        data.userId,
+        data.type,
+        data.title,
+        data.message,
+        data.link ?? null,
+        data.metadata ? JSON.stringify(data.metadata) : null,
+      ],
+    );
+  } catch (error) {
+    console.error("Failed to create notification:", error);
+    // Do not throw – notifications are non‑critical
+  }
+}
+
+/**
+ * Get all user IDs of Monitoring & Evaluation officers.
+ */
+async function getMEOfficerIds(): Promise<string[]> {
+  const { rows } = await safeQuery<{ id: string }>(
+    `SELECT id FROM [User] WHERE sector = 'Monitoring And Evaluation' AND status = 'active'`,
+  );
+  return rows.map((r) => r.id);
+}
+
+/**
+ * Get a user's ID by email (used for category creator).
+ */
+async function getUserIdByEmail(email: string | null): Promise<string | null> {
+  if (!email) return null;
+  const { rows } = await safeQuery<{ id: string }>(
+    `SELECT id FROM [User] WHERE email = @p1`,
+    [email],
+  );
+  return rows[0]?.id || null;
+}
 // ─── getCategories ────────────────────────────────────────────────────────────
 
 export async function getCategories(filters?: {
@@ -72,7 +202,7 @@ export async function getCategories(filters?: {
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
   const { rows } = await safeQuery<any>(
-    `SELECT id, name, sector, target, budget, status, createdBy,
+    `SELECT id, name, sector, target, targetType, budget, status, createdBy,
             submittedAt, reviewedAt, createdAt, updatedAt
      FROM ProjectCategory ${where}
      ORDER BY sector, name`,
@@ -88,7 +218,7 @@ export async function getCategoryWithNotes(
   id: string,
 ): Promise<ProjectCategory | null> {
   const { rows: catRows } = await safeQuery<any>(
-    `SELECT id, name, sector, target, budget, status, createdBy,
+    `SELECT id, name, sector, target, targetType, budget, status, createdBy,
             submittedAt, reviewedAt, createdAt, updatedAt
      FROM ProjectCategory WHERE id = @p1`,
     [id],
@@ -116,6 +246,7 @@ export async function batchCreateCategories(
     name: string;
     sector?: string | null;
     target?: number;
+    targetType?: "NUMBER" | "PERCENT";
     budget?: number | null;
   }[],
   createdBy?: string,
@@ -130,16 +261,17 @@ export async function batchCreateCategories(
       req.input("name", sql.NVarChar(500), item.name);
       req.input("sector", sql.NVarChar(200), item.sector || null);
       req.input("target", sql.Decimal(18, 2), item.target ?? null);
+      req.input("targetType", sql.NVarChar(10), item.targetType ?? "NUMBER");
       req.input("budget", sql.Decimal(18, 2), item.budget ?? null);
       req.input("status", sql.NVarChar(50), "DRAFT");
       req.input("createdBy", sql.NVarChar(200), createdBy || null);
       const result = await req.query(`
-        INSERT INTO ProjectCategory (id, name, sector, target, budget, status, createdBy)
-        OUTPUT INSERTED.id, INSERTED.name, INSERTED.sector, INSERTED.target,
+        INSERT INTO ProjectCategory (id, name, sector, target, targetType, budget, status, createdBy)
+        OUTPUT INSERTED.id, INSERTED.name, INSERTED.sector, INSERTED.target, INSERTED.targetType,
                INSERTED.budget, INSERTED.status, INSERTED.createdBy,
                INSERTED.submittedAt, INSERTED.reviewedAt,
                INSERTED.createdAt, INSERTED.updatedAt
-        VALUES (@id, @name, @sector, @target, @budget, @status, @createdBy)
+        VALUES (@id, @name, @sector, @target, @targetType, @budget, @status, @createdBy)
       `);
       created.push(mapCategory(result.recordset[0]));
     }
@@ -147,7 +279,24 @@ export async function batchCreateCategories(
   });
 }
 
-// ─── updateCategory  (sector officer edits) ───────────────────────────────────
+// ─── addCategory ──────────────────────────────────────────────────────────────
+
+export async function addCategory(
+  data: {
+    name: string;
+    sector?: string;
+    target?: number;
+    targetType?: "NUMBER" | "PERCENT";
+    budget?: number;
+  },
+  createdBy?: string,
+): Promise<ProjectCategory> {
+  const [result] = await batchCreateCategories([data], createdBy);
+  revalidatePath("/cidp");
+  return result;
+}
+
+// ─── updateCategory ───────────────────────────────────────────────────────────
 
 export async function updateCategory(
   id: string,
@@ -155,6 +304,7 @@ export async function updateCategory(
     name?: string;
     sector?: string;
     target?: number;
+    targetType?: "NUMBER" | "PERCENT";
     budget?: number;
   },
 ): Promise<ProjectCategory> {
@@ -173,6 +323,10 @@ export async function updateCategory(
     updates.push(`target = @p${params.length + 1}`);
     params.push(data.target);
   }
+  if (data.targetType !== undefined) {
+    updates.push(`targetType = @p${params.length + 1}`);
+    params.push(data.targetType);
+  }
   if (data.budget !== undefined) {
     updates.push(`budget = @p${params.length + 1}`);
     params.push(data.budget);
@@ -183,7 +337,7 @@ export async function updateCategory(
 
   const { rows } = await safeQuery<any>(
     `UPDATE ProjectCategory SET ${updates.join(", ")}
-     OUTPUT INSERTED.id, INSERTED.name, INSERTED.sector, INSERTED.target,
+     OUTPUT INSERTED.id, INSERTED.name, INSERTED.sector, INSERTED.target, INSERTED.targetType,
             INSERTED.budget, INSERTED.status, INSERTED.createdBy,
             INSERTED.submittedAt, INSERTED.reviewedAt, INSERTED.createdAt, INSERTED.updatedAt
      WHERE id = @p${params.length + 1}`,
@@ -194,17 +348,6 @@ export async function updateCategory(
   return mapCategory(rows[0]);
 }
 
-// ─── addCategory (sector officer adds a new one) ──────────────────────────────
-
-export async function addCategory(
-  data: { name: string; sector?: string; target?: number; budget?: number },
-  createdBy?: string,
-): Promise<ProjectCategory> {
-  const [result] = await batchCreateCategories([data], createdBy);
-  revalidatePath("/cidp");
-  return result;
-}
-
 // ─── deleteCategory ───────────────────────────────────────────────────────────
 
 export async function deleteCategory(id: string): Promise<void> {
@@ -212,7 +355,7 @@ export async function deleteCategory(id: string): Promise<void> {
   revalidatePath("/cidp");
 }
 
-// ─── submitForReview (sector → ME) ───────────────────────────────────────────
+// ─── submitForReview ──────────────────────────────────────────────────────────
 
 export async function submitForReview(
   categoryIds: string[],
@@ -220,7 +363,6 @@ export async function submitForReview(
 ): Promise<void> {
   await withTransaction(async (trx) => {
     for (const id of categoryIds) {
-      // Only allow submit from DRAFT or CHANGES_REQUESTED
       const req1 = new sql.Request(trx);
       req1.input("id", sql.NVarChar(50), id);
       req1.input("actorEmail", sql.NVarChar(200), actorEmail || null);
@@ -229,7 +371,6 @@ export async function submitForReview(
         SET status = 'PENDING_REVIEW', submittedAt = GETDATE(), updatedAt = GETDATE()
         WHERE id = @id AND status IN ('DRAFT', 'CHANGES_REQUESTED')
       `);
-      // Log history
       const req2 = new sql.Request(trx);
       req2.input("histId", sql.NVarChar(50), generateSlug("hist"));
       req2.input("catId", sql.NVarChar(50), id);
@@ -243,9 +384,41 @@ export async function submitForReview(
     }
   });
   revalidatePath("/cidp");
+
+  // --- Notifications ---
+  const meOfficerIds = await getMEOfficerIds();
+  const categoryNames = await getCategoryNames(categoryIds);
+  const title = "CIDP Category Submitted for Review";
+  const message = `${actorEmail ?? "A sector officer"} submitted ${categoryNames} for ME review.`;
+  const link = "/cidp?status=PENDING_REVIEW"; // adjust to your actual filters
+  const metadata = { categoryIds, actorEmail };
+
+  for (const userId of meOfficerIds) {
+    await createNotification({
+      userId,
+      type: "category_submitted",
+      title,
+      message,
+      link,
+      metadata,
+    });
+  }
 }
 
-// ─── approveCategories (ME commits) ──────────────────────────────────────────
+async function getCategoryNames(ids: string[]): Promise<string> {
+  if (ids.length === 0) return "a category";
+  const placeholders = ids.map((_, i) => `@p${i + 1}`).join(",");
+  const { rows } = await safeQuery<{ name: string }>(
+    `SELECT name FROM ProjectCategory WHERE id IN (${placeholders})`,
+    ids,
+  );
+  const names = rows.map((r) => r.name);
+  if (names.length === 1) return `"${names[0]}"`;
+  if (names.length === 2) return `"${names[0]}" and "${names[1]}"`;
+  return `${names.length} categories`;
+}
+
+// ─── approveCategories ────────────────────────────────────────────────────────
 
 export async function approveCategories(
   categoryIds: string[],
@@ -274,16 +447,26 @@ export async function approveCategories(
     }
   });
   revalidatePath("/cidp");
-}
 
-// ─── requestChanges (ME sends back with per-field notes) ─────────────────────
-
-export interface FieldChange {
-  field: "name" | "target" | "budget" | "sector";
-  originalValue: string;
-  suggestedValue: string;
-  reason: string;
+  // --- Notifications to the creators of each category ---
+  for (const id of categoryIds) {
+    const category = await getCategory(id);
+    if (category?.createdBy) {
+      const userId = await getUserIdByEmail(category.createdBy);
+      if (userId) {
+        await createNotification({
+          userId,
+          type: "category_approved",
+          title: "CIDP Category Approved",
+          message: `Your category "${category.name}" has been approved by ${actorEmail ?? "ME officer"}.`,
+          link: `/cidp?category=${id}`,
+          metadata: { categoryId: id, approver: actorEmail },
+        });
+      }
+    }
+  }
 }
+// ─── requestChanges ───────────────────────────────────────────────────────────
 
 export async function requestChanges(
   categoryId: string,
@@ -293,16 +476,26 @@ export async function requestChanges(
   await withTransaction(async (trx) => {
     // Apply suggested values to the category
     for (const change of changes) {
-      const req = new sql.Request(trx);
-      req.input("id", sql.NVarChar(50), categoryId);
-      req.input("field", sql.NVarChar(100), change.field);
-      req.input("val", sql.NVarChar(sql.MAX), change.suggestedValue);
-      // Dynamically update only the changed field
-      await req.query(`
-        UPDATE ProjectCategory
-        SET ${change.field} = @val, updatedAt = GETDATE()
-        WHERE id = @id
-      `);
+      if (change.field === "targetType") {
+        const req = new sql.Request(trx);
+        req.input("id", sql.NVarChar(50), categoryId);
+        req.input("val", sql.NVarChar(10), change.suggestedValue);
+        await req.query(`
+          UPDATE ProjectCategory
+          SET targetType = @val, updatedAt = GETDATE()
+          WHERE id = @id
+        `);
+      } else {
+        const req = new sql.Request(trx);
+        req.input("id", sql.NVarChar(50), categoryId);
+        req.input("field", sql.NVarChar(100), change.field);
+        req.input("val", sql.NVarChar(sql.MAX), change.suggestedValue);
+        await req.query(`
+          UPDATE ProjectCategory
+          SET ${change.field} = @val, updatedAt = GETDATE()
+          WHERE id = @id
+        `);
+      }
       // Insert review note
       const req2 = new sql.Request(trx);
       req2.input("noteId", sql.NVarChar(50), generateSlug("note"));
@@ -340,19 +533,36 @@ export async function requestChanges(
     `);
   });
   revalidatePath("/cidp");
+
+  // --- Notification to the category creator (sector officer) ---
+  const category = await getCategory(categoryId);
+  if (category?.createdBy) {
+    const userId = await getUserIdByEmail(category.createdBy);
+    if (userId) {
+      const changesSummary = changes
+        .map((c) => `${c.field} → ${c.suggestedValue}`)
+        .join(", ");
+      await createNotification({
+        userId,
+        type: "changes_requested",
+        title: "Changes Requested on Your CIDP Category",
+        message: `${reviewerEmail ?? "ME officer"} requested changes on "${category.name}". Changes: ${changesSummary}.`,
+        link: `/cidp?category=${categoryId}`,
+        metadata: { categoryId, changes, reviewerEmail },
+      });
+    }
+  }
 }
 
-// ─── acknowledgeChanges (sector acknowledges ME notes) ────────────────────────
+// ─── acknowledgeChanges ───────────────────────────────────────────────────────
 
 export async function acknowledgeChanges(categoryId: string): Promise<void> {
-  // Mark all open review notes as resolved
   await safeQuery(
     `UPDATE CategoryReviewNote
      SET resolvedAt = GETDATE()
      WHERE categoryId = @p1 AND resolvedAt IS NULL`,
     [categoryId],
   );
-  // Move back to DRAFT so sector can re-edit and re-submit
   await safeQuery(
     `UPDATE ProjectCategory
      SET status = 'DRAFT', updatedAt = GETDATE()
@@ -360,94 +570,35 @@ export async function acknowledgeChanges(categoryId: string): Promise<void> {
     [categoryId],
   );
   revalidatePath("/cidp");
+
+  // Notify all ME officers that the sector has acknowledged the changes
+  const category = await getCategory(categoryId);
+  const meIds = await getMEOfficerIds();
+  for (const userId of meIds) {
+    await createNotification({
+      userId,
+      type: "acknowledged",
+      title: "Category Changes Acknowledged",
+      message: `The sector officer has acknowledged and will re‑edit "${category?.name}".`,
+      link: `/cidp?category=${categoryId}`,
+      metadata: { categoryId },
+    });
+  }
 }
 
-// ─── Mappers ──────────────────────────────────────────────────────────────────
-
-function mapCategory(row: any): ProjectCategory {
-  return {
-    id: row.id,
-    name: row.name,
-    sector: row.sector ?? null,
-    target: row.target != null ? Number(row.target) : null,
-    budget: row.budget != null ? Number(row.budget) : null,
-    status: row.status as CategoryStatus,
-    createdBy: row.createdBy ?? null,
-    submittedAt: row.submittedAt?.toISOString() ?? null,
-    reviewedAt: row.reviewedAt?.toISOString() ?? null,
-    createdAt: row.createdAt?.toISOString() ?? new Date().toISOString(),
-    updatedAt: row.updatedAt?.toISOString() ?? new Date().toISOString(),
-  };
+async function getCategory(id: string): Promise<ProjectCategory | null> {
+  const { rows } = await safeQuery<any>(
+    `SELECT id, name, createdBy FROM ProjectCategory WHERE id = @p1`,
+    [id],
+  );
+  return rows.length ? mapCategory(rows[0]) : null;
 }
 
-function mapNote(row: any): ReviewNote {
-  return {
-    id: row.id,
-    categoryId: row.categoryId,
-    field: row.field,
-    originalValue: row.originalValue ?? null,
-    suggestedValue: row.suggestedValue ?? null,
-    reason: row.reason,
-    reviewerEmail: row.reviewerEmail ?? null,
-    resolvedAt: row.resolvedAt?.toISOString() ?? null,
-    createdAt: row.createdAt?.toISOString() ?? new Date().toISOString(),
-  };
-}
+// ─── fetchFilteredProjectsFlat ────────────────────────────────────────────────
 
-// ─── Types for category+projects view ────────────────────────────────────────
-
-export interface CategoryProject {
-  id: string;
-  name: string;
-  sector: string | null;
-  status: string;
-  budget: number | null;
-  progress: number | null;
-  size: "Small" | "Medium" | "Large" | null;
-  subCounty: string | null;
-  ward: string | null;
-  createdAt: string;
-  // Tracker snapshot
-  latestTrackerPercent: number | null;
-  latestTrackerDate: string | null;
-  trackerCount: number;
-}
-
-export interface CategoryWithProjects extends ProjectCategory {
-  projects: CategoryProject[];
-  projectCount: number;
-  activeCount: number;
-  pendingCount: number;
-  avgProgress: number | null;
-}
-
-// ─── fetchCategoriesWithProjects ──────────────────────────────────────────────
-// Returns all APPROVED categories, each with their linked projects and a
-// lightweight enrichment (latest tracker, counts).  Used by the grouped
-// projects page so the server component can render everything in one shot.
-
-// Add these types and functions at the end of the file
-
-// ─── New type for flat project list ─────────────────────────────────────────
-export interface FlatProject {
-  id: string;
-  name: string;
-  categoryId: string | null;
-  categoryName: string | null;
-  sector: string | null;
-  status: string;
-  budget: number | null;
-  progress: number;
-  ward: string | null;
-  subCounty: string | null;
-  createdAt: string;
-}
-
-// ─── fetchFilteredProjectsFlat ──────────────────────────────────────────────
-// Returns a flat list of projects with their category names, applying all filters.
 export async function fetchFilteredProjectsFlat(filters?: {
   sector?: string;
-  categoryName?: string; // search inside category name
+  categoryName?: string;
   projectName?: string;
   status?: string;
   minBudget?: number;
@@ -508,9 +659,8 @@ export async function fetchFilteredProjectsFlat(filters?: {
   }));
 }
 
-// ─── Update fetchUncategorizedProjects to accept project filters ────────────
-// (Replace the existing function with this version)
-// ─── fetchUncategorizedProjects (fixed) ──────────────────────────────────────
+// ─── fetchUncategorizedProjects ───────────────────────────────────────────────
+
 export async function fetchUncategorizedProjects(
   sector?: string,
   projectFilters?: {
@@ -520,7 +670,6 @@ export async function fetchUncategorizedProjects(
     maxBudget?: number;
   },
 ): Promise<CategoryProject[]> {
-  // 1. Build main query with filters
   let query = `
     SELECT p.id, p.name, p.sector, p.status, p.budget, p.progress,
            p.subCounty, p.ward, p.createdAt
@@ -555,9 +704,7 @@ export async function fetchUncategorizedProjects(
   const { rows } = await safeQuery<any>(query, mainParams);
   if (rows.length === 0) return [];
 
-  // 2. Get latest tracker submission for each project
   const projectIds = rows.map((p: any) => p.id.toString());
-  // Build tracker query with its own independent parameters
   const trackerQuery = `
     SELECT t.projectId, t.overallPercent, t.submittedAt
     FROM TrackerSubmission t
@@ -571,7 +718,6 @@ export async function fetchUncategorizedProjects(
     trackerRows.map((r: any) => [r.projectId.toString(), r]),
   );
 
-  // 3. Map results
   return rows.map((p: any) => {
     let size: CategoryProject["size"] = null;
     if (p.budget != null) {
@@ -598,17 +744,16 @@ export async function fetchUncategorizedProjects(
   });
 }
 
-// ─── Update fetchCategoriesWithProjects to accept project filters ───────────
-// (Replace the existing function with this version)
+// ─── fetchCategoriesWithProjects ──────────────────────────────────────────────
+
 export async function fetchCategoriesWithProjects(filters?: {
   sector?: string;
-  query?: string; // category name search
+  query?: string;
   projectName?: string;
   projectStatus?: string;
   minBudget?: number;
   maxBudget?: number;
 }): Promise<CategoryWithProjects[]> {
-  // 1. Load approved categories (sector & category name filters)
   const catConditions: string[] = ["status = 'APPROVED'"];
   const catParams: any[] = [];
   if (filters?.sector) {
@@ -621,7 +766,7 @@ export async function fetchCategoriesWithProjects(filters?: {
   }
   const where = `WHERE ${catConditions.join(" AND ")}`;
   const { rows: catRows } = await safeQuery<any>(
-    `SELECT id, name, sector, target, budget, status, createdBy,
+    `SELECT id, name, sector, target, targetType, budget, status, createdBy,
             submittedAt, reviewedAt, createdAt, updatedAt
      FROM ProjectCategory ${where}
      ORDER BY sector, name`,
@@ -630,8 +775,6 @@ export async function fetchCategoriesWithProjects(filters?: {
   if (catRows.length === 0) return [];
 
   const categoryIds = catRows.map((r: any) => r.id);
-
-  // 2. Load projects belonging to these categories, with project-level filters
   let projectQuery = `
     SELECT p.id, p.name, p.sector, p.status, p.budget, p.progress,
            p.subCounty, p.ward, p.createdAt, p.categoryId
@@ -663,8 +806,6 @@ export async function fetchCategoriesWithProjects(filters?: {
     projectQuery,
     projectParams,
   );
-
-  // 3. Enrich with tracker data
   let trackerByProject = new Map<string, any>();
   let countByProject = new Map<string, number>();
   if (projectRows.length > 0) {
@@ -674,9 +815,7 @@ export async function fetchCategoriesWithProjects(filters?: {
       `SELECT t.projectId, t.overallPercent, t.submittedAt
        FROM TrackerSubmission t
        WHERE t.projectId IN (${projPlaceholders})
-         AND t.submittedAt = (
-           SELECT MAX(t2.submittedAt) FROM TrackerSubmission t2 WHERE t2.projectId = t.projectId
-         )`,
+         AND t.submittedAt = (SELECT MAX(t2.submittedAt) FROM TrackerSubmission t2 WHERE t2.projectId = t.projectId)`,
       projectIds,
     );
     for (const r of trackerRows) {
@@ -693,13 +832,11 @@ export async function fetchCategoriesWithProjects(filters?: {
     }
   }
 
-  // 4. Group projects by categoryId
   const projectsByCategory = new Map<string, CategoryProject[]>();
   for (const p of projectRows) {
     const catId = p.categoryId?.toString();
     if (!catId) continue;
     if (!projectsByCategory.has(catId)) projectsByCategory.set(catId, []);
-
     let size: CategoryProject["size"] = null;
     if (p.budget != null) {
       if (p.budget <= 500_000) size = "Small";
@@ -721,11 +858,10 @@ export async function fetchCategoriesWithProjects(filters?: {
       latestTrackerPercent: tr ? Number(tr.overallPercent) : null,
       latestTrackerDate: tr ? tr.submittedAt?.toISOString() : null,
       trackerCount: countByProject.get(p.id.toString()) ?? 0,
+      contributionValue: p.contributionValue ?? null, // <-- add this
     });
   }
 
-  // 5. Return ALL categories, including those without projects
-  //    (projects array will be empty, counts zero, avgProgress null)
   return catRows.map((row: any) => {
     const projects = projectsByCategory.get(row.id) ?? [];
     const activeCount = projects.filter((p) => p.status === "ACTIVE").length;
@@ -762,8 +898,6 @@ export async function assignProjectToCategory(
 }
 
 // ─── createProjectInCategory ──────────────────────────────────────────────────
-// Convenience wrapper used by the "+ Add Project" button on the category page.
-// Creates a PENDING project already linked to the given category.
 
 export async function createProjectInCategory(
   categoryId: string,
@@ -781,7 +915,6 @@ export async function createProjectInCategory(
     .slice(0, 44);
   const suffix = Math.random().toString(36).substring(2, 6);
   const slug = `${base}-${suffix}`;
-
   const { rows } = await safeQuery<any>(
     `INSERT INTO Project (id, name, sector, budget, description, status, categoryId)
      OUTPUT INSERTED.id
