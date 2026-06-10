@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { getUser } from "@/lib/actions/usersActions";
 import { fetchUnitTree } from "@/lib/actions/orgActions";
 import OrganisationTree from "@/components/admin/OrganisationTree";
-import { AddUnitButton } from "@/components/admin/AddUnitButton";
+// import { AddUnitButton } from "@/components/admin/AddUnitButton";
 
 export default async function AdminOrganisationPage() {
   const session = await auth();
@@ -22,7 +22,7 @@ export default async function AdminOrganisationPage() {
               Manage sectors, sub‑sectors, departments and units
             </p>
           </div>
-          <AddUnitButton />
+          {/*<AddUnitButton />*/}
         </div>
         <OrganisationTree initialTree={tree} />
       </div>

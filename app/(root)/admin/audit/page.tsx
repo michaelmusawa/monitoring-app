@@ -14,7 +14,7 @@ export default async function AdminAuditPage(props: {
 }) {
   const session = await auth();
   const user = await getUser(session?.user?.email ?? "");
-  if (!session || user?.role !== "system admin") redirect("/");
+  if (!session || user?.role !== "admin ") redirect("/");
 
   const params = await props.searchParams;
   const page = Number(params?.page) || 1;

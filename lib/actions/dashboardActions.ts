@@ -86,10 +86,25 @@ export async function getDashboardStats(
 ): Promise<DashboardStats> {
   const latestTrackerMap = await getLatestTrackerPercentMap(fiscalYear);
 
-  let projectQuery = `SELECT id, name, sector, budget, progress, status, createdAt, updatedAt FROM Project WHERE 1=1`;
+  // Main project query – join OrganisationalUnit to get the unit name as sector
+  let projectQuery = `
+    SELECT
+      p.id,
+      p.name,
+      p.budget,
+      p.progress,
+      p.status,
+      p.createdAt,
+      p.updatedAt,
+      p.fiscalYear,
+      ou.name AS sectorName
+    FROM Project p
+    LEFT JOIN OrganisationalUnit ou ON p.orgUnitId = ou.id
+    WHERE 1=1
+  `;
   const projectParams: any[] = [];
   if (fiscalYear) {
-    projectQuery += ` AND fiscalYear = @p${projectParams.length + 1}`;
+    projectQuery += ` AND p.fiscalYear = @p${projectParams.length + 1}`;
     projectParams.push(fiscalYear);
   }
   const { rows: allProjects } = await safeQuery<any>(
@@ -112,32 +127,43 @@ export async function getDashboardStats(
   const buckets = [0, 0, 0, 0];
 
   for (const proj of allProjects) {
-    const latestPct = latestTrackerMap.get(proj.id) ?? 0;
-    totalProjects++;
-    totalBudget += Number(proj.budget ?? 0);
-    avgProgressSum += latestPct;
+    const rawPct = latestTrackerMap.get(proj.id) ?? 0;
+    const dbStatus = (proj.status || "").toUpperCase();
+    let effectivePct = rawPct;
 
-    if (latestPct === 0) {
-      notStartedProjects++;
-      buckets[0]++;
-    } else if (latestPct === 100) {
-      completedProjects++;
-      buckets[3]++;
-    } else {
-      activeProjects++;
-      if (latestPct >= 80 && latestPct < 100) nearCompleteCount++;
-      if (latestPct < 50) buckets[1]++;
-      else if (latestPct < 100) buckets[2]++;
+    let isCompleted = false;
+    if (dbStatus === "COMPLETED" || dbStatus === "COMPLETE") {
+      isCompleted = true;
+    } else if (rawPct === 100) {
+      isCompleted = true;
     }
 
-    const sector = proj.sector ?? "Unknown";
+    if (isCompleted) {
+      effectivePct = 100;
+      completedProjects++;
+      buckets[3]++;
+    } else if (rawPct === 0) {
+      notStartedProjects++;
+      buckets[0]++;
+    } else {
+      activeProjects++;
+      if (rawPct >= 80 && rawPct < 100) nearCompleteCount++;
+      if (rawPct < 50) buckets[1]++;
+      else if (rawPct < 100) buckets[2]++;
+    }
+
+    totalProjects++;
+    totalBudget += Number(proj.budget ?? 0);
+    avgProgressSum += effectivePct;
+
+    const sector = proj.sectorName ?? "Unknown";
     const existing = sectorMap.get(sector) || {
       count: 0,
       avgProgressSum: 0,
       budgetSum: 0,
     };
     existing.count++;
-    existing.avgProgressSum += latestPct;
+    existing.avgProgressSum += effectivePct;
     existing.budgetSum += Number(proj.budget ?? 0);
     sectorMap.set(sector, existing);
   }
@@ -161,14 +187,13 @@ export async function getDashboardStats(
     { label: "100%", count: buckets[3] },
   ];
 
-  // Stalled projects
+  // Stalled projects (case‑insensitive)
   let stalledQuery = `
-    SELECT COUNT(*) AS cnt FROM Project WHERE status = 'STALLED'
-
+    SELECT COUNT(*) AS cnt FROM Project WHERE UPPER(status) = 'STALLED'
   `;
   const stalledParams: any[] = [];
   if (fiscalYear) {
-    stalledQuery += ` AND p.fiscalYear = @p${stalledParams.length + 1}`;
+    stalledQuery += ` AND fiscalYear = @p${stalledParams.length + 1}`;
     stalledParams.push(fiscalYear);
   }
   const stalledRows = await safeQuery<{ cnt: number }>(
@@ -177,13 +202,13 @@ export async function getDashboardStats(
   );
   const stalledProjects = stalledRows.rows[0]?.cnt ?? 0;
 
+  // Terminated projects (case‑insensitive)
   let terminatedQuery = `
-    SELECT COUNT(*) AS cnt FROM Project WHERE status = 'TERMINATED'
-
+    SELECT COUNT(*) AS cnt FROM Project WHERE UPPER(status) = 'TERMINATED'
   `;
   const terminatedParams: any[] = [];
   if (fiscalYear) {
-    terminatedQuery += ` AND p.fiscalYear = @p${terminatedParams.length + 1}`;
+    terminatedQuery += ` AND fiscalYear = @p${terminatedParams.length + 1}`;
     terminatedParams.push(fiscalYear);
   }
   const terminatedRows = await safeQuery<{ cnt: number }>(
@@ -192,7 +217,7 @@ export async function getDashboardStats(
   );
   const terminatedProjects = terminatedRows.rows[0]?.cnt ?? 0;
 
-  // Checklist queue (unaffected by fiscal year, as checklists are not tied to fiscal year)
+  // Checklist queue
   const checklistQueueRows = await safeQuery<any>(
     `SELECT
        SUM(CASE WHEN status = 'DraftReview'   THEN 1 ELSE 0 END) AS draftReview,
@@ -202,7 +227,7 @@ export async function getDashboardStats(
   );
   const cq = checklistQueueRows.rows[0] ?? {};
 
-  // Recent trackers (7 days, filtered by fiscalYear)
+  // Recent trackers (7 days)
   let recentQuery = `
     SELECT COUNT(DISTINCT ts.projectId) AS cnt
     FROM TrackerSubmission ts
@@ -220,33 +245,42 @@ export async function getDashboardStats(
   );
   const recentTrackers = recentTrackerRows.rows[0]?.cnt ?? 0;
 
-  // Recent activity (filtered by fiscalYear)
+  // Recent activity – join OrganisationalUnit to get sector name
   let activityQuery = `
-    SELECT TOP 20 * FROM (
-      SELECT CAST(ts.id AS NVARCHAR) AS id, p.name AS projectName, p.sector, 'tracker' AS type,
+    SELECT TOP 20
+      feed.id,
+      feed.projectName,
+      ou.name AS sector,
+      feed.type,
+      feed.detail,
+      feed.eventDate
+    FROM (
+      SELECT CAST(ts.id AS NVARCHAR) AS id, p.name AS projectName, p.orgUnitId, 'tracker' AS type,
         CONCAT('Tracker submitted — ', CAST(CAST(ts.overallPercent AS INT) AS NVARCHAR), '% overall') AS detail,
         ts.submittedAt AS eventDate
       FROM TrackerSubmission ts INNER JOIN Project p ON p.id = ts.projectId
       UNION ALL
-      SELECT CAST(ch.id AS NVARCHAR), p.name, p.sector, 'checklist',
+      SELECT CAST(ch.id AS NVARCHAR), p.name, p.orgUnitId, 'checklist',
         CONCAT('Checklist → ', ch.status), ch.createdAt
       FROM ChecklistHistory ch
       INNER JOIN Checklist c ON c.id = ch.checklistId
       INNER JOIN Project p ON p.id = c.projectId
       UNION ALL
-      SELECT CAST(p.id AS NVARCHAR), p.name, p.sector, 'init', 'Project activated', p.updatedAt
+      SELECT CAST(p.id AS NVARCHAR), p.name, p.orgUnitId, 'init', 'Project activated', p.updatedAt
       FROM Project p WHERE p.status = 'ACTIVE' AND p.updatedAt IS NOT NULL
     ) feed
+    LEFT JOIN OrganisationalUnit ou ON feed.orgUnitId = ou.id
+    WHERE 1=1
   `;
   const activityParams: any[] = [];
   if (fiscalYear) {
-    activityQuery += ` WHERE sector IN (SELECT DISTINCT sector FROM Project WHERE fiscalYear = @p${activityParams.length + 1})`;
+    activityQuery += ` AND feed.orgUnitId IN (SELECT id FROM OrganisationalUnit WHERE name IN (SELECT DISTINCT ou2.name FROM Project p2 LEFT JOIN OrganisationalUnit ou2 ON p2.orgUnitId = ou2.id WHERE p2.fiscalYear = @p${activityParams.length + 1}))`;
     activityParams.push(fiscalYear);
   }
-  activityQuery += ` ORDER BY eventDate DESC`;
+  activityQuery += ` ORDER BY feed.eventDate DESC`;
   const activityRows = await safeQuery<any>(activityQuery, activityParams);
 
-  // Budget by size (filtered by fiscalYear)
+  // Budget by size
   let budgetSizeQuery = `
     SELECT
       CASE WHEN budget <= 500000 THEN 'Small' WHEN budget <= 1000000 THEN 'Medium' ELSE 'Large' END AS size,
@@ -261,7 +295,7 @@ export async function getDashboardStats(
   budgetSizeQuery += ` GROUP BY CASE WHEN budget <= 500000 THEN 'Small' WHEN budget <= 1000000 THEN 'Medium' ELSE 'Large' END`;
   const budgetSizeRows = await safeQuery<any>(budgetSizeQuery, budgetParams);
 
-  // Monthly tracker submissions (filtered by fiscalYear)
+  // Monthly tracker submissions
   let monthlyQuery = `
     SELECT TOP 12 FORMAT(ts.submittedAt, 'MMM yy') AS month, COUNT(*) AS submissions
     FROM TrackerSubmission ts
@@ -293,26 +327,25 @@ export async function getDashboardStats(
     nearCompleteProjects: nearCompleteCount,
     sectorBreakdown,
     progressBuckets,
-    recentActivity: activityRows.rows.map((r: any) => ({
+    recentActivity: activityRows.map((r: any) => ({
       id: r.id?.toString(),
       projectName: r.projectName,
       sector: r.sector ?? "Unknown",
-      type: r.type as any,
+      type: r.type,
       detail: r.detail,
       date: r.eventDate?.toISOString?.() ?? new Date().toISOString(),
     })),
-    budgetBySize: budgetSizeRows.rows.map((r: any) => ({
+    budgetBySize: budgetSizeRows.map((r: any) => ({
       size: r.size,
       budget: Number(r.totalBudget),
       count: Number(r.cnt),
     })),
-    monthlyTrackers: monthlyRows.rows.map((r: any) => ({
+    monthlyTrackers: monthlyRows.map((r: any) => ({
       month: r.month,
       submissions: Number(r.submissions),
     })),
   };
 }
-
 // ─── getCIDPPerformance (with fiscalYear) ────────────────────────────────────
 
 export async function getCIDPPerformance(
@@ -339,14 +372,28 @@ export async function getCIDPPerformance(
 
   for (const cat of categories) {
     let projectQuery = `
-      SELECT id, name, contributionValue, status,
-             (SELECT TOP 1 overallPercent FROM TrackerSubmission WHERE projectId = p.id ORDER BY submittedAt DESC) AS latestTrackerPercent
+      SELECT
+        p.id,
+        p.name,
+        p.contributionValue,
+        p.status,
+        -- Use tracker progress if exists, otherwise 0.
+        -- If DB status indicates completion, force 100.
+        CASE
+          WHEN UPPER(p.status) IN ('COMPLETED', 'COMPLETE') THEN 100
+          ELSE COALESCE((
+            SELECT TOP 1 overallPercent
+            FROM TrackerSubmission
+            WHERE projectId = p.id
+            ORDER BY submittedAt DESC
+          ), 0)
+        END AS latestTrackerPercent
       FROM Project p
-      WHERE categoryId = @p1
+      WHERE p.categoryId = @p1
     `;
     const params: any[] = [cat.id];
     if (fiscalYear) {
-      projectQuery += ` AND fiscalYear = @p2`;
+      projectQuery += ` AND p.fiscalYear = @p2`;
       params.push(fiscalYear);
     }
     const { rows: projRows } = await safeQuery<any>(projectQuery, params);
@@ -360,14 +407,13 @@ export async function getCIDPPerformance(
         id: p.id.toString(),
         name: p.name,
         contributionValue: Number(p.contributionValue ?? 0),
-        latestTrackerPercent:
-          p.latestTrackerPercent != null ? Number(p.latestTrackerPercent) : 0,
+        latestTrackerPercent: Number(p.latestTrackerPercent),
         status: p.status,
       })),
     });
   }
 
-  // Build CategoryPerformance[] (same logic as before, using the projects fetched)
+  // Build CategoryPerformance[]
   const categoriesPerf: CategoryPerformance[] = [];
   for (const cat of categoryMap.values()) {
     const covered = cat.projects.reduce(
@@ -405,7 +451,7 @@ export async function getCIDPPerformance(
     });
   }
 
-  // Build SectorPerformance[] (same as before)
+  // Build SectorPerformance[]
   const sectorMap = new Map<string, CategoryPerformance[]>();
   for (const cat of categoriesPerf) {
     if (!sectorMap.has(cat.sector)) sectorMap.set(cat.sector, []);
@@ -474,14 +520,24 @@ export async function getReportProjects(
 ): Promise<ReportProject[]> {
   let query = `
     SELECT
-      p.id, p.name, p.sector,
+      p.id,
+      p.name,
+      ou.name AS sector,
       CONCAT(ISNULL(p.ward,''), CASE WHEN p.ward IS NOT NULL AND p.subCounty IS NOT NULL THEN ', ' ELSE '' END, ISNULL(p.subCounty,'')) AS location,
-      ts.overallPercent AS latestTrackerPercent, ts.submittedAt AS latestTrackerDate,
-      tc.trackerCount, ISNULL(stalled.stalledCount, 0) AS stalledCount,
-      prev.overallPercent AS prevTrackerPercent, ch.status AS checklistStatus,
-      trc.workforceCount, trc.workforceMale, trc.workforceFemale, trc.workforcePWD,
-      trc.bestPractices, trc.challenges
+      ts.overallPercent AS latestTrackerPercent,
+      ts.submittedAt AS latestTrackerDate,
+      tc.trackerCount,
+      ISNULL(stalled.stalledCount, 0) AS stalledCount,
+      prev.overallPercent AS prevTrackerPercent,
+      ch.status AS checklistStatus,
+      trc.workforceCount,
+      trc.workforceMale,
+      trc.workforceFemale,
+      trc.workforcePWD,
+      trc.bestPractices,
+      trc.challenges
     FROM Project p
+    LEFT JOIN OrganisationalUnit ou ON p.orgUnitId = ou.id
     INNER JOIN TrackerSubmission ts ON ts.id = (SELECT TOP 1 id FROM TrackerSubmission WHERE projectId = p.id ORDER BY submittedAt DESC)
     INNER JOIN (SELECT projectId, COUNT(*) AS trackerCount FROM TrackerSubmission GROUP BY projectId) tc ON tc.projectId = p.id
     LEFT JOIN (SELECT tsi.submissionId, COUNT(*) AS stalledCount FROM TrackerSubmissionItem tsi WHERE tsi.status = 'STALLED' GROUP BY tsi.submissionId) stalled ON stalled.submissionId = ts.id
@@ -538,7 +594,6 @@ export async function getReportProjects(
     };
   });
 }
-
 // ─── getFiscalYears ──────────────────────────────────────────────────────────
 
 export async function getFiscalYears(): Promise<string[]> {

@@ -6,6 +6,7 @@ import { getUser } from "@/lib/actions/usersActions";
 import {
   getAdminStats,
   getRecentActivity,
+  getUserRoles,
   type AdminActivity,
 } from "@/lib/actions/adminActions";
 import {
@@ -144,13 +145,15 @@ export default async function AdminPage() {
   const session = await auth();
   const user = await getUser(session?.user?.email ?? "");
 
-  const role = user?.role || "";
+  const role = await getUserRoles(user?.id ?? "");
 
-  // const hasAccess = (role: string) => ["system admin", "admin"].includes(role);
+  console.log("role", role);
 
-  // if (!user || !hasAccess(role)) {
-  //   redirect("/");
-  // }
+  const hasAccess = (role: string) => ["System Admin", "admin"].includes(role);
+
+  if (!user || !hasAccess(role[0].name)) {
+    redirect("/");
+  }
 
   const [stats, activity] = await Promise.all([
     getAdminStats(),
@@ -254,15 +257,15 @@ export default async function AdminPage() {
                 Quick Actions
               </h2>
               <div className="space-y-2">
-                {role === "system admin" && (
-                  <QuickAction
-                    href="/admin/users"
-                    icon={<Users className="w-5 h-5 text-violet-600" />}
-                    label="Manage Users"
-                    description="Add, edit or archive user accounts"
-                    accent="bg-violet-50 dark:bg-violet-950/30"
-                  />
-                )}
+                {/*{role === "system admin" && (*/}
+                <QuickAction
+                  href="/admin/users"
+                  icon={<Users className="w-5 h-5 text-violet-600" />}
+                  label="Manage Users"
+                  description="Add, edit or archive user accounts"
+                  accent="bg-violet-50 dark:bg-violet-950/30"
+                />
+                {/*)}*/}
 
                 <QuickAction
                   href="/admin/roles"

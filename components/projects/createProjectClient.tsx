@@ -40,6 +40,7 @@ import {
 import { toast } from "sonner";
 import { ProjectLocationForm } from "@/components/projects/ProjectLocationForm";
 import { createFullProject } from "@/lib/actions/projectActions";
+import OrgUnitSelector from "../admin/OrgUnitSelector";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -316,29 +317,13 @@ function SectionBasics({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-1.5">
           <Label className="text-xs font-semibold">
-            Sector <span className="text-destructive">*</span>
+            Organisation Unit <span className="text-destructive">*</span>
           </Label>
-          <Select
-            value={sector}
-            onValueChange={(val) => {
-              setSector(val);
-              if (touched.sector) setTouched("sector");
-            }}
-            onOpenChange={() => setTouched("sector")}
-          >
-            <SelectTrigger
-              className={`h-9 text-sm ${errors.sector && touched.sector ? "border-destructive" : ""}`}
-            >
-              <SelectValue placeholder="Select a sector…" />
-            </SelectTrigger>
-            <SelectContent>
-              {SECTORS.map((s) => (
-                <SelectItem key={s} value={s}>
-                  {s}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <OrgUnitSelector
+            value={sector} // we reuse the same state variable name
+            onChange={setSector}
+            placeholder="Select a unit…"
+          />
           {errors.sector && touched.sector && (
             <p className="text-xs text-destructive mt-1">{errors.sector}</p>
           )}
@@ -1064,7 +1049,7 @@ export default function CreateProjectClient({
     try {
       const project = await createFullProject({
         name: name.trim(),
-        sector,
+        orgUnitId: sector,
         budget: budget ? Number(budget) : undefined,
         description: description || undefined,
         categoryId,

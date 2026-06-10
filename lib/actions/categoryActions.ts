@@ -182,6 +182,78 @@ async function getUserIdByEmail(email: string | null): Promise<string | null> {
   );
   return rows[0]?.id || null;
 }
+
+/**
+ * Builds a CTE (Common Table Expression) that gives each project:
+ * - latestTrackerPercent
+ * - isStalled (whether any item in the latest submission has status 'STALLED')
+ * - terminated (if project.status = 'TERMINATED')
+ * Then applies the status filter.
+ */
+function applyDerivedStatusFilter(
+  baseQuery: string,
+  statusFilter?: string,
+): string {
+  if (!statusFilter || statusFilter === "ALL") return baseQuery;
+
+  // Build CTE that attaches latest tracker and stalled info
+  const cte = `
+    WITH ProjectStatus AS (
+      SELECT
+        p.id,
+        p.name,
+        p.sector,
+        p.budget,
+        p.progress,
+        p.status AS dbStatus,
+        p.ward,
+        p.subCounty,
+        p.createdAt,
+        p.categoryId,
+        pc.name AS categoryName,
+        (
+          SELECT TOP 1 overallPercent
+          FROM TrackerSubmission ts
+          WHERE ts.projectId = p.id
+          ORDER BY ts.submittedAt DESC
+        ) AS latestTrackerPercent,
+        (
+          SELECT TOP 1
+            CASE WHEN EXISTS (
+              SELECT 1
+              FROM TrackerSubmissionItem tsi
+              INNER JOIN TrackerSubmission ts ON ts.id = tsi.submissionId
+              WHERE ts.projectId = p.id
+                AND ts.submittedAt = (
+                  SELECT MAX(submittedAt) FROM TrackerSubmission WHERE projectId = p.id
+                )
+                AND tsi.status = 'STALLED'
+            ) THEN 1 ELSE 0 END
+        ) AS isStalled
+      FROM Project p
+      LEFT JOIN ProjectCategory pc ON p.categoryId = pc.id
+      WHERE 1=1
+    )
+  `;
+
+  const filterMap: Record<string, string> = {
+    ONGOING: "latestTrackerPercent > 0 AND latestTrackerPercent < 100",
+    COMPLETED: "latestTrackerPercent = 100",
+    NOT_STARTED: "latestTrackerPercent = 0",
+    STALLED: "isStalled = 1",
+    TERMINATED: "dbStatus = 'TERMINATED'",
+  };
+
+  const condition = filterMap[statusFilter];
+  if (!condition) return baseQuery;
+
+  // Wrap the original query with the CTE and filter
+  // We assume the original query selects from Project (or includes a join). To simplify,
+  // we'll replace the base query's FROM clause with a reference to the CTE.
+  // Instead of complex parsing, we rewrite the function to use the CTE directly.
+  // This means the function fetchFilteredProjectsFlat will be completely rewritten.
+  throw new Error("See full function rewrite below");
+}
 // ─── getCategories ────────────────────────────────────────────────────────────
 
 export async function getCategories(filters?: {
@@ -600,19 +672,46 @@ export async function fetchFilteredProjectsFlat(filters?: {
   sector?: string;
   categoryName?: string;
   projectName?: string;
-  status?: string;
+  status?: string; // 'ONGOING', 'COMPLETED', 'NOT_STARTED', 'STALLED', 'TERMINATED', 'ALL'
   minBudget?: number;
   maxBudget?: number;
 }): Promise<FlatProject[]> {
   let query = `
     SELECT
-      p.id, p.name, p.sector, p.status, p.budget, p.progress,
-      p.ward, p.subCounty, p.createdAt, p.categoryId,
-      pc.name as categoryName
+      p.id,
+      p.name,
+      p.sector,
+      p.budget,
+      p.progress,
+      p.status AS dbStatus,
+      p.ward,
+      p.subCounty,
+      p.createdAt,
+      p.categoryId,
+      pc.name AS categoryName,
+      t.latestTrackerPercent,
+      CASE WHEN s.stalledCount > 0 THEN 1 ELSE 0 END AS isStalled
     FROM Project p
     LEFT JOIN ProjectCategory pc ON p.categoryId = pc.id
+    OUTER APPLY (
+      SELECT TOP 1 overallPercent AS latestTrackerPercent
+      FROM TrackerSubmission ts
+      WHERE ts.projectId = p.id
+      ORDER BY ts.submittedAt DESC
+    ) t
+    OUTER APPLY (
+      SELECT COUNT(*) AS stalledCount
+      FROM TrackerSubmissionItem tsi
+      INNER JOIN TrackerSubmission ts ON ts.id = tsi.submissionId
+      WHERE ts.projectId = p.id
+        AND ts.submittedAt = (
+          SELECT MAX(submittedAt) FROM TrackerSubmission WHERE projectId = p.id
+        )
+        AND tsi.status = 'STALLED'
+    ) s
     WHERE 1=1
   `;
+
   const params: any[] = [];
   let paramIndex = 0;
 
@@ -628,9 +727,24 @@ export async function fetchFilteredProjectsFlat(filters?: {
     query += ` AND p.name LIKE @p${++paramIndex}`;
     params.push(`%${filters.projectName}%`);
   }
-  if (filters?.status) {
-    query += ` AND p.status = @p${++paramIndex}`;
-    params.push(filters.status);
+  if (filters?.status && filters.status !== "ALL") {
+    switch (filters.status) {
+      case "ONGOING":
+        query += ` AND ISNULL(t.latestTrackerPercent, 0) > 0 AND ISNULL(t.latestTrackerPercent, 0) < 100`;
+        break;
+      case "COMPLETED":
+        query += ` AND ISNULL(t.latestTrackerPercent, 0) = 100`;
+        break;
+      case "NOT_STARTED":
+        query += ` AND ISNULL(t.latestTrackerPercent, 0) = 0`;
+        break;
+      case "STALLED":
+        query += ` AND s.stalledCount > 0`;
+        break;
+      case "TERMINATED":
+        query += ` AND p.status = 'TERMINATED'`;
+        break;
+    }
   }
   if (filters?.minBudget !== undefined) {
     query += ` AND p.budget >= @p${++paramIndex}`;
@@ -650,15 +764,14 @@ export async function fetchFilteredProjectsFlat(filters?: {
     categoryId: row.categoryId?.toString() ?? null,
     categoryName: row.categoryName ?? null,
     sector: row.sector ?? null,
-    status: row.status,
+    status: row.dbStatus,
     budget: row.budget != null ? Number(row.budget) : null,
-    progress: row.progress != null ? Number(row.progress) : 0,
+    progress: row.latestTrackerPercent ?? 0,
     ward: row.ward ?? null,
     subCounty: row.subCounty ?? null,
     createdAt: row.createdAt?.toISOString() ?? new Date().toISOString(),
   }));
 }
-
 // ─── fetchUncategorizedProjects ───────────────────────────────────────────────
 
 export async function fetchUncategorizedProjects(
@@ -671,9 +784,35 @@ export async function fetchUncategorizedProjects(
   },
 ): Promise<CategoryProject[]> {
   let query = `
-    SELECT p.id, p.name, p.sector, p.status, p.budget, p.progress,
-           p.subCounty, p.ward, p.createdAt
+    SELECT
+      p.id,
+      p.name,
+      p.sector,
+      p.status,
+      p.budget,
+      p.progress,
+      p.subCounty,
+      p.ward,
+      p.createdAt,
+      t.latestTrackerPercent,
+      CASE WHEN s.stalledCount > 0 THEN 1 ELSE 0 END AS isStalled
     FROM Project p
+    OUTER APPLY (
+      SELECT TOP 1 overallPercent AS latestTrackerPercent
+      FROM TrackerSubmission ts
+      WHERE ts.projectId = p.id
+      ORDER BY ts.submittedAt DESC
+    ) t
+    OUTER APPLY (
+      SELECT COUNT(*) AS stalledCount
+      FROM TrackerSubmissionItem tsi
+      INNER JOIN TrackerSubmission ts ON ts.id = tsi.submissionId
+      WHERE ts.projectId = p.id
+        AND ts.submittedAt = (
+          SELECT MAX(submittedAt) FROM TrackerSubmission WHERE projectId = p.id
+        )
+        AND tsi.status = 'STALLED'
+    ) s
     WHERE p.categoryId IS NULL
   `;
   const mainParams: any[] = [];
@@ -688,8 +827,23 @@ export async function fetchUncategorizedProjects(
     mainParams.push(`%${projectFilters.projectName}%`);
   }
   if (projectFilters?.status && projectFilters.status !== "ALL") {
-    query += ` AND p.status = @p${nextParam++}`;
-    mainParams.push(projectFilters.status);
+    switch (projectFilters.status) {
+      case "ONGOING":
+        query += ` AND ISNULL(t.latestTrackerPercent, 0) > 0 AND ISNULL(t.latestTrackerPercent, 0) < 100`;
+        break;
+      case "COMPLETED":
+        query += ` AND ISNULL(t.latestTrackerPercent, 0) = 100`;
+        break;
+      case "NOT_STARTED":
+        query += ` AND ISNULL(t.latestTrackerPercent, 0) = 0`;
+        break;
+      case "STALLED":
+        query += ` AND s.stalledCount > 0`;
+        break;
+      case "TERMINATED":
+        query += ` AND p.status = 'TERMINATED'`;
+        break;
+    }
   }
   if (projectFilters?.minBudget !== undefined) {
     query += ` AND p.budget >= @p${nextParam++}`;
@@ -704,20 +858,7 @@ export async function fetchUncategorizedProjects(
   const { rows } = await safeQuery<any>(query, mainParams);
   if (rows.length === 0) return [];
 
-  const projectIds = rows.map((p: any) => p.id.toString());
-  const trackerQuery = `
-    SELECT t.projectId, t.overallPercent, t.submittedAt
-    FROM TrackerSubmission t
-    WHERE t.projectId IN (${projectIds.map((_, i) => `@p${i + 1}`).join(",")})
-      AND t.submittedAt = (
-        SELECT MAX(t2.submittedAt) FROM TrackerSubmission t2 WHERE t2.projectId = t.projectId
-      )
-  `;
-  const { rows: trackerRows } = await safeQuery<any>(trackerQuery, projectIds);
-  const trackerByProject = new Map(
-    trackerRows.map((r: any) => [r.projectId.toString(), r]),
-  );
-
+  // Map rows to CategoryProject (same as before, using derived values)
   return rows.map((p: any) => {
     let size: CategoryProject["size"] = null;
     if (p.budget != null) {
@@ -725,7 +866,6 @@ export async function fetchUncategorizedProjects(
       else if (p.budget <= 1_000_000) size = "Medium";
       else size = "Large";
     }
-    const tr = trackerByProject.get(p.id.toString());
     return {
       id: p.id.toString(),
       name: p.name,
@@ -737,15 +877,17 @@ export async function fetchUncategorizedProjects(
       subCounty: p.subCounty ?? null,
       ward: p.ward ?? null,
       createdAt: p.createdAt?.toISOString() ?? new Date().toISOString(),
-      latestTrackerPercent: tr ? Number(tr.overallPercent) : null,
-      latestTrackerDate: tr ? tr.submittedAt?.toISOString() : null,
+      latestTrackerPercent:
+        p.latestTrackerPercent != null ? Number(p.latestTrackerPercent) : null,
+      latestTrackerDate: null, // not needed here, but could be added if needed
       trackerCount: 0,
+      contributionValue: null,
     };
   });
 }
-
 // ─── fetchCategoriesWithProjects ──────────────────────────────────────────────
 
+// ─── fetchCategoriesWithProjects (corrected) ─────────────────────────────────
 export async function fetchCategoriesWithProjects(filters?: {
   sector?: string;
   query?: string;
@@ -754,6 +896,7 @@ export async function fetchCategoriesWithProjects(filters?: {
   minBudget?: number;
   maxBudget?: number;
 }): Promise<CategoryWithProjects[]> {
+  // 1. Get approved categories with optional sector & name filters
   const catConditions: string[] = ["status = 'APPROVED'"];
   const catParams: any[] = [];
   if (filters?.sector) {
@@ -775,22 +918,68 @@ export async function fetchCategoriesWithProjects(filters?: {
   if (catRows.length === 0) return [];
 
   const categoryIds = catRows.map((r: any) => r.id);
+
+  // 2. Build the project query with derived status (identical to flat list)
   let projectQuery = `
-    SELECT p.id, p.name, p.sector, p.status, p.budget, p.progress,
-           p.subCounty, p.ward, p.createdAt, p.categoryId
+    SELECT
+      p.id,
+      p.name,
+      p.sector,
+      p.status,
+      p.budget,
+      p.progress,
+      p.subCounty,
+      p.ward,
+      p.createdAt,
+      p.categoryId,
+      p.contributionValue,
+      t.latestTrackerPercent,
+      CASE WHEN s.stalledCount > 0 THEN 1 ELSE 0 END AS isStalled
     FROM Project p
+    OUTER APPLY (
+      SELECT TOP 1 overallPercent AS latestTrackerPercent
+      FROM TrackerSubmission ts
+      WHERE ts.projectId = p.id
+      ORDER BY ts.submittedAt DESC
+    ) t
+    OUTER APPLY (
+      SELECT COUNT(*) AS stalledCount
+      FROM TrackerSubmissionItem tsi
+      INNER JOIN TrackerSubmission ts ON ts.id = tsi.submissionId
+      WHERE ts.projectId = p.id
+        AND ts.submittedAt = (
+          SELECT MAX(submittedAt) FROM TrackerSubmission WHERE projectId = p.id
+        )
+        AND tsi.status = 'STALLED'
+    ) s
     WHERE p.categoryId IN (${categoryIds.map((_, i) => `@p${i + 1}`).join(",")})
   `;
   const projectParams = [...categoryIds];
   let paramIndex = categoryIds.length;
 
+  // Apply project filters (same as flat list)
   if (filters?.projectName) {
     projectQuery += ` AND p.name LIKE @p${++paramIndex}`;
     projectParams.push(`%${filters.projectName}%`);
   }
   if (filters?.projectStatus && filters.projectStatus !== "ALL") {
-    projectQuery += ` AND p.status = @p${++paramIndex}`;
-    projectParams.push(filters.projectStatus);
+    switch (filters.projectStatus) {
+      case "ONGOING":
+        projectQuery += ` AND ISNULL(t.latestTrackerPercent, 0) > 0 AND ISNULL(t.latestTrackerPercent, 0) < 100`;
+        break;
+      case "COMPLETED":
+        projectQuery += ` AND ISNULL(t.latestTrackerPercent, 0) = 100`;
+        break;
+      case "NOT_STARTED":
+        projectQuery += ` AND ISNULL(t.latestTrackerPercent, 0) = 0`;
+        break;
+      case "STALLED":
+        projectQuery += ` AND s.stalledCount > 0`;
+        break;
+      case "TERMINATED":
+        projectQuery += ` AND p.status = 'TERMINATED'`;
+        break;
+    }
   }
   if (filters?.minBudget !== undefined) {
     projectQuery += ` AND p.budget >= @p${++paramIndex}`;
@@ -806,6 +995,8 @@ export async function fetchCategoriesWithProjects(filters?: {
     projectQuery,
     projectParams,
   );
+
+  // 3. Enrich with additional tracker data (counts, submission date)
   let trackerByProject = new Map<string, any>();
   let countByProject = new Map<string, number>();
   if (projectRows.length > 0) {
@@ -832,6 +1023,7 @@ export async function fetchCategoriesWithProjects(filters?: {
     }
   }
 
+  // 4. Group projects by category
   const projectsByCategory = new Map<string, CategoryProject[]>();
   for (const p of projectRows) {
     const catId = p.categoryId?.toString();
@@ -858,10 +1050,11 @@ export async function fetchCategoriesWithProjects(filters?: {
       latestTrackerPercent: tr ? Number(tr.overallPercent) : null,
       latestTrackerDate: tr ? tr.submittedAt?.toISOString() : null,
       trackerCount: countByProject.get(p.id.toString()) ?? 0,
-      contributionValue: p.contributionValue ?? null, // <-- add this
+      contributionValue: p.contributionValue ?? null,
     });
   }
 
+  // 5. Return all categories (including those without projects)
   return catRows.map((row: any) => {
     const projects = projectsByCategory.get(row.id) ?? [];
     const activeCount = projects.filter((p) => p.status === "ACTIVE").length;
@@ -883,7 +1076,6 @@ export async function fetchCategoriesWithProjects(filters?: {
     };
   });
 }
-
 // ─── assignProjectToCategory ──────────────────────────────────────────────────
 
 export async function assignProjectToCategory(

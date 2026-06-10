@@ -44,6 +44,7 @@ import type {
   ProjectPerformance,
 } from "@/lib/actions/dashboardActions";
 import { usePathname, useRouter } from "next/navigation";
+import Link from "next/link";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types for the stats dashboard (same as before)
@@ -103,10 +104,7 @@ function pct(n: number) {
 }
 
 function fmtBudget(n: number) {
-  if (n >= 1_000_000_000) return `KES ${(n / 1_000_000_000).toFixed(1)}B`;
-  if (n >= 1_000_000) return `KES ${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `KES ${(n / 1_000).toFixed(0)}K`;
-  return `KES ${n}`;
+  return `KES ${n.toLocaleString()}`;
 }
 
 function timeAgo(iso: string) {
@@ -834,7 +832,8 @@ function CategoryView({ category }: { category: CategoryPerformance }) {
 interface UnifiedDashboardProps {
   cidpData: CIDPPerformance;
   stats: DashboardStats;
-  userRole: "me" | "sector" | "admin";
+  user;
+  userRole: { id: number; name: string; description: string };
   userName: string;
   reportProjects: ReportProject[];
   fiscalYears: string[];
@@ -844,6 +843,7 @@ interface UnifiedDashboardProps {
 export default function UnifiedDashboard({
   cidpData,
   stats,
+  user,
   userRole,
   userName,
   reportProjects,
@@ -854,7 +854,7 @@ export default function UnifiedDashboard({
   const [activeView, setActiveView] = useState<"dashboard" | "cidp">(
     "dashboard",
   );
-  const isME = userRole === "me";
+  const isME = user.sector === "Monitoring And Evaluation";
 
   const router = useRouter();
   const pathname = usePathname();
@@ -1030,7 +1030,7 @@ export default function UnifiedDashboard({
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground">
-                Fiscal Year:
+                Financial Year:
               </span>
               <select
                 value={currentFiscalYear || "ALL"}
@@ -1051,7 +1051,7 @@ export default function UnifiedDashboard({
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border shrink-0 ${
                 isME
                   ? "bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/30 dark:border-amber-800 dark:text-amber-400"
-                  : userRole === "admin"
+                  : user.role === "admin"
                     ? "bg-green-50 border-green-200 text-green-700 dark:bg-blue-900/30 dark:border-blue-800 dark:text-blue-400"
                     : "bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/30 dark:border-emerald-800 dark:text-emerald-400"
               }`}
@@ -1059,7 +1059,7 @@ export default function UnifiedDashboard({
               <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
               {isME
                 ? "M&E Officer"
-                : userRole === "admin"
+                : userRole.name === "admin"
                   ? "Admin"
                   : "Sector Officer"}
             </span>
@@ -1149,7 +1149,7 @@ export default function UnifiedDashboard({
                     <Counter value={stats.completedProjects} />
                   </>
                 }
-                sub={`${completionRate}%`}
+                sub={`${pct(completionRate)}%`}
                 icon={
                   <CheckCircle2 className="w-5 h-5 text-teal-600 dark:text-teal-400" />
                 }
@@ -1159,7 +1159,7 @@ export default function UnifiedDashboard({
               <StatCard
                 label="Ongoing Projects"
                 value={<Counter value={stats.activeProjects} />}
-                sub={`${ongoingRate}%`}
+                sub={`${pct(ongoingRate)}%`}
                 icon={
                   <Activity className="w-5 h-5 text-sky-600 dark:text-sky-400" />
                 }
@@ -1169,7 +1169,7 @@ export default function UnifiedDashboard({
               <StatCard
                 label="Stalled Projects"
                 value={<Counter value={stats.stalledProjects} />}
-                sub={`${stalledRate}%`}
+                sub={`${pct(stalledRate)}%`}
                 icon={
                   <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400" />
                 }
@@ -1179,7 +1179,7 @@ export default function UnifiedDashboard({
               <StatCard
                 label="Terminated projects"
                 value={<Counter value={stats.terminatedProjects} />}
-                sub={`${(stats.terminatedProjects / stats.totalProjects) * 100}%`}
+                sub={`${pct((stats.terminatedProjects / stats.totalProjects) * 100)}%`}
                 icon={
                   <Rocket className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
                 }
@@ -1200,7 +1200,7 @@ export default function UnifiedDashboard({
               <StatCard
                 label="Not Started"
                 value={<Counter value={stats.notStartedProjects} />}
-                sub={`${notRate}%`}
+                sub={`${pct(notRate)}%`}
                 icon={
                   <Clock className="w-5 h-5 text-amber-600 dark:text-amber-400" />
                 }
@@ -1491,12 +1491,12 @@ export default function UnifiedDashboard({
                   ))}
                 </div>
               )}
-              <a
+              <Link
                 href="/projects"
                 className="flex items-center gap-1.5 mt-4 text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
               >
                 View all projects <ArrowUpRight className="w-3.5 h-3.5" />
-              </a>
+              </Link>
             </div>
           </>
         )}
@@ -1506,6 +1506,7 @@ export default function UnifiedDashboard({
           <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5">
             <div className="flex items-center justify-between mb-4">
               <div>
+                UnifiedDashboard
                 <h2 className="text-xs font-bold text-zinc-800 dark:text-zinc-200 uppercase tracking-widest">
                   County key performance indicators
                 </h2>

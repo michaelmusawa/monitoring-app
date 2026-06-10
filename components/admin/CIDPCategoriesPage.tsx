@@ -1144,11 +1144,13 @@ function AddCategoryForm({
 interface CIDPCategoriesPageProps {
   userPermissions: string[];
   userRole?: string;
+  displayRole?: string;
 }
 
 export default function CIDPCategoriesPage({
   userPermissions,
   userRole = "viewer",
+  displayRole,
 }: CIDPCategoriesPageProps) {
   const [categories, setCategories] = useState<ProjectCategory[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1169,6 +1171,8 @@ export default function CIDPCategoriesPage({
     null,
   );
 
+  console.log("user permissions", userPermissions);
+
   // Permissions checks (unchanged)
   const canView = hasPermission(userPermissions, "category:view");
   const canCreate = hasPermission(userPermissions, "category:create");
@@ -1186,13 +1190,6 @@ export default function CIDPCategoriesPage({
   const canDelete = (status: CategoryStatus) =>
     hasDeletePermission &&
     (status === "DRAFT" || status === "CHANGES_REQUESTED");
-
-  const displayRole =
-    userRole === "me"
-      ? "ME Officer"
-      : userRole === "sector"
-        ? "Sector Officer"
-        : "System Admin";
 
   // Load data
   const loadCategories = useCallback(async () => {

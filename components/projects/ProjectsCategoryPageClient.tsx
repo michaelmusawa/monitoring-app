@@ -191,8 +191,11 @@ export default function ProjectsCategoryPageClient({
           className="px-3 py-2 text-sm rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white"
         >
           <option value="ALL">All status</option>
-          <option value="ACTIVE">Active</option>
-          <option value="PENDING">Pending</option>
+          <option value="ONGOING">Ongoing</option>
+          <option value="COMPLETED">Completed</option>
+          <option value="NOT_STARTED">Not Started</option>
+          <option value="STALLED">Stalled</option>
+          <option value="TERMINATED">Terminated</option>
         </select>
         <div className="flex items-center gap-1">
           <input

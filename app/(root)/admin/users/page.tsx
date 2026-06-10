@@ -17,7 +17,7 @@ export default async function AdminUsersPage(props: {
 }) {
   const session = await auth();
   const user = await getUser(session?.user?.email ?? "");
-  if (!session || user?.role !== "system admin") redirect("/");
+  if (!session || user?.role !== "admin ") redirect("/");
 
   const searchParams = await props.searchParams;
   const query = searchParams?.query ?? "";

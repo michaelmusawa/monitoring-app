@@ -568,7 +568,7 @@ export async function initializeProject(projectId: string): Promise<void> {
 
 export async function createFullProject(data: {
   name: string;
-  sector?: string;
+  orgUnitId?: string;
   budget?: number;
   description?: string;
   categoryId?: string;
@@ -612,7 +612,7 @@ export async function createFullProject(data: {
 
     const { rows } = await safeQuery<any>(
       `INSERT INTO Project (
-         id, name, sector, budget, description, status, categoryId, contributionValue,
+         id, name, orgUnitId, budget, description, status, categoryId, contributionValue,
          subCounty, ward, lat, long,
          fundingSource, employer, tenderNumber, projectScope, projectObjective,
          projectManager, fiscalYear, contractSum, contractDuration,
@@ -638,7 +638,7 @@ export async function createFullProject(data: {
       [
         slug,
         data.name,
-        data.sector ?? null,
+        data.orgUnitId ?? null,
         data.budget ?? null,
         data.description ?? null,
         data.categoryId ?? null,

@@ -87,12 +87,19 @@ export async function fetchAuditLogs(filters?: {
   );
   const total = countRows[0]?.total || 0;
 
-  // Fetch page
-  params.push(limit, offset);
+  // Guard: if no records, return empty result
+  if (total === 0) {
+    return { logs: [], totalPages: 0 };
+  }
+
+  // Fetch page – ensure limit > 0
+  const safeLimit = Math.max(1, limit);
+  params.push(offset, safeLimit);
+
   const { rows } = await safeQuery<any>(
     `SELECT * FROM AuditLog ${where}
-     ORDER BY createdAt DESC
-     OFFSET @p${params.length - 1} ROWS FETCH NEXT @p${params.length} ROWS ONLY`,
+      ORDER BY createdAt DESC
+      OFFSET @p${params.length - 1} ROWS FETCH NEXT @p${params.length} ROWS ONLY`,
     params,
   );
 
@@ -110,7 +117,7 @@ export async function fetchAuditLogs(filters?: {
       userAgent: r.userAgent,
       createdAt: r.createdAt.toISOString(),
     })),
-    totalPages: Math.ceil(total / limit),
+    totalPages: Math.ceil(total / safeLimit),
   };
 }
 

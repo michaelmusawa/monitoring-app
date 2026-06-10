@@ -7,6 +7,7 @@ import {
   getFiscalYears,
 } from "@/lib/actions/dashboardActions";
 import UnifiedDashboard from "@/components/dashboard/UnifiedDashboard";
+import { getUserRoles } from "@/lib/actions/adminActions";
 
 export default async function DashboardPage(props: {
   searchParams?: Promise<{ fiscalYear?: string }>;
@@ -25,14 +26,16 @@ export default async function DashboardPage(props: {
       getFiscalYears(),
     ]);
 
-  const userRole: "me" | "sector" | "admin" =
-    user?.sector === "me" ? "me" : user?.role === "admin" ? "admin" : "sector";
+  console.log(stats);
+
+  const userRole = await getUserRoles(user?.id ?? "");
   const userName = session?.user?.name ?? userEmail;
 
   return (
     <UnifiedDashboard
       cidpData={cidpData}
       stats={stats}
+      user={user}
       userRole={userRole}
       userName={userName}
       reportProjects={reportProjects}

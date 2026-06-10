@@ -35,7 +35,7 @@ jobs:
           cd ~/monitoring-app/monitoring-app
 
           echo "Pulling latest master branch..."
-          git fetch origin master && git reset --hard origin/master
+          git fetch origin main && git reset --hard origin/main
 
           echo "Installing production dependencies..."
           pnpm install --frozen-lockfile

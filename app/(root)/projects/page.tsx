@@ -4,6 +4,7 @@ import { getUser } from "@/lib/actions/usersActions";
 import ProjectsByCategoryServer from "@/components/projects/ProjectsByCategoryServer";
 import ProjectsCategoryPageClient from "@/components/projects/ProjectsCategoryPageClient";
 import ProjectsTableSkeleton from "@/components/skeleton/ProjectsTableSkeleton";
+import { getUserRoles } from "@/lib/actions/adminActions";
 
 const Page = async (props: {
   searchParams?: Promise<{
@@ -20,7 +21,7 @@ const Page = async (props: {
   const session = await auth();
   const userEmail = session?.user?.email || "";
   const user = await getUser(userEmail);
-  const userRole = user?.role ?? "";
+  const userRole = await getUserRoles(user?.id ?? "");
   const userSector = user?.sector ?? "";
 
   const categoryQuery = searchParams?.query || "";
