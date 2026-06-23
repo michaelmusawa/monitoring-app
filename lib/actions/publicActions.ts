@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { safeQuery } from "../db";
 import { z } from "zod";
+import { buildUnitLookup, getRootUnitName } from "./orgActions";
+import { ProjectStatus } from "@/components/portal/ProjectList";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 export interface PublicProject {
@@ -17,6 +19,13 @@ export interface PublicProject {
   createdAt: string;
   latestTrackerPercent: number | null;
   latestTrackerDate: string | null;
+  derivedStatus: ProjectStatus;
+}
+
+interface LatestTrackerInfo {
+  overallPercent: number;
+  submittedAt: Date;
+  prevOverallPercent: number | null;
 }
 
 export interface PublicProjectDetail extends PublicProject {
@@ -43,6 +52,69 @@ export interface PublicComment {
   isApproved: boolean;
 }
 
+async function getLatestTrackerInfoMap(
+  fiscalYear?: string,
+): Promise<Map<string, LatestTrackerInfo>> {
+  // Same logic as in dashboardActions, but without fiscalYear filter if not needed
+  let sql = `
+    WITH ranked AS (
+      SELECT projectId, overallPercent, submittedAt,
+             ROW_NUMBER() OVER (PARTITION BY projectId ORDER BY submittedAt DESC) AS rn
+      FROM TrackerSubmission
+    )
+    SELECT r1.projectId,
+           r1.overallPercent,
+           r1.submittedAt,
+           r2.overallPercent AS prevOverallPercent
+    FROM ranked r1
+    LEFT JOIN ranked r2 ON r1.projectId = r2.projectId AND r2.rn = 2
+    WHERE r1.rn = 1
+  `;
+  const { rows } = await safeQuery<{
+    projectId: string;
+    overallPercent: number;
+    submittedAt: Date;
+    prevOverallPercent: number | null;
+  }>(sql, []);
+
+  const map = new Map<string, LatestTrackerInfo>();
+  for (const row of rows) {
+    map.set(row.projectId, {
+      overallPercent: Number(row.overallPercent),
+      submittedAt: row.submittedAt,
+      prevOverallPercent:
+        row.prevOverallPercent != null ? Number(row.prevOverallPercent) : null,
+    });
+  }
+  return map;
+}
+
+function computePublicStatus(
+  dbStatus: string,
+  tracker?: LatestTrackerInfo,
+): "NOT_STARTED" | "ONGOING" | "STALLED" | "COMPLETED" | "TERMINATED" {
+  if (dbStatus === "TERMINATED") return "TERMINATED";
+  if (dbStatus === "COMPLETED" || dbStatus === "COMPLETE") return "COMPLETED";
+
+  const pct = tracker?.overallPercent ?? 0;
+  if (pct === 100) return "COMPLETED";
+  if (pct === 0) return "NOT_STARTED";
+  if (pct > 0 && pct < 100) {
+    // STALLED if the latest tracker is older than 3 months and progress unchanged from previous
+    const threeMonthsMs = 3 * 30 * 24 * 60 * 60 * 1000;
+    if (
+      tracker &&
+      tracker.prevOverallPercent !== null &&
+      pct === tracker.prevOverallPercent &&
+      Date.now() - new Date(tracker.submittedAt).getTime() > threeMonthsMs
+    ) {
+      return "STALLED";
+    }
+    return "ONGOING";
+  }
+  return "NOT_STARTED";
+}
+
 // ─── Fetch projects with filters (no auth required) ───────────────────────
 export async function fetchPublicProjects(filters?: {
   sector?: string;
@@ -55,10 +127,15 @@ export async function fetchPublicProjects(filters?: {
   maxBudget?: number;
   minProgress?: number;
   maxProgress?: number;
+  limit?: number; // 👈 ADD THIS
 }): Promise<PublicProject[]> {
+  const unitLookup = await buildUnitLookup();
+  const trackerMap = await getLatestTrackerInfoMap();
+
+  // Base SQL without sector filter (we'll handle in code)
   let query = `
     SELECT
-      p.id, p.name, p.sector, p.status, p.budget, p.progress,
+      p.id, p.name, p.orgUnitId, p.status, p.budget, p.progress,
       p.subCounty, p.ward, p.createdAt,
       t.overallPercent as latestTrackerPercent,
       t.submittedAt as latestTrackerDate
@@ -116,7 +193,34 @@ export async function fetchPublicProjects(filters?: {
 
   query += ` ORDER BY p.createdAt DESC`;
   const { rows } = await safeQuery<any>(query, params);
-  return rows.map(mapPublicProject);
+  const filtered = [];
+  for (const row of rows) {
+    if (filters?.sector) {
+      const root = await getRootUnitName(row.orgUnitId, unitLookup);
+      if (root !== filters.sector) continue;
+    }
+    const tracker = trackerMap.get(row.id);
+    const derivedStatus = computePublicStatus(row.status, tracker);
+    // apply status filter if present
+    if (
+      filters?.status &&
+      filters.status !== "ALL" &&
+      derivedStatus !== filters.status
+    )
+      continue;
+    filtered.push({
+      ...mapPublicProject(row),
+      sector: row.orgUnitId
+        ? await getRootUnitName(row.orgUnitId, unitLookup)
+        : null,
+      derivedStatus,
+    });
+  }
+  if (filters?.limit !== undefined) {
+    return filtered.slice(0, filters.limit);
+  }
+
+  return filters?.limit ? filtered.slice(0, filters.limit) : filtered;
 }
 
 // ─── Fetch single project detail with extra fields ────────────────────────
@@ -452,164 +556,218 @@ export async function getCIDPPerformance(): Promise<CIDPPerformance> {
 }
 
 export async function fetchPublicStats() {
-  // Get latest tracker percent for each project
-  const { rows: trackerRows } = await safeQuery<any>(
-    `SELECT projectId, overallPercent
-     FROM (
-       SELECT projectId, overallPercent,
-              ROW_NUMBER() OVER (PARTITION BY projectId ORDER BY submittedAt DESC) AS rn
-       FROM TrackerSubmission
-     ) ranked WHERE rn = 1`,
-    [],
-  );
-  const trackerMap = new Map<string, number>();
-  for (const row of trackerRows) {
-    trackerMap.set(row.projectId, Number(row.overallPercent));
-  }
+  const unitLookup = await buildUnitLookup();
+  const trackerMap = await getLatestTrackerInfoMap();
 
-  // Get all projects
   const { rows: projects } = await safeQuery<any>(
-    `SELECT id, budget, subCounty, ward, sector, status FROM Project`,
+    `SELECT id, budget, subCounty, ward, orgUnitId, status FROM Project`,
     [],
   );
 
-  let totalProjects = 0;
-  let completed = 0;
-  let ongoing = 0;
-  let notStarted = 0;
+  let total = 0,
+    completed = 0,
+    ongoing = 0,
+    notStarted = 0,
+    stalled = 0,
+    terminated = 0;
   let totalBudget = 0;
   const subCountiesSet = new Set<string>();
   const wardsSet = new Set<string>();
   const sectorsSet = new Set<string>();
 
   for (const proj of projects) {
-    totalProjects++;
+    total++;
     totalBudget += Number(proj.budget ?? 0);
     if (proj.subCounty) subCountiesSet.add(proj.subCounty);
     if (proj.ward) wardsSet.add(proj.ward);
-    if (proj.sector) sectorsSet.add(proj.sector);
 
-    const trackerPct = trackerMap.get(proj.id) ?? 0;
-    if (trackerPct === 100) completed++;
-    else if (trackerPct === 0) notStarted++;
-    else if (trackerPct > 0 && trackerPct < 100) ongoing++;
+    const root = await getRootUnitName(proj.orgUnitId, unitLookup);
+    sectorsSet.add(root);
+
+    const tracker = trackerMap.get(proj.id);
+    const status = computePublicStatus(proj.status, tracker);
+    switch (status) {
+      case "COMPLETED":
+        completed++;
+        break;
+      case "ONGOING":
+        ongoing++;
+        break;
+      case "NOT_STARTED":
+        notStarted++;
+        break;
+      case "STALLED":
+        stalled++;
+        break;
+      case "TERMINATED":
+        terminated++;
+        break;
+    }
   }
 
-  // Stalled: projects with any STALLED item in latest submission
-  const { rows: stalledRows } = await safeQuery<{ cnt: number }>(
-    `SELECT COUNT(*) AS cnt FROM Project WHERE status = 'STALLED'`,
-    [],
-  );
-  const stalledProjects = stalledRows[0]?.cnt ?? 0;
-
-  // Terminated: projects with status = 'CANCELLED'
-  const { rows: terminatedRows } = await safeQuery<{ cnt: number }>(
-    `SELECT COUNT(*) AS cnt FROM Project WHERE status = 'TERMINATED'`,
-    [],
-  );
-  const terminatedProjects = terminatedRows[0]?.cnt ?? 0;
-
-  const completionRate =
-    totalProjects > 0 ? (completed / totalProjects) * 100 : 0;
-
   return {
-    totalProjects,
+    totalProjects: total,
     completedProjects: completed,
     ongoingProjects: ongoing,
     notStartedProjects: notStarted,
-    stalledProjects,
-    terminatedProjects,
+    stalledProjects: stalled,
+    terminatedProjects: terminated,
     totalBudget,
     subCounties: subCountiesSet.size,
     totalSectors: sectorsSet.size,
     totalWards: wardsSet.size,
-    completionRate: Math.round(completionRate),
+    completionRate: total ? Math.round((completed / total) * 100) : 0,
   };
 }
 
 export interface BreakdownItem {
-  label: string; // e.g. "2024/2025" or "Water & Sanitation"
-  value: string; // filter value to set in URL
+  label: string;
+  value: string;
   totalProjects: number;
-  active: number;
+  ongoing: number;
   stalled: number;
   notStarted: number;
   completed: number;
+  terminated: number;
   totalBudget: number;
   avgProgress: number;
 }
 export async function fetchBreakdownData(
-  type: "fiscalYear" | "sector" | "subCounty" | "ward",
-  extraFilter?: { subCounty?: string; fiscalYear?: string },
+  type: string,
+  extraFilter?: {
+    fiscalYear?: string;
+    parentValue?: string; // optional parent filter value (e.g. subCounty for wards)
+  },
 ): Promise<BreakdownItem[]> {
-  let groupField: string;
-  let order: string;
-  const conditions: string[] = [];
+  const unitLookup = await buildUnitLookup();
+  const trackerMap = await getLatestTrackerInfoMap();
+
+  // Build base project query (no grouping)
+  let projectSQL = `
+    SELECT p.id, p.orgUnitId, p.subCounty, p.ward, p.fiscalYear,
+           p.sector, p.budget, p.status, p.name
+    FROM Project p
+    WHERE 1=1
+  `;
   const params: any[] = [];
   let idx = 1;
 
-  // Determine grouping field
-  if (type === "fiscalYear") {
-    groupField = "p.fiscalYear";
-    order = "p.fiscalYear DESC";
-  } else if (type === "sector") {
-    groupField = "p.sector";
-    order = "p.sector";
-  } else if (type === "subCounty") {
-    groupField = "p.subCounty";
-    order = "p.subCounty";
-  } else {
-    // ward
-    groupField = "p.ward";
-    order = "p.ward";
-    if (extraFilter?.subCounty) {
-      conditions.push(`p.subCounty = @p${idx++}`);
-      params.push(extraFilter.subCounty);
-    }
-  }
-
-  // Global fiscal year filter
   if (extraFilter?.fiscalYear) {
-    conditions.push(`p.fiscalYear = @p${idx++}`);
+    projectSQL += ` AND p.fiscalYear = @p${idx++}`;
     params.push(extraFilter.fiscalYear);
   }
 
-  // Ensure we only count non‑null group values
-  conditions.push(`${groupField} IS NOT NULL`);
+  // If a parent filter is provided (for location drill-down), apply it
+  if (extraFilter?.parentValue) {
+    if (type === "loc-Ward") {
+      projectSQL += ` AND p.subCounty = @p${idx++}`;
+      params.push(extraFilter.parentValue);
+    }
+    // For org levels, we'll filter after climbing (code below)
+  }
 
-  const whereClause = conditions.length
-    ? `WHERE ${conditions.join(" AND ")}`
-    : "";
+  const { rows: allProjects } = await safeQuery<any>(projectSQL, params);
 
-  const query = `
-    SELECT
-      ${groupField} AS groupValue,
-      COUNT(*) AS total,
-      SUM(CASE WHEN p.status = 'ACTIVE' THEN 1 ELSE 0 END) AS active,
-      SUM(CASE WHEN p.status = 'STALLED' THEN 1 ELSE 0 END) AS stalled,
-      SUM(CASE WHEN p.status = 'PENDING' AND p.progress = 0 THEN 1 ELSE 0 END) AS notStarted,
-      SUM(CASE WHEN p.status = 'COMPLETED' THEN 1 ELSE 0 END) AS completed,
-      SUM(p.budget) AS budget,
-      AVG(p.progress * 1.0) AS avgProgress
-    FROM Project p
-    ${whereClause}
-    GROUP BY ${groupField}
-    ORDER BY ${order}
-  `;
+  // Process each project: compute status and grouping key
+  const projMappings = await Promise.all(
+    allProjects.map(async (p) => {
+      const tracker = trackerMap.get(p.id);
+      const status = computePublicStatus(p.status, tracker);
+      const percent = tracker?.overallPercent ?? 0;
 
-  const { rows } = await safeQuery<any>(query, params);
+      let groupKey = "Unknown";
 
-  return rows.map((row: any) => ({
-    label: row.groupValue,
-    value: row.groupValue,
-    totalProjects: Number(row.total),
-    active: Number(row.active),
-    stalled: Number(row.stalled),
-    notStarted: Number(row.notStarted),
-    completed: Number(row.completed),
-    totalBudget: Number(row.budget ?? 0),
-    avgProgress: Math.round(Number(row.avgProgress ?? 0)),
-  }));
+      if (type === "fiscalYear") {
+        groupKey = p.fiscalYear ?? "Unknown";
+      } else if (type.startsWith("org-")) {
+        const level = type.slice(4); // e.g. "Sector", "Department"
+        const ancestorName = await getAncestorAtLevel(p.orgUnitId, level);
+        groupKey = ancestorName ?? "Unknown";
+
+        // If parent filter is given, only include projects where the ancestor matches
+        if (extraFilter?.parentValue && groupKey !== extraFilter.parentValue) {
+          return null; // exclude
+        }
+      } else if (type === "loc-Sub-county") {
+        groupKey = p.subCounty ?? "Unknown";
+      } else if (type === "loc-Ward") {
+        groupKey = p.ward ?? "Unknown";
+      } else {
+        // legacy fallback
+        groupKey = (p as any)[type] ?? "Unknown";
+      }
+
+      return {
+        ...p,
+        groupKey,
+        derivedStatus: status,
+        trackerPercent: percent,
+      };
+    }),
+  );
+
+  // Filter out excluded projects
+  const validProjects = projMappings.filter((p) => p !== null) as any[];
+
+  // Group by groupKey
+  const groups = new Map<string, any[]>();
+  for (const proj of validProjects) {
+    if (!groups.has(proj.groupKey)) groups.set(proj.groupKey, []);
+    groups.get(proj.groupKey)!.push(proj);
+  }
+
+  // Aggregate
+  const result: BreakdownItem[] = [];
+  for (const [key, projs] of groups) {
+    const total = projs.length;
+    const completed = projs.filter(
+      (p) => p.derivedStatus === "COMPLETED",
+    ).length;
+    const ongoing = projs.filter((p) => p.derivedStatus === "ONGOING").length;
+    const stalled = projs.filter((p) => p.derivedStatus === "STALLED").length;
+    const notStarted = projs.filter(
+      (p) => p.derivedStatus === "NOT_STARTED",
+    ).length;
+    const terminated = projs.filter(
+      (p) => p.derivedStatus === "TERMINATED",
+    ).length;
+    const totalBudget = projs.reduce((s, p) => s + Number(p.budget ?? 0), 0);
+    const avgProgress =
+      total > 0 ? projs.reduce((s, p) => s + p.trackerPercent, 0) / total : 0;
+
+    result.push({
+      label: key,
+      value: key,
+      totalProjects: total,
+      ongoing,
+      stalled,
+      notStarted,
+      completed,
+      terminated,
+      totalBudget,
+      avgProgress: Math.round(avgProgress),
+    });
+  }
+
+  result.sort((a, b) => b.totalProjects - a.totalProjects);
+  return result;
+}
+
+async function getAncestorAtLevel(
+  unitId: string | null,
+  targetLevel: string,
+): Promise<string | null> {
+  if (!unitId) return null;
+  const unitLookup = await buildUnitLookup();
+  let current = unitId;
+  for (let i = 0; i < 20; i++) {
+    const unit = unitLookup.get(current);
+    if (!unit) break;
+    if (unit.level === targetLevel) return unit.name;
+    if (!unit.parentId) break;
+    current = unit.parentId;
+  }
+  return null;
 }
 
 export async function fetchFiscalYears(): Promise<string[]> {
@@ -775,4 +933,95 @@ export async function fetchGalleryImages(filters?: {
   }
 
   return images;
+}
+
+export async function fetchBreakdownDimensions(): Promise<{
+  orgLevels: string[];
+  locationLevels: string[];
+}> {
+  const [orgRows, locRows] = await Promise.all([
+    safeQuery<{ level: string }>(
+      `SELECT DISTINCT level FROM OrganisationalUnit WHERE isActive = 1 AND level IS NOT NULL ORDER BY level`,
+    ),
+    safeQuery<{ level: string }>(
+      `SELECT DISTINCT level FROM LocationUnit WHERE isActive = 1 AND level IS NOT NULL ORDER BY level`,
+    ),
+  ]);
+  return {
+    orgLevels: orgRows.rows.map((r) => r.level),
+    locationLevels: locRows.rows.map((r) => r.level),
+  };
+}
+
+export interface OverviewGroup {
+  name: string;
+  totalProjects: number;
+  totalBudget: number;
+  avgProgress: number;
+  projects: PublicProject[]; // limited to 5 items
+}
+
+export async function fetchOverviewGroups(
+  fiscalYear?: string,
+  groupBy: "org" | "location" = "org",
+): Promise<OverviewGroup[]> {
+  const unitLookup = await buildUnitLookup();
+  const trackerMap = await getLatestTrackerInfoMap();
+
+  let query = `
+    SELECT p.id, p.name, p.orgUnitId, p.subCounty, p.budget, p.status,
+           p.ward, p.createdAt,
+           t.overallPercent as latestTrackerPercent,
+           t.submittedAt as latestTrackerDate
+    FROM Project p
+    LEFT JOIN (
+      SELECT projectId, overallPercent, submittedAt,
+             ROW_NUMBER() OVER (PARTITION BY projectId ORDER BY submittedAt DESC) as rn
+      FROM TrackerSubmission
+    ) t ON p.id = t.projectId AND t.rn = 1
+    WHERE 1=1
+  `;
+  const params: any[] = [];
+  let idx = 1;
+  if (fiscalYear) {
+    query += ` AND p.fiscalYear = @p${idx++}`;
+    params.push(fiscalYear);
+  }
+
+  const { rows } = await safeQuery<any>(query, params);
+  const allProjects = rows.map(mapPublicProject);
+
+  // Group by org root unit or subCounty
+  const groups = new Map<
+    string,
+    { projects: PublicProject[]; totalBudget: number; sumProgress: number }
+  >();
+  for (const proj of allProjects) {
+    let key = "Unknown";
+    if (groupBy === "org") {
+      key = await getRootUnitName(proj.orgUnitId, unitLookup);
+    } else {
+      key = proj.subCounty || "Unknown";
+    }
+    if (!groups.has(key)) {
+      groups.set(key, { projects: [], totalBudget: 0, sumProgress: 0 });
+    }
+    const group = groups.get(key)!;
+    group.projects.push(proj);
+    group.totalBudget += proj.budget ?? 0;
+    group.sumProgress += proj.latestTrackerPercent ?? 0;
+  }
+
+  return Array.from(groups.entries()).map(([name, data]) => {
+    const avgProgress = data.projects.length
+      ? data.sumProgress / data.projects.length
+      : 0;
+    return {
+      name,
+      totalProjects: data.projects.length,
+      totalBudget: data.totalBudget,
+      avgProgress,
+      projects: data.projects.slice(0, 5), // only first 5 cards
+    };
+  });
 }

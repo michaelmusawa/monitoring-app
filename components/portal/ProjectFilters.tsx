@@ -13,12 +13,21 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 
-export default function ProjectFilters() {
+const PROJECT_STATUSES = [
+  { value: "NOT_STARTED", label: "Not Started" },
+  { value: "ONGOING", label: "Ongoing" },
+  { value: "STALLED", label: "Stalled" },
+  { value: "COMPLETED", label: "Completed" },
+  { value: "TERMINATED", label: "Terminated" },
+];
+
+export default function ProjectFilters({ sectors }: { sectors: string[] }) {
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const { replace } = useRouter();
 
   const filters = {
+    sector: searchParams.get("sector") || "ALL",
     status: searchParams.get("status") || "ALL",
     projectName: searchParams.get("projectName") || "",
     minBudget: searchParams.get("minBudget") || "",
@@ -50,6 +59,23 @@ export default function ProjectFilters() {
       </div>
 
       <Select
+        value={filters.sector}
+        onValueChange={(val) => updateParams("sector", val)}
+      >
+        <SelectTrigger className="w-40">
+          <SelectValue placeholder="All Sectors" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="ALL">All Sectors</SelectItem>
+          {sectors.map((s) => (
+            <SelectItem key={s} value={s}>
+              {s}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <Select
         value={filters.status}
         onValueChange={(val) => updateParams("status", val)}
       >
@@ -58,9 +84,11 @@ export default function ProjectFilters() {
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="ALL">All Status</SelectItem>
-          <SelectItem value="ACTIVE">Active</SelectItem>
-          <SelectItem value="PENDING">Pending</SelectItem>
-          <SelectItem value="COMPLETED">Completed</SelectItem>
+          {PROJECT_STATUSES.map((s) => (
+            <SelectItem key={s.value} value={s.value}>
+              {s.label}
+            </SelectItem>
+          ))}
         </SelectContent>
       </Select>
 

@@ -35,7 +35,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Projects",
     items: [
       { name: "All Projects", href: "/projects", icon: FolderOpen },
-      { name: "Categories", href: "/projectCategory", icon: FolderKanban },
+      { name: "Initiatives", href: "/projectCategory", icon: FolderKanban },
     ],
   },
   {

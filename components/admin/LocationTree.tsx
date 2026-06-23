@@ -54,6 +54,8 @@ export default function LocationTree({
     code: "",
     description: "",
     displayOrder: 0,
+    lat: "", // new
+    long: "", // new
   });
   const [parentOptions, setParentOptions] = useState<
     { id: string; name: string; level: string }[]
@@ -68,6 +70,8 @@ export default function LocationTree({
       code: "",
       description: "",
       displayOrder: 0,
+      lat: "",
+      long: "",
     });
     const allUnits = await fetchLocationUnitsForSelect();
     setParentOptions(allUnits);
@@ -83,6 +87,8 @@ export default function LocationTree({
       code: unit.code || "",
       description: unit.description || "",
       displayOrder: unit.displayOrder,
+      lat: unit.lat?.toString() ?? "", // new
+      long: unit.long?.toString() ?? "", // new
     });
     setModalOpen(true);
   };
@@ -106,6 +112,8 @@ export default function LocationTree({
             code: form.code || undefined,
             description: form.description || undefined,
             displayOrder: form.displayOrder,
+            lat: form.lat ? parseFloat(form.lat) : null,
+            long: form.long ? parseFloat(form.long) : null,
           });
           toast.success("Location updated");
         } else {
@@ -116,6 +124,8 @@ export default function LocationTree({
             code: form.code || undefined,
             description: form.description || undefined,
             displayOrder: form.displayOrder,
+            lat: form.lat ? parseFloat(form.lat) : null,
+            long: form.long ? parseFloat(form.long) : null,
           });
           toast.success("Location created");
         }
@@ -310,6 +320,29 @@ export default function LocationTree({
                 onChange={(e) =>
                   setForm({ ...form, displayOrder: Number(e.target.value) })
                 }
+              />
+            </div>
+            <div>
+              <Label>Latitude (optional)</Label>
+              <Input
+                type="number"
+                step="any"
+                placeholder="e.g. -1.286389"
+                value={form.lat}
+                onChange={(e) => setForm({ ...form, lat: e.target.value })}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Default map centre for this location
+              </p>
+            </div>
+            <div>
+              <Label>Longitude (optional)</Label>
+              <Input
+                type="number"
+                step="any"
+                placeholder="e.g. 36.817223"
+                value={form.long}
+                onChange={(e) => setForm({ ...form, long: e.target.value })}
               />
             </div>
           </div>

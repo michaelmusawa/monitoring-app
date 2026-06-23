@@ -69,7 +69,6 @@ import Link from "next/link";
 import { v4 as uuidv4 } from "uuid";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
 export interface ChecklistItem {
   id: string;
   parameterId: string;
@@ -123,7 +122,6 @@ export interface TaskAnnotation {
 }
 
 // ─── Permission helper ────────────────────────────────────────────────────────
-
 function hasPermission(perms: string[], required: string | string[]): boolean {
   if (typeof required === "string") return perms.includes(required);
   return required.some((p) => perms.includes(p));
@@ -169,7 +167,6 @@ function SimpleCheckbox({
 }
 
 // ─── Phase definitions ────────────────────────────────────────────────────────
-
 const PHASES = [
   {
     id: "Draft",
@@ -245,20 +242,6 @@ function AddCustomItemForm({
     <div className="space-y-3 pt-1 border-t border-primary/20 mt-3">
       <div>
         <Label className="text-xs text-muted-foreground mb-1 block">
-          Task label
-        </Label>
-        <Input
-          autoFocus
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-          placeholder="e.g. Install CCTV cameras"
-          onKeyDown={(e) => {
-            if (e.key === "Escape") onCancel();
-          }}
-        />
-      </div>
-      <div>
-        <Label className="text-xs text-muted-foreground mb-1 block">
           Category
         </Label>
         {!useNewCategory ? (
@@ -268,8 +251,8 @@ function AddCustomItemForm({
               onChange={(e) => setCategory(e.target.value)}
               className="flex-1 text-sm border border-input rounded-md px-3 py-2 bg-background focus:outline-none focus:ring-1 focus:ring-primary/30"
             >
-              {existingCategories.map((c) => (
-                <option key={c} value={c}>
+              {existingCategories.map((c, i) => (
+                <option key={c + i} value={c}>
                   {c}
                 </option>
               ))}
@@ -299,6 +282,20 @@ function AddCustomItemForm({
             </Button>
           </div>
         )}
+      </div>
+      <div>
+        <Label className="text-xs text-muted-foreground mb-1 block">
+          Task label
+        </Label>
+        <Input
+          autoFocus
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          placeholder="e.g. Install CCTV cameras"
+          onKeyDown={(e) => {
+            if (e.key === "Escape") onCancel();
+          }}
+        />
       </div>
       <div className="flex gap-2 pt-1">
         <Button
@@ -705,6 +702,13 @@ function WorkplanDateEditor({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
+interface Props {
+  projectId: string;
+  checklist: Checklist | null;
+  standardParams: StandardParam[];
+  userPermissions: string[];
+}
+
 export default function ProjectChecklistClient({
   projectId,
   checklist: initialChecklist,
@@ -713,7 +717,6 @@ export default function ProjectChecklistClient({
 }: Props) {
   const router = useRouter();
 
-  // ── Permissions ─────────────────────────────────────────────────────────────
   const canView = hasPermission(userPermissions, "checklist:view");
   const canCreateDraft = hasPermission(
     userPermissions,
@@ -742,15 +745,18 @@ export default function ProjectChecklistClient({
     "checklist:delete_custom",
   );
 
-  // ── State ─────────────────────────────────────────────────────────────────
+  // ── All useState hooks (unconditional)
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [checklist, setChecklist] = useState<Checklist | null>(
     initialChecklist,
   );
-  // localItems now holds effective weight (0–100 for the whole project)
   const [localItems, setLocalItems] = useState<Record<string, number>>({});
-  // New state for two-level weights (only meaningful in weight phases)
+
+  const localItemsRef = useRef(localItems);
+  // Keep the ref in sync on every render (no extra effect needed)
+  localItemsRef.current = localItems;
+
   const [categoryWeights, setCategoryWeights] = useState<
     Record<string, number>
   >({});
@@ -759,7 +765,6 @@ export default function ProjectChecklistClient({
   >({});
   const [customParams, setCustomParams] = useState<CustomParam[]>([]);
   const [showAddCustom, setShowAddCustom] = useState(false);
-  const baselineItems = useRef<Record<string, number>>({});
   const [committedChanges, setCommittedChanges] = useState<
     Record<string, TaskAnnotation>
   >({});
@@ -780,23 +785,48 @@ export default function ProjectChecklistClient({
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  // ── Derived from checklist status ─────────────────────────────────────────
+  const baselineItems = useRef<Record<string, number>>({});
+
+  // ── useMemo / useEffect (unconditional)
   const currentPhase = useMemo(
     () => PHASES.find((p) => p.id === checklist?.status) || PHASES[0],
     [checklist?.status],
   );
   const isReviewPhase = currentPhase.isReviewPhase;
 
+  // Restrict editing to non-review phases only
   const effectiveCanEdit =
-    (canEditTasks && currentPhase.allowsTaskSelection) ||
-    (canEditWeights && currentPhase.allowsWeightAssignment);
+    (canEditTasks && currentPhase.id === "Draft") ||
+    (canEditWeights && currentPhase.id === "WeightsAssignment");
 
   const showWorkplanTab =
     (currentPhase.id === "WeightsAssignment" ||
       currentPhase.id === "WeightsReview") &&
     canEditWeights;
 
-  // ── Sync local state from checklist ─────────────────────────────────────
+  const canPerformReviewActions = canReview || canApplyChanges;
+
+  // ME officer can edit items in review phases (they change values, then click Apply)
+  const canEditInReviewPhase = isReviewPhase && canPerformReviewActions;
+
+  // User can see/edit the items tab if they have direct edit rights OR can review
+  const canViewChecklistItems = effectiveCanEdit || canEditInReviewPhase;
+
+  const isReadOnly =
+    currentPhase.id === "Approved" ||
+    (!effectiveCanEdit && !canEditInReviewPhase);
+
+  const showEditTab = canViewChecklistItems;
+  const forcedPreview =
+    !canViewChecklistItems && currentPhase.id !== "Approved";
+  const displayTab = forcedPreview
+    ? "preview"
+    : activeTab === "items" && !showEditTab
+      ? "preview"
+      : activeTab;
+  const showTabs = !forcedPreview;
+
+  // ── Side effects (keep original, unchanged)
   useEffect(() => {
     if (checklist) {
       const map: Record<string, number> = {};
@@ -804,24 +834,21 @@ export default function ProjectChecklistClient({
         map[item.parameterId] = item.weight;
       });
 
-      // Handle custom items
       if (checklist.customItems && checklist.customItems.length > 0) {
         setCustomParams(checklist.customItems);
         checklist.customItems.forEach((cp) => {
-          if (!(cp.id in map)) map[cp.id] = 0; // will be set below
+          if (!(cp.id in map)) map[cp.id] = 0;
         });
       } else {
         setCustomParams([]);
       }
 
-      // For weight phases, derive the two-level state from effective weights
       if (
         currentPhase.allowsWeightAssignment &&
         (checklist.status === "WeightsAssignment" ||
           checklist.status === "WeightsReview" ||
           checklist.status === "Approved")
       ) {
-        // Build category -> items map from the flat list
         const itemsByCategory: Record<
           string,
           { id: string; weight: number }[]
@@ -850,8 +877,16 @@ export default function ProjectChecklistClient({
 
         Object.entries(itemsByCategory).forEach(([cat, items]) => {
           const totalCat = items.reduce((sum, it) => sum + it.weight, 0);
-          newCatWeights[cat] = totalCat;
+
+          // 👇 Determine if these are still the original draft weights (all = 1)
+          const isInitialDraft =
+            items.every((it) => it.weight === 1) && items.length > 0;
+
+          // Start at 0 for untouched drafts, otherwise use the already assigned total
+          newCatWeights[cat] = isInitialDraft ? 0 : totalCat;
+
           items.forEach((it) => {
+            // Keep proportional distribution as before (it will be used once the category weight is >0)
             newItemLocal[it.id] =
               totalCat > 0 ? (it.weight / totalCat) * 100 : 0;
           });
@@ -864,7 +899,6 @@ export default function ProjectChecklistClient({
       setLocalItems(map);
       baselineItems.current = { ...map };
 
-      // Task annotations
       if (checklist.taskAnnotations && checklist.taskAnnotations.length > 0) {
         const committed: Record<string, TaskAnnotation> = {};
         checklist.taskAnnotations.forEach((a) => {
@@ -876,12 +910,10 @@ export default function ProjectChecklistClient({
       }
       setPendingTaskChanges(new Set());
     }
-  }, [checklist, standardParams]);
+  }, [checklist, standardParams, currentPhase.allowsWeightAssignment]);
 
-  // ── Automatically recompute effective weights when sliders change ──────
   useEffect(() => {
     if (checklist && currentPhase.allowsWeightAssignment) {
-      // Build list of all parameter IDs (standard + custom)
       const allParamIds = new Set([
         ...standardParams.map((p) => p.id),
         ...customParams.map((c) => c.id),
@@ -894,10 +926,9 @@ export default function ProjectChecklistClient({
         if (cat && categoryWeights[cat] !== undefined) {
           const localWeight = itemLocalWeights[pid] ?? 0;
           const effective = (categoryWeights[cat] * localWeight) / 100;
-          newLocalItems[pid] = Math.round(effective * 100) / 100; // keep 2 decimals
+          newLocalItems[pid] = Math.round(effective * 100) / 100;
         } else {
-          // not yet categorised? just keep existing
-          newLocalItems[pid] = localItems[pid] ?? 0;
+          newLocalItems[pid] = localItemsRef.current[pid] ?? 0;
         }
       });
       setLocalItems(newLocalItems);
@@ -909,9 +940,9 @@ export default function ProjectChecklistClient({
     customParams,
     currentPhase.allowsWeightAssignment,
     checklist,
+    // localItems,
   ]);
 
-  // Load history when tab opens
   useEffect(() => {
     if (activeTab === "history" && checklist) {
       setLoadingHistory(true);
@@ -923,7 +954,7 @@ export default function ProjectChecklistClient({
     }
   }, [activeTab, projectId, checklist]);
 
-  // ── Pending changes detection ────────────────────────────────────────────
+  // ── Memos (stats, filteredParams, etc. unchanged from original)
   const hasUncommittedChanges = useMemo(() => {
     if (!isReviewPhase || !canApplyChanges) return false;
     for (const [pid, val] of Object.entries(localItems)) {
@@ -935,7 +966,6 @@ export default function ProjectChecklistClient({
   }, [localItems, committedChanges, isReviewPhase, canApplyChanges]);
 
   const hasCommittedChanges = Object.keys(committedChanges).length > 0;
-
   const hasPendingChanges = useMemo(() => {
     if (isReviewPhase && canApplyChanges) return false;
     for (const [pid, val] of Object.entries(localItems)) {
@@ -945,9 +975,126 @@ export default function ProjectChecklistClient({
     return false;
   }, [localItems, isReviewPhase, canApplyChanges]);
 
-  // ── Task selection (for Draft phases) ────────────────────────────────────
+  const stats = useMemo(() => {
+    const totalParams = standardParams.length + customParams.length;
+    const includedParams = Object.values(localItems).filter(
+      (w) => w > 0,
+    ).length;
+    const totalWeight = Object.values(localItems).reduce(
+      (sum, w) => sum + w,
+      0,
+    );
+    const categoryStats: Record<
+      string,
+      { included: number; total: number; weight: number }
+    > = {};
+
+    const allItems = [
+      ...standardParams,
+      ...customParams.map((c) => ({
+        id: c.id,
+        label: c.label,
+        category: c.category,
+      })),
+    ];
+    const grouped = allItems.reduce(
+      (acc, p) => {
+        if (!acc[p.category]) acc[p.category] = [];
+        acc[p.category].push(p);
+        return acc;
+      },
+      {} as Record<string, typeof allItems>,
+    );
+
+    Object.entries(grouped).forEach(([cat, params]) => {
+      const included = params.filter((p) => (localItems[p.id] ?? 0) > 0).length;
+      const weight = params.reduce(
+        (sum, p) => sum + (localItems[p.id] ?? 0),
+        0,
+      );
+      categoryStats[cat] = { included, total: params.length, weight };
+    });
+
+    return { totalParams, includedParams, totalWeight, categoryStats };
+  }, [standardParams, customParams, localItems]);
+
+  const remainingCategoryWeight = currentPhase.allowsWeightAssignment
+    ? Math.max(
+        0,
+        100 - Object.values(categoryWeights).reduce((a, b) => a + b, 0),
+      )
+    : null;
+
+  const filteredParams = useMemo(() => {
+    let params: { id: string; label: string; category: string }[] = [
+      ...standardParams,
+      ...customParams.map((cp) => ({
+        id: cp.id,
+        label: cp.label,
+        category: cp.category,
+      })),
+    ];
+
+    if (currentPhase.allowsWeightAssignment) {
+      // 👇 Use the list of originally selected items, not current weight
+      const selectedIds = new Set(
+        checklist?.items.map((i) => i.parameterId) ?? [],
+      );
+      params = params.filter((p) => selectedIds.has(p.id));
+    }
+
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      params = params.filter(
+        (p) =>
+          p.label.toLowerCase().includes(q) ||
+          p.id.toLowerCase().includes(q) ||
+          p.category.toLowerCase().includes(q),
+      );
+    }
+
+    if (showIncludedOnly && currentPhase.allowsTaskSelection) {
+      params = params.filter((p) => (localItems[p.id] ?? 0) > 0);
+    }
+
+    return params;
+  }, [
+    standardParams,
+    customParams,
+    currentPhase,
+    searchQuery,
+    showIncludedOnly,
+    localItems,
+    checklist?.items, // ✅ add dependency so it re-filters when checklist changes
+  ]);
+
+  const groupedParams = useMemo(() => {
+    const groups: Record<string, typeof filteredParams> = {};
+    filteredParams.forEach((p) => {
+      if (!groups[p.category]) groups[p.category] = [];
+      groups[p.category].push(p);
+    });
+    Object.keys(groups).forEach((cat) =>
+      groups[cat].sort((a, b) => a.id.localeCompare(b.id)),
+    );
+    return groups;
+  }, [filteredParams]);
+
+  const weightedItems = useMemo(
+    () =>
+      checklist?.items
+        .filter((i) => i.weight > 0)
+        .map((i) => ({
+          parameterId: i.parameterId,
+          label: i.label,
+          category: i.category,
+          weight: i.weight,
+        })) ?? [],
+    [checklist?.items],
+  );
   const toggleTaskInclude = (paramId: string) => {
-    if (!effectiveCanEdit || !currentPhase.allowsTaskSelection) return;
+    if (!currentPhase.allowsTaskSelection) return;
+    if (!(effectiveCanEdit || canEditInReviewPhase)) return;
     const isIncluded = (localItems[paramId] ?? 0) > 0;
     const newValue = isIncluded ? 0 : 1;
     setLocalItems((prev) => ({ ...prev, [paramId]: newValue }));
@@ -964,10 +1111,10 @@ export default function ProjectChecklistClient({
       });
     }
   };
-
-  // ── Category weight adjustment ───────────────────────────────────────────
+  // ── Handlers (unchanged from original)
   const setCategoryWeight = (category: string, weight: number) => {
-    if (!effectiveCanEdit || !currentPhase.allowsWeightAssignment) return;
+    if (!currentPhase.allowsWeightAssignment) return;
+    if (!(effectiveCanEdit || canEditInReviewPhase)) return;
     const totalOthers = Object.entries(categoryWeights).reduce(
       (sum, [cat, w]) => (cat === category ? sum : sum + w),
       0,
@@ -977,14 +1124,13 @@ export default function ProjectChecklistClient({
     setCategoryWeights((prev) => ({ ...prev, [category]: newWeight }));
   };
 
-  // ── Item local weight adjustment ─────────────────────────────────────────
   const setItemLocalWeight = (
     paramId: string,
     newLocalWeight: number,
     category: string,
   ) => {
-    if (!effectiveCanEdit || !currentPhase.allowsWeightAssignment) return;
-    // Find all items in this category
+    if (!currentPhase.allowsWeightAssignment) return;
+    if (!(effectiveCanEdit || canEditInReviewPhase)) return;
     const catItems = [
       ...standardParams.filter((p) => p.category === category).map((p) => p.id),
       ...customParams.filter((c) => c.category === category).map((c) => c.id),
@@ -998,7 +1144,6 @@ export default function ProjectChecklistClient({
     setItemLocalWeights((prev) => ({ ...prev, [paramId]: capped }));
   };
 
-  // ── Apply change (review phase) ──────────────────────────────────────────
   const handleApplyChange = (paramId: string, paramLabel: string) => {
     const oldValue = baselineItems.current[paramId] ?? 0;
     const newValue = localItems[paramId] ?? 0;
@@ -1039,7 +1184,6 @@ export default function ProjectChecklistClient({
     setReasonDialog(null);
   };
 
-  // ── Save (computes effective weights) ────────────────────────────────────
   const handleSave = async (newStatus?: string) => {
     if (!checklist) return;
     if (isReviewPhase && canApplyChanges && hasUncommittedChanges) {
@@ -1052,7 +1196,6 @@ export default function ProjectChecklistClient({
     try {
       let items: any[] = [];
       if (currentPhase.allowsWeightAssignment) {
-        // Build items from two-level weights
         const allParams = [
           ...standardParams.map((p) => ({
             id: p.id,
@@ -1079,7 +1222,6 @@ export default function ProjectChecklistClient({
           }
         });
       } else {
-        // In task selection phases, localItems already holds selection (0/1)
         items = Object.entries(localItems)
           .filter(([, w]) => w > 0)
           .map(([parameterId, weight]) => {
@@ -1182,8 +1324,7 @@ export default function ProjectChecklistClient({
     }
   };
 
-  // ⚠️ All hooks are now called – early returns are safe
-
+  // ⚠️ Early returns after all hooks
   if (!canView) {
     return (
       <div className="p-8 text-center border rounded-lg">
@@ -1211,126 +1352,34 @@ export default function ProjectChecklistClient({
     );
   }
 
-  const isReadOnly = currentPhase.id === "Approved";
-
-  // ── Statistics (based on effective weights) ──────────────────────────────
-  const stats = useMemo(() => {
-    const totalParams = standardParams.length + customParams.length;
-    const includedParams = Object.values(localItems).filter(
-      (w) => w > 0,
-    ).length;
-    const totalWeight = Object.values(localItems).reduce(
-      (sum, w) => sum + w,
-      0,
+  if (currentPhase.id === "Approved") {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Finalized Checklist</CardTitle>
+          <CardDescription>
+            This checklist has been approved and is now active for tracking.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center py-8">
+            <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold mb-2">Checklist Approved</h3>
+            <p className="text-muted-foreground mb-6">
+              This checklist is now in tracking mode. No further edits are
+              allowed.
+            </p>
+            <Button variant="outline" asChild>
+              <Link href={`/projects/${projectId}?tab=trackers`}>
+                Go to Trackers
+              </Link>
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     );
-    const categoryStats: Record<
-      string,
-      { included: number; total: number; weight: number }
-    > = {};
-
-    // Group all items by category
-    const allItems = [
-      ...standardParams,
-      ...customParams.map((c) => ({
-        id: c.id,
-        label: c.label,
-        category: c.category,
-      })),
-    ];
-    const grouped = allItems.reduce(
-      (acc, p) => {
-        if (!acc[p.category]) acc[p.category] = [];
-        acc[p.category].push(p);
-        return acc;
-      },
-      {} as Record<string, typeof allItems>,
-    );
-
-    Object.entries(grouped).forEach(([cat, params]) => {
-      const included = params.filter((p) => (localItems[p.id] ?? 0) > 0).length;
-      const weight = params.reduce(
-        (sum, p) => sum + (localItems[p.id] ?? 0),
-        0,
-      );
-      categoryStats[cat] = { included, total: params.length, weight };
-    });
-
-    return { totalParams, includedParams, totalWeight, categoryStats };
-  }, [standardParams, customParams, localItems]);
-
-  const remainingCategoryWeight = currentPhase.allowsWeightAssignment
-    ? Math.max(
-        0,
-        100 - Object.values(categoryWeights).reduce((a, b) => a + b, 0),
-      )
-    : null;
-
-  // ── Filtered & grouped params for display ────────────────────────────────
-  const filteredParams = useMemo(() => {
-    let params: { id: string; label: string; category: string }[] = [
-      ...standardParams,
-      ...customParams.map((cp) => ({
-        id: cp.id,
-        label: cp.label,
-        category: cp.category,
-      })),
-    ];
-
-    // In weight phases, only show items that are included (effective weight > 0)
-    if (currentPhase.allowsWeightAssignment) {
-      params = params.filter((p) => (localItems[p.id] ?? 0) > 0);
-    }
-
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      params = params.filter(
-        (p) =>
-          p.label.toLowerCase().includes(q) ||
-          p.id.toLowerCase().includes(q) ||
-          p.category.toLowerCase().includes(q),
-      );
-    }
-
-    if (showIncludedOnly && currentPhase.allowsTaskSelection) {
-      params = params.filter((p) => (localItems[p.id] ?? 0) > 0);
-    }
-
-    return params;
-  }, [
-    standardParams,
-    customParams,
-    currentPhase,
-    searchQuery,
-    showIncludedOnly,
-    localItems,
-  ]);
-
-  const groupedParams = useMemo(() => {
-    const groups: Record<string, typeof filteredParams> = {};
-    filteredParams.forEach((p) => {
-      if (!groups[p.category]) groups[p.category] = [];
-      groups[p.category].push(p);
-    });
-    Object.keys(groups).forEach((cat) =>
-      groups[cat].sort((a, b) => a.id.localeCompare(b.id)),
-    );
-    return groups;
-  }, [filteredParams]);
-
-  const weightedItems = useMemo(
-    () =>
-      checklist?.items
-        .filter((i) => i.weight > 0)
-        .map((i) => ({
-          parameterId: i.parameterId,
-          label: i.label,
-          category: i.category,
-          weight: i.weight,
-        })) ?? [],
-    [checklist?.items],
-  );
-
-  // ── Render ─────────────────────────────────────────────────────────────────
+  }
+  // ── Render
   return (
     <div className="space-y-6">
       {reasonDialog && (
@@ -1425,7 +1474,7 @@ export default function ProjectChecklistClient({
         </div>
       )}
 
-      {/* Phase progress */}
+      {/* Phase progress card */}
       <Card>
         <CardContent className="pt-6">
           <div className="relative">
@@ -1479,7 +1528,25 @@ export default function ProjectChecklistClient({
         </CardContent>
       </Card>
 
-      {/* Category weight indicator (only in weight phases) */}
+      {/* Read-only banner */}
+      {!canViewChecklistItems && currentPhase.id !== "Approved" && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-950/20 p-4 text-sm text-blue-800 dark:text-blue-300 flex items-start gap-3">
+          <Info className="w-5 h-5 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold">Read‑only Mode</p>
+            <p className="text-blue-700 dark:text-blue-400">
+              The checklist is currently in the{" "}
+              <strong>{currentPhase.label}</strong> phase.
+              {currentPhase.isReviewPhase
+                ? " Monitoring & Evaluation officer is reviewing the checklist."
+                : " Sector officer is responsible for the next actions."}
+              Please wait for the responsible user to complete their tasks.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Category weight indicator */}
       {currentPhase.allowsWeightAssignment && (
         <Card className="bg-muted/20">
           <CardContent className="pt-4 space-y-4">
@@ -1549,83 +1616,87 @@ export default function ProjectChecklistClient({
 
       {/* Tabs */}
       <Tabs
-        value={activeTab}
+        value={displayTab}
         onValueChange={setActiveTab}
         className="space-y-4"
       >
-        <div className="flex flex-col sm:flex-row justify-between gap-4">
-          <TabsList>
-            <TabsTrigger value="items">Edit Checklist</TabsTrigger>
-            <TabsTrigger value="preview">Preview</TabsTrigger>
-            {showWorkplanTab && (
-              <TabsTrigger value="workplan">
-                <CalendarDays className="w-3.5 h-3.5 mr-1.5" />
-                Set Dates
-              </TabsTrigger>
-            )}
-            <TabsTrigger value="history">History</TabsTrigger>
-          </TabsList>
+        {showTabs && (
+          <div className="flex flex-col sm:flex-row justify-between gap-4">
+            <TabsList>
+              {showEditTab && (
+                <TabsTrigger value="items">Edit Checklist</TabsTrigger>
+              )}
+              <TabsTrigger value="preview">Preview</TabsTrigger>
+              {showWorkplanTab && (
+                <TabsTrigger value="workplan">
+                  <CalendarDays className="w-3.5 h-3.5 mr-1.5" />
+                  Set Dates
+                </TabsTrigger>
+              )}
+              <TabsTrigger value="history">History</TabsTrigger>
+            </TabsList>
 
-          <div className="flex items-center gap-4">
-            <div className="text-center">
-              <p className="font-bold">
-                {stats.includedParams}
-                {currentPhase.allowsTaskSelection && `/${stats.totalParams}`}
-              </p>
-              <p className="text-sm text-muted-foreground">
-                {currentPhase.allowsTaskSelection
-                  ? "Selected Tasks"
-                  : "Total Tasks"}
-              </p>
-            </div>
-            {currentPhase.allowsWeightAssignment && (
+            <div className="flex items-center gap-4">
               <div className="text-center">
-                <p className="font-bold">{stats.totalWeight.toFixed(1)}</p>
-                <p className="text-sm text-muted-foreground">Total Weight</p>
+                <p className="font-bold">
+                  {stats.includedParams}
+                  {currentPhase.allowsTaskSelection && `/${stats.totalParams}`}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {currentPhase.allowsTaskSelection
+                    ? "Selected Tasks"
+                    : "Total Tasks"}
+                </p>
+              </div>
+              {currentPhase.allowsWeightAssignment && (
+                <div className="text-center">
+                  <p className="font-bold">{stats.totalWeight.toFixed(1)}</p>
+                  <p className="text-sm text-muted-foreground">Total Weight</p>
+                </div>
+              )}
+              <div className="text-center">
+                <p className="font-bold">{Object.keys(groupedParams).length}</p>
+                <p className="text-sm text-muted-foreground">Categories</p>
+              </div>
+            </div>
+
+            {!isReadOnly && effectiveCanEdit && (
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search items..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10 w-full sm:w-64"
+                  />
+                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm">
+                      <MoreVertical className="w-4 h-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={handleExport}>
+                      Export JSON
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => toast.info("Print coming soon")}
+                    >
+                      Print Checklist
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             )}
-            <div className="text-center">
-              <p className="font-bold">{Object.keys(groupedParams).length}</p>
-              <p className="text-sm text-muted-foreground">Categories</p>
-            </div>
           </div>
-
-          {!isReadOnly && effectiveCanEdit && (
-            <div className="flex items-center gap-2">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search items..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10 w-full sm:w-64"
-                />
-              </div>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    <MoreVertical className="w-4 h-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={handleExport}>
-                    Export JSON
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => toast.info("Print coming soon")}
-                  >
-                    Print Checklist
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          )}
-        </div>
+        )}
 
         {/* Items Tab */}
         <TabsContent value="items" className="space-y-4">
-          {isReadOnly ? (
+          {currentPhase.id === "Approved" ? (
             <Card>
               <CardHeader>
                 <CardTitle>Finalized Checklist</CardTitle>
@@ -1734,8 +1805,6 @@ export default function ProjectChecklistClient({
                           const annotation = checklist.taskAnnotations?.find(
                             (a) => a.parameterId === param.id,
                           );
-
-                          // For weight phases, we need the local weight inside the category
                           const localWeight = itemLocalWeights[param.id] ?? 0;
                           const catWeight = categoryWeights[category] ?? 0;
 
@@ -1753,14 +1822,20 @@ export default function ProjectChecklistClient({
                               <div className="flex items-center justify-between gap-4">
                                 <div className="flex items-start gap-3 flex-1">
                                   {currentPhase.allowsTaskSelection &&
-                                    effectiveCanEdit && (
+                                    (effectiveCanEdit ||
+                                      canEditInReviewPhase) && (
                                       <Checkbox
                                         checked={included}
                                         onCheckedChange={() =>
                                           toggleTaskInclude(param.id)
                                         }
                                         className="mt-1"
-                                        disabled={!effectiveCanEdit}
+                                        disabled={
+                                          !(
+                                            effectiveCanEdit ||
+                                            canEditInReviewPhase
+                                          )
+                                        }
                                       />
                                     )}
                                   <div className="space-y-1">
@@ -1771,7 +1846,7 @@ export default function ProjectChecklistClient({
                                           "cursor-default",
                                       )}
                                     >
-                                      {param.id} — {param.label}
+                                      {param.label}
                                     </Label>
                                     {!standardParams.find(
                                       (p) => p.id === param.id,
@@ -1792,8 +1867,7 @@ export default function ProjectChecklistClient({
                                 </div>
 
                                 <div className="flex items-center gap-3">
-                                  {currentPhase.allowsWeightAssignment &&
-                                  included ? (
+                                  {currentPhase.allowsWeightAssignment ? (
                                     <div className="flex items-center gap-3">
                                       <div className="text-right">
                                         <div className="text-lg font-bold">
@@ -1803,7 +1877,8 @@ export default function ProjectChecklistClient({
                                           local
                                         </div>
                                       </div>
-                                      {effectiveCanEdit ? (
+                                      {effectiveCanEdit ||
+                                      canEditInReviewPhase ? (
                                         <>
                                           <div className="w-32">
                                             <Slider
@@ -1874,23 +1949,24 @@ export default function ProjectChecklistClient({
                                         </Badge>
                                       )}
                                     </div>
-                                  ) : included &&
-                                    currentPhase.allowsTaskSelection ? (
-                                    <Badge
-                                      variant="outline"
-                                      className="text-green-600 border-green-200 bg-green-50"
-                                    >
-                                      <CheckSquare className="w-3 h-3 mr-1" />{" "}
-                                      Selected
-                                    </Badge>
                                   ) : currentPhase.allowsTaskSelection ? (
-                                    <Badge
-                                      variant="outline"
-                                      className="text-muted-foreground"
-                                    >
-                                      <Square className="w-3 h-3 mr-1" /> Not
-                                      Selected
-                                    </Badge>
+                                    included ? (
+                                      <Badge
+                                        variant="outline"
+                                        className="text-green-600 border-green-200 bg-green-50"
+                                      >
+                                        <CheckSquare className="w-3 h-3 mr-1" />{" "}
+                                        Selected
+                                      </Badge>
+                                    ) : (
+                                      <Badge
+                                        variant="outline"
+                                        className="text-muted-foreground"
+                                      >
+                                        <Square className="w-3 h-3 mr-1" /> Not
+                                        Selected
+                                      </Badge>
+                                    )
                                   ) : null}
 
                                   {isReviewPhase &&
@@ -2033,7 +2109,7 @@ export default function ProjectChecklistClient({
           )}
         </TabsContent>
 
-        {/* Preview Tab */}
+        {/* Preview Tab (unchanged) */}
         <TabsContent value="preview">
           <Card>
             <CardHeader>
@@ -2070,9 +2146,11 @@ export default function ProjectChecklistClient({
                           {category}
                           {catWeight !== null && ` (${catWeight}% of project)`}
                         </h3>
-                        <Badge variant="outline">
-                          {catEffective.toFixed(1)} pts
-                        </Badge>
+                        {currentPhase.allowsWeightAssignment && (
+                          <Badge variant="outline">
+                            {catEffective.toFixed(1)} pts
+                          </Badge>
+                        )}
                       </div>
                       {included.map((p) => {
                         const weight = localItems[p.id] ?? 0;
@@ -2085,21 +2163,31 @@ export default function ProjectChecklistClient({
                           >
                             <div>
                               <p className="font-medium">{p.label}</p>
-                              {currentPhase.allowsWeightAssignment && (
+                              {[
+                                "WeightsAssignment",
+                                "WeightsReview",
+                                "Approved",
+                              ].includes(checklist.status) && (
                                 <p className="text-sm text-muted-foreground">
                                   Local: {localWeight}% → Effective:{" "}
                                   {effective.toFixed(2)}%
                                 </p>
                               )}
                             </div>
-                            <div className="text-right">
-                              <div className="text-xl font-bold">
-                                {effective.toFixed(2)}
+                            {[
+                              "WeightsAssignment",
+                              "WeightsReview",
+                              "Approved",
+                            ].includes(checklist.status) && (
+                              <div className="text-right">
+                                <div className="text-xl font-bold">
+                                  {effective.toFixed(2)}
+                                </div>
+                                <div className="text-sm text-muted-foreground">
+                                  points
+                                </div>
                               </div>
-                              <div className="text-sm text-muted-foreground">
-                                points
-                              </div>
-                            </div>
+                            )}
                           </div>
                         );
                       })}
@@ -2122,8 +2210,7 @@ export default function ProjectChecklistClient({
                 </CardTitle>
                 <CardDescription>
                   Set the planned start and end date for each checklist item.
-                  These dates will appear on the project Gantt chart. Items must
-                  have a weight assigned before they appear here.
+                  These dates will be used to build the project Gantt chart.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -2136,7 +2223,7 @@ export default function ProjectChecklistClient({
           </TabsContent>
         )}
 
-        {/* History Tab */}
+        {/* History Tab (unchanged) */}
         <TabsContent value="history">
           <Card>
             <CardHeader>
@@ -2183,12 +2270,12 @@ export default function ProjectChecklistClient({
       </Tabs>
 
       {/* Action Footer */}
-      {!isReadOnly && (
+      {!isReadOnly && (effectiveCanEdit || canPerformReviewActions) && (
         <Card>
           <CardContent className="pt-6">
             <div className="space-y-4">
               <div className="flex flex-col sm:flex-row gap-3">
-                {canSave && !isReviewPhase && (
+                {canSave && !isReviewPhase && effectiveCanEdit && (
                   <Button
                     onClick={() => handleSave()}
                     disabled={saving || !hasPendingChanges}
@@ -2225,7 +2312,9 @@ export default function ProjectChecklistClient({
                   <Button
                     variant="default"
                     onClick={() => handleSave("WeightsAssignment")}
-                    disabled={saving || hasUncommittedChanges}
+                    disabled={
+                      saving || hasUncommittedChanges || hasCommittedChanges
+                    }
                   >
                     Approve Draft → Weights
                   </Button>
@@ -2258,7 +2347,9 @@ export default function ProjectChecklistClient({
                   <Button
                     variant="default"
                     onClick={() => handleSave("Approved")}
-                    disabled={saving || hasUncommittedChanges}
+                    disabled={
+                      saving || hasUncommittedChanges || hasCommittedChanges
+                    }
                     className="bg-green-600 hover:bg-green-700"
                   >
                     <CheckCircle className="w-4 h-4 mr-2" /> Approve & Finalize

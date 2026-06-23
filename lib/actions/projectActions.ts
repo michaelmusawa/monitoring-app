@@ -6,52 +6,31 @@ import { DatabaseError, safeQuery } from "../db";
 import { Project } from "../types/projectsTypes";
 import { withTransaction } from "./checklistActions";
 import sql from "mssql";
+import { buildUnitLookup, getRootUnitName } from "./orgActions";
 
 // ─── getProject ───────────────────────────────────────────────────────────────
 
+// lib/actions/projectActions.ts – getProject
+
 export async function getProject(id: string): Promise<any | null> {
+  const unitLookup = await buildUnitLookup();
   try {
     const sqlQuery = `
-      SELECT id, name, sector, budget, status, lat, long, description,
-             subCounty, ward, createdAt, updatedAt,
-             fundingSource, employer, employerRep, projectManager,
-             fiscalYear, contractSum, contractDuration,
-             commencementDate, plannedCompletion, costToCompletion,
-             categoryId
-      FROM Project
-      WHERE id = @p1
+      SELECT p.*, ou.name AS directUnitName
+      FROM Project p
+      LEFT JOIN OrganisationalUnit ou ON p.orgUnitId = ou.id
+      WHERE p.id = @p1
     `;
     const { rows } = await safeQuery<any>(sqlQuery, [id]);
     if (rows.length === 0) return null;
     const row = rows[0];
+    const sector = row.orgUnitId
+      ? await getRootUnitName(row.orgUnitId, unitLookup) // ← await added
+      : "Unknown";
     return {
-      id: row.id,
-      name: row.name,
-      sector: row.sector,
-      budget: row.budget,
-      status: row.status,
-      lat: row.lat,
-      long: row.long,
-      description: row.description,
-      subCounty: row.subCounty,
-      ward: row.ward,
-      createdAt: row.createdAt?.toISOString(),
-      updatedAt: row.updatedAt?.toISOString(),
-      fundingSource: row.fundingSource ?? null,
-      employer: row.employer ?? null,
-      employerRep: row.employerRep ?? null,
-      projectManager: row.projectManager ?? null,
-      fiscalYear: row.fiscalYear ?? null,
-      contractSum: row.contractSum ?? null,
-      contractDuration: row.contractDuration ?? null,
-      commencementDate: row.commencementDate
-        ? row.commencementDate.toISOString().slice(0, 10)
-        : null,
-      plannedCompletion: row.plannedCompletion
-        ? row.plannedCompletion.toISOString().slice(0, 10)
-        : null,
-      costToCompletion: row.costToCompletion ?? null,
-      categoryId: row.categoryId ?? null,
+      ...row,
+      sector,
+      directUnitName: row.directUnitName,
     };
   } catch (error) {
     console.error("getProject error:", error);
@@ -186,7 +165,7 @@ export async function fetchFilteredProjects({
     const offset = (currentPage - 1) * ITEMS_PER_PAGE;
     const sqlStr = `
       SELECT id, name, sector, status, budget, progress, lat, long, createdAt,
-             subCounty, ward, categoryId
+             categoryId
       FROM Project
       ${whereClause}
       ORDER BY createdAt DESC
@@ -573,10 +552,12 @@ export async function createFullProject(data: {
   description?: string;
   categoryId?: string;
   contributionValue?: number; // new
+  locationUnitId?: string;
   subCounty?: string;
   ward?: string;
   lat?: number;
   long?: number;
+  projectType?: string;
   fundingSource?: string;
   employer?: string;
   tenderNumber?: string;
@@ -612,16 +593,16 @@ export async function createFullProject(data: {
 
     const { rows } = await safeQuery<any>(
       `INSERT INTO Project (
-         id, name, orgUnitId, budget, description, status, categoryId, contributionValue,
-         subCounty, ward, lat, long,
+         id, name, orgUnitId, budget, description, status, categoryId, contributionValue, locationUnitId,
+         subCounty, ward, lat, long,  projectType,
          fundingSource, employer, tenderNumber, projectScope, projectObjective,
          projectManager, fiscalYear, contractSum, contractDuration,
          commencementDate, plannedCompletion, costToCompletion
        )
        OUTPUT
          INSERTED.id, INSERTED.name, INSERTED.sector, INSERTED.budget,
-         INSERTED.status, INSERTED.description, INSERTED.categoryId,
-         INSERTED.subCounty, INSERTED.ward, INSERTED.lat, INSERTED.long,
+         INSERTED.status, INSERTED.description, INSERTED.categoryId, INSERTED.locationUnitId,
+         INSERTED.subCounty, INSERTED.ward, INSERTED.lat, INSERTED.long, INSERTED.projectType,
          INSERTED.createdAt, INSERTED.updatedAt,
          INSERTED.fundingSource, INSERTED.employer, INSERTED.tenderNumber,
          INSERTED.projectScope, INSERTED.projectObjective,
@@ -629,11 +610,11 @@ export async function createFullProject(data: {
          INSERTED.contractDuration, INSERTED.commencementDate,
          INSERTED.plannedCompletion, INSERTED.costToCompletion, INSERTED.contributionValue
        VALUES (
-         @p1,  @p2,  @p3,  @p4,  @p5,  'ACTIVE', @p6, @p7,
+         @p1,  @p2,  @p3,  @p4,  @p5,  'NOT-STARTED', @p6, @p7,
          @p8,  @p9,  @p10, @p11,
          @p12, @p13, @p14, @p15, @p16,
          @p17, @p18, @p19, @p20,
-         @p21, @p22, @p23
+         @p21, @p22, @p23, @p24, @p25
        )`,
       [
         slug,
@@ -643,10 +624,12 @@ export async function createFullProject(data: {
         data.description ?? null,
         data.categoryId ?? null,
         data.contributionValue ?? null,
+        data.locationUnitId ?? null,
         data.subCounty ?? null,
         data.ward ?? null,
         data.lat ?? null,
         data.long ?? null,
+        data.projectType ?? null,
         data.fundingSource ?? null,
         data.employer ?? null,
         data.tenderNumber ?? null,
@@ -695,6 +678,218 @@ export async function createFullProject(data: {
     };
   } catch (error) {
     console.error("createFullProject error:", error);
+    throw new DatabaseError();
+  }
+}
+
+// ─── getFullProject ─────────────────────────────────────────────────────────
+export async function getFullProject(id: string): Promise<any | null> {
+  try {
+    const sqlQuery = `
+      SELECT
+        p.id, p.name, p.orgUnitId, p.budget, p.status, p.description,
+        p.categoryId, p.contributionValue, p.locationUnitId,
+        p.lat, p.long, p.projectType,
+        p.fundingSource, p.employer, p.tenderNumber,
+        p.projectScope, p.projectObjective, p.projectManager,
+        p.fiscalYear, p.contractSum, p.contractDuration,
+        p.commencementDate, p.plannedCompletion, p.costToCompletion,
+        ou.name AS orgUnitName, lu.name AS locationUnitName
+      FROM Project p
+      LEFT JOIN OrganisationalUnit ou ON p.orgUnitId = ou.id
+      LEFT JOIN LocationUnit lu ON p.locationUnitId = lu.id
+      WHERE p.id = @p1
+    `;
+    const { rows } = await safeQuery<any>(sqlQuery, [id]);
+    if (rows.length === 0) return null;
+    const row = rows[0];
+    return {
+      id: row.id,
+      name: row.name,
+      orgUnitId: row.orgUnitId ?? null,
+      orgUnitName: row.orgUnitName ?? null,
+      budget: row.budget,
+      status: row.status,
+      description: row.description,
+      categoryId: row.categoryId ?? null,
+      contributionValue: row.contributionValue,
+      locationUnitId: row.locationUnitId ?? null,
+      locationUnitName: row.locationUnitName ?? null,
+      lat: row.lat,
+      long: row.long,
+      projectType: row.projectType ?? null,
+      fundingSource: row.fundingSource ?? null,
+      employer: row.employer ?? null,
+      tenderNumber: row.tenderNumber ?? null,
+      projectScope: row.projectScope ?? null,
+      projectObjective: row.projectObjective ?? null,
+      projectManager: row.projectManager ?? null,
+      fiscalYear: row.fiscalYear ?? null,
+      contractSum: row.contractSum ?? null,
+      contractDuration: row.contractDuration ?? null,
+      commencementDate: row.commencementDate
+        ? new Date(row.commencementDate).toISOString().slice(0, 10)
+        : null,
+      plannedCompletion: row.plannedCompletion
+        ? new Date(row.plannedCompletion).toISOString().slice(0, 10)
+        : null,
+      costToCompletion: row.costToCompletion ?? null,
+    };
+  } catch (error) {
+    console.error("getFullProject error:", error);
+    throw new DatabaseError();
+  }
+}
+
+// ─── updateFullProject ──────────────────────────────────────────────────────
+export async function updateFullProject(
+  id: string,
+  data: {
+    name: string;
+    orgUnitId?: string;
+    budget?: number;
+    description?: string;
+    categoryId?: string | null;
+    contributionValue?: number | null;
+    locationUnitId?: string | null;
+    lat?: number | null;
+    long?: number | null;
+    projectType?: string;
+    status?: string;
+    fundingSource?: string | null;
+    employer?: string | null;
+    tenderNumber?: string | null;
+    projectScope?: string | null;
+    projectObjective?: string | null;
+    projectManager?: string | null;
+    fiscalYear?: string | null;
+    contractSum?: string | null;
+    contractDuration?: string | null;
+    commencementDate?: string | null;
+    plannedCompletion?: string | null;
+    costToCompletion?: string | null;
+  },
+): Promise<any> {
+  try {
+    // Optional: validate contribution against category target
+    if (
+      data.categoryId &&
+      data.contributionValue !== undefined &&
+      data.contributionValue !== null
+    ) {
+      const catRes = await safeQuery<{ target: number }>(
+        `SELECT target FROM ProjectCategory WHERE id = @p1`,
+        [data.categoryId],
+      );
+      if (catRes.rows.length > 0) {
+        const existingRes = await safeQuery<{ sum: number }>(
+          `SELECT SUM(contributionValue) AS sum FROM Project WHERE categoryId = @p1 AND id != @p2 AND status != 'ARCHIVED'`,
+          [data.categoryId, id],
+        );
+        const existing = existingRes.rows[0]?.sum ?? 0;
+        if (existing + data.contributionValue > catRes.rows[0].target) {
+          throw new Error("Contribution would exceed the category target.");
+        }
+      }
+    }
+
+    const updates: string[] = [];
+    const params: any[] = [];
+
+    const fields: [keyof typeof data, string][] = [
+      ["name", "name"],
+      ["orgUnitId", "orgUnitId"],
+      ["budget", "budget"],
+      ["description", "description"],
+      ["categoryId", "categoryId"],
+      ["contributionValue", "contributionValue"],
+      ["locationUnitId", "locationUnitId"],
+      ["lat", "lat"],
+      ["long", "long"],
+      ["projectType", "projectType"],
+      ["status", "status"],
+      ["fundingSource", "fundingSource"],
+      ["employer", "employer"],
+      ["tenderNumber", "tenderNumber"],
+      ["projectScope", "projectScope"],
+      ["projectObjective", "projectObjective"],
+      ["projectManager", "projectManager"],
+      ["fiscalYear", "fiscalYear"],
+      ["contractSum", "contractSum"],
+      ["contractDuration", "contractDuration"],
+      ["commencementDate", "commencementDate"],
+      ["plannedCompletion", "plannedCompletion"],
+      ["costToCompletion", "costToCompletion"],
+    ];
+
+    for (const [key, col] of fields) {
+      if (data[key] !== undefined) {
+        updates.push(`${col} = @p${params.length + 1}`);
+        if (key === "commencementDate" || key === "plannedCompletion") {
+          params.push(data[key] ? new Date(data[key]) : null);
+        } else {
+          params.push(data[key]);
+        }
+      }
+    }
+
+    if (updates.length === 0) throw new Error("No fields to update");
+    updates.push("updatedAt = GETDATE()");
+    params.push(id);
+
+    const sqlQuery = `
+      UPDATE Project
+      SET ${updates.join(", ")}
+      OUTPUT INSERTED.id, INSERTED.name, INSERTED.orgUnitId, INSERTED.budget,
+             INSERTED.status, INSERTED.description, INSERTED.categoryId,
+             INSERTED.contributionValue, INSERTED.locationUnitId, INSERTED.lat,
+             INSERTED.long, INSERTED.projectType, INSERTED.fundingSource,
+             INSERTED.employer, INSERTED.tenderNumber, INSERTED.projectScope,
+             INSERTED.projectObjective, INSERTED.projectManager,
+             INSERTED.fiscalYear, INSERTED.contractSum, INSERTED.contractDuration,
+             INSERTED.commencementDate, INSERTED.plannedCompletion,
+             INSERTED.costToCompletion, INSERTED.createdAt, INSERTED.updatedAt
+      WHERE id = @p${params.length}
+    `;
+    const { rows } = await safeQuery<any>(sqlQuery, params);
+    if (rows.length === 0) throw new Error("Project not found");
+    const row = rows[0];
+    revalidatePath(`/projects/${id}`);
+    revalidatePath(`/projects/${id}/edit`);
+    return {
+      id: row.id,
+      name: row.name,
+      orgUnitId: row.orgUnitId,
+      budget: row.budget,
+      status: row.status,
+      description: row.description,
+      categoryId: row.categoryId,
+      contributionValue: row.contributionValue,
+      locationUnitId: row.locationUnitId,
+      lat: row.lat,
+      long: row.long,
+      projectType: row.projectType,
+      fundingSource: row.fundingSource,
+      employer: row.employer,
+      tenderNumber: row.tenderNumber,
+      projectScope: row.projectScope,
+      projectObjective: row.projectObjective,
+      projectManager: row.projectManager,
+      fiscalYear: row.fiscalYear,
+      contractSum: row.contractSum,
+      contractDuration: row.contractDuration,
+      commencementDate: row.commencementDate
+        ? new Date(row.commencementDate).toISOString().slice(0, 10)
+        : null,
+      plannedCompletion: row.plannedCompletion
+        ? new Date(row.plannedCompletion).toISOString().slice(0, 10)
+        : null,
+      costToCompletion: row.costToCompletion,
+      createdAt: row.createdAt?.toISOString(),
+      updatedAt: row.updatedAt?.toISOString(),
+    };
+  } catch (error) {
+    console.error("updateFullProject error:", error);
     throw new DatabaseError();
   }
 }

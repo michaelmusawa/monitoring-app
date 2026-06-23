@@ -13,7 +13,7 @@ function formatCurrency(val: number) {
 
 interface Props {
   data: BreakdownItem[];
-  type: "fiscalYear" | "sector" | "subCounty" | "ward";
+  type: string;
   activeValue?: string;
   /** Only required when type === "ward" */
   subCounty?: string;
@@ -58,7 +58,7 @@ export default function BreakdownTable({
             <th className="text-left p-3 font-medium">Name</th>
             <th className="text-center p-3 font-medium">Projects</th>
             <th className="text-center p-3 font-medium hidden sm:table-cell">
-              Active
+              Ongoing
             </th>
             <th className="text-center p-3 font-medium hidden sm:table-cell">
               Stalled
@@ -68,6 +68,9 @@ export default function BreakdownTable({
             </th>
             <th className="text-center p-3 font-medium hidden sm:table-cell">
               Completed
+            </th>
+            <th className="text-center p-3 font-medium hidden sm:table-cell">
+              Terminated
             </th>
             <th className="text-right p-3 font-medium hidden md:table-cell">
               Budget
@@ -121,7 +124,7 @@ export default function BreakdownTable({
                 <td className="text-center p-3 hidden sm:table-cell">
                   {statusBadge(
                     "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800",
-                    row.active,
+                    row.ongoing,
                   )}
                 </td>
                 <td className="text-center p-3 hidden sm:table-cell">
@@ -140,6 +143,12 @@ export default function BreakdownTable({
                   {statusBadge(
                     "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950 dark:text-indigo-300 dark:border-indigo-800",
                     row.completed,
+                  )}
+                </td>
+                <td className="text-center p-3 hidden sm:table-cell">
+                  {statusBadge(
+                    "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950 dark:text-indigo-300 dark:border-indigo-800",
+                    row.terminated,
                   )}
                 </td>
                 <td className="text-right p-3 hidden md:table-cell tabular-nums text-muted-foreground">

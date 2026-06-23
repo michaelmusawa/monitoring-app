@@ -18,6 +18,7 @@ import {
   Calendar,
 } from "lucide-react";
 import type { FlatProject } from "@/lib/actions/categoryActions";
+import { Role } from "@/lib/actions/adminActions";
 
 function fmtCurrency(n: number | null) {
   if (n == null) return "—";
@@ -40,7 +41,7 @@ export default function ProjectsFlatList({
   userRole,
 }: {
   projects: FlatProject[];
-  userRole: string;
+  userRole: Role[];
 }) {
   return (
     <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">

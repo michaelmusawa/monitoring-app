@@ -1,6 +1,6 @@
-// app/api/projects/[projectId]/reports/summary/route.ts
 import { NextResponse } from "next/server";
 import { safeQuery, DatabaseError } from "@/lib/db";
+import { buildUnitLookup, getRootUnitName } from "@/lib/actions/orgActions";
 
 export async function GET(
   _request: Request,
@@ -8,8 +8,11 @@ export async function GET(
 ) {
   const { projectId } = await params;
   try {
+    const unitLookup = await buildUnitLookup();
+
+    // ── 1. Project header (no more 'sector' column) ────────────────
     const { rows: projectRows } = await safeQuery<any>(
-      `SELECT id, name, status, sector, description, createdAt
+      `SELECT id, name, status, orgUnitId, description, createdAt
        FROM Project WHERE id = @p1`,
       [projectId],
     );
@@ -18,6 +21,12 @@ export async function GET(
     }
     const project = projectRows[0];
 
+    // Derive root sector from orgUnitId
+    const sector = project.orgUnitId
+      ? await getRootUnitName(project.orgUnitId, unitLookup)
+      : "Unknown";
+
+    // ── 2. Checklist ─────────────────────────────────────────────
     const { rows: clRows } = await safeQuery<any>(
       `SELECT TOP 1 id, status FROM Checklist WHERE projectId = @p1`,
       [projectId],
@@ -42,6 +51,7 @@ export async function GET(
       };
     }
 
+    // ── 3. Latest tracker ────────────────────────────────────────
     const { rows: trackerRows } = await safeQuery<any>(
       `SELECT TOP 1 id, overallPercent, submittedAt
        FROM TrackerSubmission
@@ -66,11 +76,13 @@ export async function GET(
       };
     }
 
+    // ── 4. Tracker count ─────────────────────────────────────────
     const { rows: countRows } = await safeQuery<any>(
       `SELECT COUNT(*) as cnt FROM TrackerSubmission WHERE projectId = @p1`,
       [projectId],
     );
 
+    // ── 5. Workplan ──────────────────────────────────────────────
     const { rows: wpRows } = await safeQuery<any>(
       `SELECT
          COUNT(*) as totalItems,
@@ -87,7 +99,7 @@ export async function GET(
         id: project.id,
         name: project.name,
         status: project.status,
-        sector: project.sector,
+        sector, // ← computed root unit name
         description: project.description ?? null,
         createdAt: project.createdAt?.toISOString(),
       },

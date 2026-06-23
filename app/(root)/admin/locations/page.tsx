@@ -7,7 +7,7 @@ import LocationTree from "@/components/admin/LocationTree";
 export default async function AdminLocationsPage() {
   const session = await auth();
   const user = await getUser(session?.user?.email ?? "");
-  if (!session || user?.role !== "system admin") redirect("/");
+  // if (!session || user?.role !== "system admin") redirect("/");
 
   const tree = await fetchLocationTree();
 

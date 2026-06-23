@@ -26,9 +26,8 @@ export default async function DashboardPage(props: {
       getFiscalYears(),
     ]);
 
-  console.log(stats);
-
-  const userRole = await getUserRoles(user?.id ?? "");
+  const userRoles = await getUserRoles(user?.id ?? "");
+  const userRole = userRoles[0];
   const userName = session?.user?.name ?? userEmail;
 
   return (

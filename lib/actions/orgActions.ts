@@ -225,3 +225,86 @@ export async function fetchUnitsForSelect(
   const { rows } = await safeQuery<any>(query, params);
   return rows.map((r) => ({ id: r.id, name: r.name, level: r.level }));
 }
+
+// lib/actions/orgActions.ts
+
+export async function fetchAllActiveUnits(): Promise<
+  { id: string; parentId: string | null; name: string; level: string }[]
+> {
+  const { rows } = await safeQuery<any>(
+    `SELECT id, parentId, name, level FROM OrganisationalUnit WHERE isActive = 1`,
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    parentId: r.parentId ?? null,
+    name: r.name,
+    level: r.level,
+  }));
+}
+
+// Build a map: unitId → (parentId, name)
+export type UnitLookup = Map<
+  string,
+  { parentId: string | null; name: string; level: string }
+>;
+
+export async function buildUnitLookup(): Promise<UnitLookup> {
+  const units = await fetchAllActiveUnits();
+  const map = new Map<
+    string,
+    { parentId: string | null; name: string; level: string }
+  >();
+  for (const u of units) {
+    map.set(u.id, { parentId: u.parentId, name: u.name, level: u.level });
+  }
+  return map;
+}
+
+// lib/actions/orgActions.ts
+
+export async function getRootUnitId(unitId: string): Promise<string | null> {
+  // Recursive CTE to find the top-level parent (where parentId IS NULL)
+  const sql = `
+    WITH cte AS (
+      SELECT id, parentId, 0 AS lvl
+      FROM OrganisationalUnit
+      WHERE id = @p1 AND isActive = 1
+      UNION ALL
+      SELECT u.id, u.parentId, cte.lvl + 1
+      FROM OrganisationalUnit u
+      INNER JOIN cte ON u.id = cte.parentId
+    )
+    SELECT TOP 1 id FROM cte
+    ORDER BY lvl DESC
+  `;
+  const { rows } = await safeQuery<{ id: string }>(sql, [unitId]);
+  return rows[0]?.id ?? null;
+}
+
+export async function getRootUnitName(
+  unitId: string,
+  lookup: UnitLookup,
+): Promise<string> {
+  if (!lookup.has(unitId)) return "Unknown";
+
+  let currentId = unitId;
+  let safety = 0;
+  while (safety < 50) {
+    const unit = lookup.get(currentId);
+    if (!unit || !unit.parentId) break;
+    currentId = unit.parentId;
+    safety++;
+  }
+  const root = lookup.get(currentId);
+  return root?.name ?? "Unknown";
+}
+
+// lib/actions/orgActions.ts (add at the end)
+
+export async function fetchRootSectors(): Promise<string[]> {
+  // Get all active units with no parent → these are the top‑level sectors
+  const { rows } = await safeQuery<{ name: string }>(
+    `SELECT name FROM OrganisationalUnit WHERE isActive = 1 AND parentId IS NULL ORDER BY name`,
+  );
+  return rows.map((r) => r.name);
+}

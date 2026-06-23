@@ -32,38 +32,9 @@ import {
 import ReportGenerator, {
   ReportProject,
 } from "@/components/dashboard/ReportGenerator";
+import { DashboardStats } from "./UnifiedDashboard";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-export interface DashboardStats {
-  totalProjects: number;
-  activeProjects: number;
-  pendingProjects: number;
-  completedProjects: number;
-  totalBudget: number;
-  avgProgress: number;
-  awaitingDraftReview: number;
-  awaitingWeightsReview: number;
-  recentTrackers: number;
-  stalledProjects: number;
-  nearCompleteProjects: number;
-  sectorBreakdown: {
-    sector: string;
-    count: number;
-    avgProgress: number;
-    budget: number;
-  }[];
-  progressBuckets: { label: string; count: number }[];
-  recentActivity: {
-    id: string;
-    projectName: string;
-    type: "tracker" | "checklist" | "init" | "eval";
-    detail: string;
-    date: string;
-  }[];
-  budgetBySize: { size: string; budget: number; count: number }[];
-  monthlyTrackers: { month: string; submissions: number }[];
-}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

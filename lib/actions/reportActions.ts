@@ -2,6 +2,7 @@
 
 import { safeQuery, DatabaseError } from "@/lib/db";
 import { revalidatePath } from "next/cache";
+import { buildUnitLookup, getRootUnitName } from "./orgActions";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -400,21 +401,29 @@ export interface ProjectProgress {
 }
 
 export async function getProjectProgressData(): Promise<ProjectProgress[]> {
+  const unitLookup = await buildUnitLookup();
   const sql = `
-    SELECT id, name, sector, status, progress, budget, createdAt
+    SELECT id, name, orgUnitId, status, progress, budget, createdAt
     FROM Project
     ORDER BY createdAt DESC
   `;
   const { rows } = await safeQuery<any>(sql, []);
-  return rows.map((r) => ({
-    id: r.id.toString(),
-    name: r.name,
-    sector: r.sector,
-    status: r.status,
-    progress: r.progress || 0,
-    budget: r.budget,
-    createdAt: r.createdAt,
-  }));
+  const result: ProjectProgress[] = [];
+  for (const r of rows) {
+    const sector = r.orgUnitId
+      ? await getRootUnitName(r.orgUnitId, unitLookup)
+      : "Unknown";
+    result.push({
+      id: r.id.toString(),
+      name: r.name,
+      sector,
+      status: r.status,
+      progress: r.progress || 0,
+      budget: r.budget,
+      createdAt: r.createdAt,
+    });
+  }
+  return result;
 }
 
 export interface ChecklistStatus {
@@ -465,26 +474,55 @@ export interface SectorPerformance {
 }
 
 export async function getSectorPerformanceData(): Promise<SectorPerformance[]> {
+  const unitLookup = await buildUnitLookup();
   const sql = `
-    SELECT
-      COALESCE(sector, 'Unspecified') as sector,
-      COUNT(*) as projectCount,
-      AVG(progress) as avgProgress,
-      SUM(COALESCE(budget, 0)) as totalBudget,
-      SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) as completedProjects,
-      SUM(CASE WHEN status = 'ACTIVE' THEN 1 ELSE 0 END) as activeProjects
+    SELECT id, orgUnitId, progress, budget, status
     FROM Project
-    GROUP BY COALESCE(sector, 'Unspecified')
-    ORDER BY avgProgress DESC
   `;
   const { rows } = await safeQuery<any>(sql, []);
-  return rows.map((r) => ({
-    sector: r.sector,
-    projectCount: r.projectCount,
-    avgProgress: Math.round(r.avgProgress * 10) / 10,
-    totalBudget: r.totalBudget,
-    completedProjects: r.completedProjects,
-    activeProjects: r.activeProjects,
+
+  // Aggregate by root sector
+  const sectorMap: Record<
+    string,
+    {
+      projectCount: number;
+      sumProgress: number;
+      totalBudget: number;
+      completed: number;
+      active: number;
+    }
+  > = {};
+
+  for (const r of rows) {
+    const sector = r.orgUnitId
+      ? await getRootUnitName(r.orgUnitId, unitLookup)
+      : "Unknown";
+    if (!sectorMap[sector]) {
+      sectorMap[sector] = {
+        projectCount: 0,
+        sumProgress: 0,
+        totalBudget: 0,
+        completed: 0,
+        active: 0,
+      };
+    }
+    sectorMap[sector].projectCount++;
+    sectorMap[sector].sumProgress += r.progress || 0;
+    sectorMap[sector].totalBudget += r.budget ?? 0;
+    if (r.status === "COMPLETED") sectorMap[sector].completed++;
+    if (r.status === "ACTIVE") sectorMap[sector].active++;
+  }
+
+  return Object.entries(sectorMap).map(([sector, data]) => ({
+    sector,
+    projectCount: data.projectCount,
+    avgProgress:
+      data.projectCount > 0
+        ? Math.round((data.sumProgress / data.projectCount) * 10) / 10
+        : 0,
+    totalBudget: data.totalBudget,
+    completedProjects: data.completed,
+    activeProjects: data.active,
   }));
 }
 

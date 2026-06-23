@@ -104,12 +104,14 @@ export async function createLocationUnit(data: {
   code?: string;
   description?: string;
   displayOrder?: number;
+  lat?: number | null; // new
+  long?: number | null; // new
 }): Promise<LocationUnit> {
   const id = generateSlug(data.name);
   const { rows } = await safeQuery<any>(
-    `INSERT INTO LocationUnit (id, name, level, parentId, code, description, displayOrder)
+    `INSERT INTO LocationUnit (id, name, level, parentId, code, description, displayOrder, lat, long)
      OUTPUT INSERTED.*
-     VALUES (@p1, @p2, @p3, @p4, @p5, @p6, @p7)`,
+     VALUES (@p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9)`,
     [
       id,
       data.name,
@@ -118,6 +120,8 @@ export async function createLocationUnit(data: {
       data.code ?? null,
       data.description ?? null,
       data.displayOrder ?? 0,
+      data.lat ?? null,
+      data.long ?? null,
     ],
   );
   revalidatePath("/admin/locations");
@@ -139,6 +143,8 @@ export async function updateLocationUnit(
     ["description", "description"],
     ["displayOrder", "displayOrder"],
     ["isActive", "isActive"],
+    ["lat", "lat"], // new
+    ["long", "long"], // new
   ];
   for (const [key, col] of fields) {
     if (data[key] !== undefined) {
@@ -190,4 +196,25 @@ export async function fetchLocationUnitById(
     [id],
   );
   return rows.length ? mapUnit(rows[0]) : null;
+}
+
+export async function fetchLocationTreeFlattened(): Promise<
+  { value: string; label: string }[]
+> {
+  const tree = await fetchLocationTree();
+  const result: { value: string; label: string }[] = [];
+
+  function flatten(nodes: LocationUnit[], depth: number) {
+    const prefix = "  ".repeat(depth);
+    for (const node of nodes) {
+      result.push({
+        value: node.id,
+        label: `${prefix}${node.name} (${node.level})`,
+      });
+      if (node.children) flatten(node.children, depth + 1);
+    }
+  }
+
+  flatten(tree, 0);
+  return result;
 }

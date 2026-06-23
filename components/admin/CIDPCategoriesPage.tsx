@@ -1,20 +1,6 @@
 "use client";
 
-/**
- * CIDPCategoriesPage
- *
- * RBAC permissions:
- * - category:view          → view categories
- * - category:create        → add new category manually
- * - category:edit          → edit category (only when DRAFT or CHANGES_REQUESTED)
- * - category:delete        → delete category (only when DRAFT or CHANGES_REQUESTED)
- * - category:submit        → submit for review (single or bulk)
- * - category:approve       → approve categories (single or bulk)
- * - category:request_changes → request changes with reasons
- * - category:extract_pdf   → upload PDF and extract categories
- */
-
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -39,7 +25,6 @@ import {
   Clock,
   MessageSquare,
   Eye,
-  Filter,
   Search,
   ArrowUpDown,
   Building2,
@@ -70,23 +55,21 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { SECTORS } from "@/lib/data/data";
+import OrgUnitSelector from "./OrgUnitSelector";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
-
 const FASTAPI_BASE =
   process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
 const EXTRACT_URL = `${FASTAPI_BASE}/extract-cidp-categories`;
 const CLEAN_URL = `${FASTAPI_BASE}/clean-category-names`;
 
 // ─── Helper: Permission check ─────────────────────────────────────────────────
-
 function hasPermission(perms: string[], required: string | string[]): boolean {
   if (typeof required === "string") return perms.includes(required);
   return required.some((p) => perms.includes(p));
 }
 
-// ─── Formatters (target now uses targetType) ──────────────────────────────────
-
+// ─── Formatters ───────────────────────────────────────────────────────────────
 function formatBudget(n: number | null): string {
   if (n == null) return "—";
   if (n >= 1_000_000_000) return `KES ${(n / 1_000_000_000).toFixed(2)}B`;
@@ -95,10 +78,27 @@ function formatBudget(n: number | null): string {
   return `KES ${n.toLocaleString()}`;
 }
 
-function formatTarget(n: number | null, type?: "NUMBER" | "PERCENT"): string {
-  if (n == null) return "—";
-  if (type === "PERCENT") return `${n}%`;
-  return n.toLocaleString();
+function formatTarget(
+  target: number | null,
+  type?: "NUMBER" | "PERCENT",
+  unit?: string | null,
+  direction?: "INCREASE" | "DECREASE" | null,
+  baseline?: number | null,
+): string {
+  if (target == null) return "—";
+  let suffix = "";
+  if (unit) suffix = ` ${unit}`;
+  // Use stored direction if available, else infer from baseline
+  const dir =
+    direction ??
+    (baseline != null && target != null
+      ? target < baseline
+        ? "DECREASE"
+        : "INCREASE"
+      : null);
+  if (dir) suffix += dir === "DECREASE" ? " (decrease)" : " (increase)";
+  if (type === "PERCENT") return `${target}%${suffix}`;
+  return `${target.toLocaleString()}${suffix}`;
 }
 
 const STATUS_CONFIG: Record<
@@ -132,10 +132,11 @@ const FIELD_LABELS: Record<string, string> = {
   sector: "Sector",
   target: "Target",
   targetType: "Target Type",
+  targetUnit: "Unit",
+  baselineValue: "Baseline Value",
+  targetDirection: "Direction",
   budget: "Budget (KSh)",
 };
-
-// ─── StatusBadge ──────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: CategoryStatus }) {
   const cfg = STATUS_CONFIG[status];
@@ -357,9 +358,10 @@ function ReviewNotesPanel({
 // ─── MEReviewDrawer (unchanged except adding targetType field) ────────────────
 
 interface PendingChange {
-  field: "name" | "target" | "budget" | "sector" | "targetType";
+  field: FieldChange["field"];
   suggestedValue: string;
   reason: string;
+  originalValue?: string;
 }
 
 function MEReviewDrawer({
@@ -379,7 +381,7 @@ function MEReviewDrawer({
   const [changes, setChanges] = useState<Record<string, PendingChange>>({});
 
   const fields: Array<{
-    key: "name" | "target" | "budget" | "sector" | "targetType";
+    key: FieldChange["field"];
     label: string;
     value: string;
     type: "text" | "number" | "select";
@@ -406,6 +408,25 @@ function MEReviewDrawer({
       options: ["NUMBER", "PERCENT"],
     },
     {
+      key: "targetUnit",
+      label: "Unit",
+      value: category.targetUnit ?? "",
+      type: "text",
+    },
+    {
+      key: "baselineValue",
+      label: "Baseline Value",
+      value: String(category.baselineValue ?? ""),
+      type: "number",
+    },
+    {
+      key: "targetDirection",
+      label: "Direction",
+      value: category.targetDirection ?? "INCREASE",
+      type: "select",
+      options: ["INCREASE", "DECREASE"],
+    },
+    {
       key: "budget",
       label: "Budget (KSh)",
       value: String(category.budget ?? ""),
@@ -414,19 +435,14 @@ function MEReviewDrawer({
   ];
 
   function setChange(
-    field: "name" | "target" | "budget" | "sector" | "targetType",
+    field: FieldChange["field"],
     val: string,
     reason: string,
     original: string,
   ) {
     setChanges((prev) => ({
       ...prev,
-      [field]: {
-        field,
-        suggestedValue: val,
-        reason,
-        originalValue: original,
-      } as any,
+      [field]: { field, suggestedValue: val, reason, originalValue: original },
     }));
   }
 
@@ -448,7 +464,7 @@ function MEReviewDrawer({
   };
 
   const handleSendBack = async () => {
-    const changeList: FieldChange[] = Object.values(changes).map((c: any) => ({
+    const changeList: FieldChange[] = Object.values(changes).map((c) => ({
       field: c.field,
       originalValue: c.originalValue ?? "",
       suggestedValue: c.suggestedValue,
@@ -529,12 +545,21 @@ function MEReviewDrawer({
                     {f.key === "budget"
                       ? formatBudget(category.budget)
                       : f.key === "target"
-                        ? formatTarget(category.target, category.targetType)
+                        ? formatTarget(
+                            category.target,
+                            category.targetType,
+                            category.targetUnit,
+                            category.targetDirection,
+                          )
                         : f.key === "targetType"
                           ? category.targetType === "PERCENT"
                             ? "Percentage"
                             : "Number"
-                          : f.value || "—"}
+                          : f.key === "targetDirection"
+                            ? category.targetDirection === "DECREASE"
+                              ? "Decrease"
+                              : "Increase"
+                            : f.value || "—"}
                   </p>
                 </div>
               ))}
@@ -575,8 +600,21 @@ function MEReviewDrawer({
                         {f.key === "budget"
                           ? formatBudget(category.budget)
                           : f.key === "target"
-                            ? formatTarget(category.target, category.targetType)
-                            : f.value || "—"}
+                            ? formatTarget(
+                                category.target,
+                                category.targetType,
+                                category.targetUnit,
+                                category.targetDirection,
+                              )
+                            : f.key === "targetType"
+                              ? category.targetType === "PERCENT"
+                                ? "Percentage"
+                                : "Number"
+                              : f.key === "targetDirection"
+                                ? category.targetDirection === "DECREASE"
+                                  ? "Decrease"
+                                  : "Increase"
+                                : f.value || "—"}
                       </span>
                       <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0" />
                       {f.type === "select" ? (
@@ -597,7 +635,13 @@ function MEReviewDrawer({
                           <SelectContent>
                             {f.options?.map((opt) => (
                               <SelectItem key={opt} value={opt}>
-                                {opt === "NUMBER" ? "Number" : "Percentage"}
+                                {opt === "NUMBER"
+                                  ? "Number"
+                                  : opt === "PERCENT"
+                                    ? "Percentage"
+                                    : opt === "INCREASE"
+                                      ? "Increase"
+                                      : "Decrease"}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -706,6 +750,17 @@ function CategoryRow({
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  useEffect(() => {
+    const t = draft.target;
+    const b = draft.baselineValue;
+    if (t != null && b != null) {
+      setDraft((prev) => ({
+        ...prev,
+        targetDirection: t < b ? "DECREASE" : "INCREASE",
+      }));
+    }
+  }, [draft.target, draft.baselineValue]);
+
   const hasOpenNotes =
     category.reviewNotes?.some((n) => n.resolvedAt === null) ?? false;
 
@@ -717,6 +772,9 @@ function CategoryRow({
         sector: draft.sector ?? undefined,
         target: draft.target ?? undefined,
         targetType: draft.targetType,
+        targetUnit: draft.targetUnit ?? undefined,
+        baselineValue: draft.baselineValue ?? undefined,
+        targetDirection: draft.targetDirection ?? undefined,
         budget: draft.budget ?? undefined,
       });
       setEditing(false);
@@ -771,7 +829,12 @@ function CategoryRow({
           <div className="text-right">
             <p className="text-xs text-muted-foreground">Target</p>
             <p className="text-xs font-semibold font-mono">
-              {formatTarget(category.target, category.targetType)}
+              {formatTarget(
+                category.target,
+                category.targetType,
+                category.targetUnit,
+                category.targetDirection,
+              )}
             </p>
           </div>
           <div className="text-right">
@@ -823,7 +886,7 @@ function CategoryRow({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="sm:col-span-2">
                   <label className="text-xs text-muted-foreground font-medium">
-                    Category Name
+                    Initiative Name
                   </label>
                   <Input
                     value={draft.name}
@@ -837,11 +900,10 @@ function CategoryRow({
                   <label className="text-xs text-muted-foreground font-medium">
                     Sector
                   </label>
-                  <Input
+                  <OrgUnitSelector
                     value={draft.sector ?? ""}
-                    onChange={(e) =>
-                      setDraft((d) => ({ ...d, sector: e.target.value }))
-                    }
+                    onChange={(val) => setDraft((d) => ({ ...d, sector: val }))}
+                    placeholder="Select sector"
                     className="mt-1 h-8 text-sm"
                   />
                 </div>
@@ -877,6 +939,54 @@ function CategoryRow({
                     <SelectContent>
                       <SelectItem value="NUMBER">Number</SelectItem>
                       <SelectItem value="PERCENT">Percentage (%)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground font-medium">
+                    Unit
+                  </label>
+                  <Input
+                    value={draft.targetUnit ?? ""}
+                    onChange={(e) =>
+                      setDraft((d) => ({ ...d, targetUnit: e.target.value }))
+                    }
+                    className="mt-1 h-8 text-sm"
+                    placeholder="e.g. Km, Staff"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground font-medium">
+                    Baseline Value
+                  </label>
+                  <Input
+                    type="number"
+                    value={draft.baselineValue ?? ""}
+                    onChange={(e) =>
+                      setDraft((d) => ({
+                        ...d,
+                        baselineValue: Number(e.target.value) || null,
+                      }))
+                    }
+                    className="mt-1 h-8 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground font-medium">
+                    Direction
+                  </label>
+                  <Select
+                    value={draft.targetDirection ?? "INCREASE"}
+                    onValueChange={(val: "INCREASE" | "DECREASE") =>
+                      setDraft((d) => ({ ...d, targetDirection: val }))
+                    }
+                  >
+                    <SelectTrigger className="mt-1 h-8 text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="INCREASE">Increase</SelectItem>
+                      <SelectItem value="DECREASE">Decrease</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -926,7 +1036,12 @@ function CategoryRow({
                 {
                   icon: <Target className="w-3.5 h-3.5" />,
                   label: "Target",
-                  value: formatTarget(category.target, category.targetType),
+                  value: formatTarget(
+                    category.target,
+                    category.targetType,
+                    category.targetUnit,
+                    category.targetDirection,
+                  ),
                 },
                 {
                   icon: <Wallet className="w-3.5 h-3.5" />,
@@ -950,6 +1065,17 @@ function CategoryRow({
                   <p className="text-sm font-semibold truncate">{item.value}</p>
                 </div>
               ))}
+              {category.baselineValue != null && (
+                <div className="bg-background rounded-lg border border-border p-2.5">
+                  <div className="flex items-center gap-1.5 text-muted-foreground mb-1">
+                    <Target className="w-3.5 h-3.5" />
+                    <span className="text-xs">Baseline</span>
+                  </div>
+                  <p className="text-sm font-semibold">
+                    {category.baselineValue} {category.targetUnit}
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
@@ -989,8 +1115,7 @@ function CategoryRow({
   );
 }
 
-// ─── AddCategoryForm (with targetType selector) ───────────────────────────────
-
+// ─── AddCategoryForm (with new fields) ──────────────────────────────────────
 function AddCategoryForm({
   onAdd,
 }: {
@@ -999,6 +1124,9 @@ function AddCategoryForm({
     sector?: string;
     target?: number;
     targetType?: "NUMBER" | "PERCENT";
+    targetUnit?: string;
+    baselineValue?: number;
+    targetDirection?: "INCREASE" | "DECREASE";
     budget?: number;
   }) => Promise<void>;
 }) {
@@ -1007,8 +1135,22 @@ function AddCategoryForm({
   const [sector, setSector] = useState("");
   const [target, setTarget] = useState("");
   const [targetType, setTargetType] = useState<"NUMBER" | "PERCENT">("NUMBER");
+  const [targetUnit, setTargetUnit] = useState("");
+  const [baselineValue, setBaselineValue] = useState("");
+  const [targetDirection, setTargetDirection] = useState<
+    "INCREASE" | "DECREASE"
+  >("INCREASE");
   const [budget, setBudget] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // inside AddCategoryForm, after state declarations
+  useEffect(() => {
+    const t = parseFloat(target);
+    const b = parseFloat(baselineValue);
+    if (!isNaN(t) && !isNaN(b)) {
+      setTargetDirection(t < b ? "DECREASE" : "INCREASE");
+    }
+  }, [target, baselineValue]);
 
   const handleSubmit = async () => {
     if (!name.trim()) return;
@@ -1019,12 +1161,18 @@ function AddCategoryForm({
         sector: sector.trim() === "" ? undefined : sector.trim(),
         target: target ? Number(target) : undefined,
         targetType,
+        targetUnit: targetUnit.trim() || undefined,
+        baselineValue: baselineValue ? Number(baselineValue) : undefined,
+        targetDirection,
         budget: budget ? Number(budget) : undefined,
       });
       setName("");
       setSector("");
       setTarget("");
       setTargetType("NUMBER");
+      setTargetUnit("");
+      setBaselineValue("");
+      setTargetDirection("INCREASE");
       setBudget("");
       setOpen(false);
     } finally {
@@ -1038,7 +1186,7 @@ function AddCategoryForm({
         onClick={() => setOpen(true)}
         className="w-full flex items-center justify-center gap-2 border border-dashed border-border rounded-xl py-3 text-sm text-muted-foreground hover:border-primary/40 hover:text-primary transition-all"
       >
-        <Plus className="w-4 h-4" /> Add category manually
+        <Plus className="w-4 h-4" /> Add initiative manually
       </button>
     );
   }
@@ -1047,7 +1195,7 @@ function AddCategoryForm({
 
   return (
     <div className="border border-primary/30 rounded-xl p-4 space-y-3 bg-primary/3">
-      <p className="text-sm font-semibold">New Category</p>
+      <p className="text-sm font-semibold">New Initiative</p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="sm:col-span-2">
           <label className="text-xs text-muted-foreground font-medium">
@@ -1065,18 +1213,12 @@ function AddCategoryForm({
           <label className="text-xs text-muted-foreground font-medium">
             Sector
           </label>
-          <Select value={sector} onValueChange={setSector}>
-            <SelectTrigger className="mt-1 h-8 text-sm">
-              <SelectValue placeholder="Select sector" />
-            </SelectTrigger>
-            <SelectContent>
-              {sectorOptions.map((s) => (
-                <SelectItem key={s} value={s}>
-                  {s}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <OrgUnitSelector
+            value={sector}
+            onChange={setSector}
+            placeholder="Select sector"
+            className="mt-1 h-8 text-sm"
+          />
         </div>
         <div>
           <label className="text-xs text-muted-foreground font-medium">
@@ -1103,6 +1245,47 @@ function AddCategoryForm({
             <SelectContent>
               <SelectItem value="NUMBER">Number</SelectItem>
               <SelectItem value="PERCENT">Percentage (%)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground font-medium">
+            Unit
+          </label>
+          <Input
+            value={targetUnit}
+            onChange={(e) => setTargetUnit(e.target.value)}
+            placeholder="e.g. Km, Staff"
+            className="mt-1 h-8 text-sm"
+          />
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground font-medium">
+            Baseline Value
+          </label>
+          <Input
+            type="number"
+            value={baselineValue}
+            onChange={(e) => setBaselineValue(e.target.value)}
+            className="mt-1 h-8 text-sm"
+          />
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground font-medium">
+            Direction
+          </label>
+          <Select
+            value={targetDirection}
+            onValueChange={(val: "INCREASE" | "DECREASE") =>
+              setTargetDirection(val)
+            }
+          >
+            <SelectTrigger className="mt-1 h-8 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="INCREASE">Increase</SelectItem>
+              <SelectItem value="DECREASE">Decrease</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -1428,9 +1611,9 @@ export default function CIDPCategoriesPage({
       <header className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur-sm">
         <div className="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between gap-4">
           <div>
-            <h1 className="text-base font-bold">CIDP Project Categories</h1>
+            <h1 className="text-base font-bold">CIDP Project Initiatives</h1>
             <p className="text-xs text-muted-foreground">
-              {categories.length} categories · {approvedCount} approved
+              {categories.length} initiatives · {approvedCount} approved
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -1551,7 +1734,7 @@ export default function CIDPCategoriesPage({
         )}
 
         {/* Changes-requested alert for sector */}
-        {canEdit && changesRequestedCount > 0 && (
+        {hasEditPermission && changesRequestedCount > 0 && (
           <div className="flex items-center gap-3 p-4 rounded-xl border border-orange-200 bg-orange-50">
             <AlertCircle className="w-5 h-5 text-orange-600 shrink-0" />
             <div className="flex-1">
@@ -1561,8 +1744,8 @@ export default function CIDPCategoriesPage({
                 requested
               </p>
               <p className="text-xs text-orange-700 mt-0.5">
-                Expand each highlighted category to see what the ME changed and
-                why.
+                Expand each highlighted initiative to see what the ME changed
+                and why.
               </p>
             </div>
             <Button
@@ -1656,7 +1839,7 @@ export default function CIDPCategoriesPage({
         ) : filtered.length === 0 ? (
           <div className="text-center py-16 text-muted-foreground">
             <Target className="w-10 h-10 mx-auto mb-3 opacity-30" />
-            <p className="text-sm">No categories found</p>
+            <p className="text-sm">No initiatives found</p>
           </div>
         ) : (
           <div className="space-y-2">

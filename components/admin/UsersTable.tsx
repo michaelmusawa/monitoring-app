@@ -66,6 +66,7 @@ import {
 
 import Image from "next/image";
 import { SECTORS } from "@/lib/data/data";
+import OrgUnitSelector from "./OrgUnitSelector";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Avatar
@@ -269,28 +270,13 @@ const UserFormDialog = memo(function UserFormDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-xs font-semibold">Sector</Label>
-
-            <Select value={sector} onValueChange={setSector}>
-              <SelectTrigger className="h-9 text-sm">
-                <SelectValue placeholder="Select…" />
-              </SelectTrigger>
-
-              <SelectContent>
-                <SelectItem
-                  value="none"
-                  className="text-sm text-muted-foreground"
-                >
-                  None
-                </SelectItem>
-
-                {SECTORS.map((s) => (
-                  <SelectItem key={s} value={s} className="text-sm">
-                    {s}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label className="text-xs font-semibold">Organisational Unit</Label>
+            <OrgUnitSelector
+              value={sector === "none" ? "" : sector}
+              onChange={(val) => setSector(val || "none")}
+              placeholder="Select organisational unit…"
+              className="h-9 text-sm"
+            />
           </div>
 
           <DialogFooter className="pt-2">

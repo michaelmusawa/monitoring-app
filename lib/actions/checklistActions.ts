@@ -46,11 +46,19 @@ async function getUserIdByEmail(email: string | null): Promise<string | null> {
 }
 
 async function getProjectCreator(projectId: string): Promise<string | null> {
-  const { rows } = await safeQuery<{ createdBy: string }>(
-    `SELECT createdBy FROM Project WHERE id = @p1`,
-    [projectId],
-  );
-  return rows[0]?.createdBy || null;
+  try {
+    const { rows } = await safeQuery<{ createdBy: string }>(
+      `SELECT createdBy FROM Project WHERE id = @p1`,
+      [projectId],
+    );
+    return rows[0]?.createdBy || null;
+  } catch (error) {
+    console.warn(
+      "Could not fetch project creator (column 'createdBy' likely missing). Notifications to sector officer will be skipped.",
+      error,
+    );
+    return null;
+  }
 }
 
 async function getProjectName(projectId: string): Promise<string> {
@@ -380,8 +388,9 @@ export async function saveChecklist(
       }
 
       // 6. Promote custom items to template on final approval
+      // 6. Promote custom items to template on final approval
       const isApproving =
-        oldStatus === "WeightsReview" && data.status === "Approved";
+        currentStatus === "WeightsReview" && data.status === "Approved";
       if (isApproving && data.sector && data.customItemsToPromote?.length) {
         const tplReq = new sql.Request(trx);
         tplReq.input("sector", sql.NVarChar, data.sector);
@@ -438,7 +447,7 @@ export async function saveChecklist(
       }
 
       // 7. Add history entry
-      if (oldStatus !== data.status) {
+      if (currentStatus !== data.status) {
         const historyReason =
           annotationsToStore.length > 0
             ? `Sent back with ${annotationsToStore.length} task change(s)`

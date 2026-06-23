@@ -40,6 +40,8 @@ export async function GET(
 
 // ─── PUT: save manual edits ───────────────────────────────────────────────────
 
+// ─── PUT: save manual edits ───────────────────────────────────────────────────
+
 export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
@@ -48,18 +50,27 @@ export async function PUT(
   const session = await auth();
   if (!session?.user?.email)
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const user = await getUser(session.user.email);
-  if (user?.sector !== "me")
+  if (user?.sector !== "Monitoring And Evaluation")
     return NextResponse.json({ error: "ME officers only" }, { status: 403 });
 
   try {
     const body = await req.json();
+
+    // Normalize status: 'final' or 'Finalized' etc → 'finalized'
+    const rawStatus = (body.status || "").toLowerCase().trim();
+    const status =
+      rawStatus === "finalized" || rawStatus === "final"
+        ? "finalized"
+        : "draft";
+
     const saved = await saveStatusReportDraft({
-      projectId: projectId,
+      projectId,
       generatedBy: session.user.email,
       reportTitle: body.reportTitle,
       reportContent: body.reportContent,
-      status: body.status,
+      status,
     });
     return NextResponse.json(saved);
   } catch {
@@ -69,7 +80,6 @@ export async function PUT(
     );
   }
 }
-
 // ─── POST: generate AI draft ──────────────────────────────────────────────────
 
 export async function POST(

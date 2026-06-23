@@ -44,27 +44,15 @@ import OrgUnitSelector from "../admin/OrgUnitSelector";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const SECTORS = [
-  "Mobility And Works",
-  "Health, Wellness And Nutrition",
-  "Talent, Skills Development And Care",
-  "Green Nairobi",
-  "Business And Hustler Opportunities",
-  "Built Environment And Urban Planning",
-  "Boroughs, Sub County Administration And Personnel",
-  "Public Service Management",
-  "Innovation And Digital Economy",
-  "Finance And Economic Planning",
-  "Inclusivity, Public Participation And Customer Service",
-  "Office Of The Governor & Deputy Governor",
-  "County Secretary & Head Of County Public Service",
-  "Security And Compliance",
-  "Office Of The County Attorney",
-  "Disaster & Emergency Management",
-  "Internal Audit And Risk Management",
-  "Ward Development Programme",
-  "County Public Service Board",
-  "County Assembly",
+export const PROJECT_TYPES = [
+  {
+    value: "HARD",
+    label: "Hard (Physical infrastructure, construction, etc.)",
+  },
+  {
+    value: "SOFT",
+    label: "Soft (Software, training, capacity building, etc.)",
+  },
 ];
 
 const REQUIRED_DOCS = [
@@ -78,7 +66,7 @@ const REQUIRED_DOCS = [
 
 // ─── Zod Schemas ──────────────────────────────────────────────────────────────
 
-const basicsSchema = z.object({
+export const basicsSchema = z.object({
   name: z
     .string()
     .trim()
@@ -101,15 +89,11 @@ const basicsSchema = z.object({
     )
     .pipe(z.number().positive("Budget must be a positive number").optional()),
   description: z.string().max(2000, "Description too long").optional(),
-  contributionValue: z
-    .union([
-      z.string().transform((val) => (val.trim() === "" ? undefined : val)),
-      z.number().optional(),
-    ])
-    .pipe(
-      z.number().positive("Contribution must be a positive number").optional(),
-    )
-    .optional(),
+  contributionValue: z.preprocess(
+    (val) => (val === "" || val === undefined ? undefined : Number(val)),
+    z.number().positive("Contribution must be a positive number").optional(),
+  ),
+  projectType: z.string().min(1, "Please select project type"),
 });
 
 const locationSchema = z
@@ -154,7 +138,7 @@ const EMPTY_CONTRACT: ContractDetails = {
 };
 
 type Step = "basics" | "location" | "contract" | "documents";
-const STEPS: { id: Step; label: string; description: string }[] = [
+export const STEPS: { id: Step; label: string; description: string }[] = [
   {
     id: "basics",
     label: "Basic Info",
@@ -182,7 +166,13 @@ function getFiscalYearFromDate(dateStr: string): string {
 
 // ─── Step Indicator ───────────────────────────────────────────────────────────
 
-function StepIndicator({ current, done }: { current: Step; done: Set<Step> }) {
+export function StepIndicator({
+  current,
+  done,
+}: {
+  current: Step;
+  done: Set<Step>;
+}) {
   return (
     <div className="flex items-center mb-8">
       {STEPS.map((s, i) => {
@@ -231,7 +221,7 @@ function StepIndicator({ current, done }: { current: Step; done: Set<Step> }) {
 
 // ─── Section: Basic Info (unchanged) ─────────────────────────────────────────
 
-function SectionBasics({
+export function SectionBasics({
   name,
   setName,
   sector,
@@ -242,6 +232,8 @@ function SectionBasics({
   setDescription,
   contributionValue,
   setContributionValue,
+  projectType,
+  setProjectType,
   categoryName,
   categoryTarget,
   categoryTargetType,
@@ -259,6 +251,8 @@ function SectionBasics({
   description: string;
   setDescription: (v: string) => void;
   contributionValue: string;
+  projectType: string;
+  setProjectType: (v: string) => void;
   setContributionValue: (v: string) => void;
   categoryName?: string;
   categoryTarget?: number | null;
@@ -348,6 +342,26 @@ function SectionBasics({
           )}
         </div>
       </div>
+      <div className="space-y-1.5">
+        <Label className="text-xs font-semibold">
+          Project Type <span className="text-destructive">*</span>
+        </Label>
+        <Select value={projectType} onValueChange={setProjectType}>
+          <SelectTrigger className="h-9 text-sm">
+            <SelectValue placeholder="Select project type" />
+          </SelectTrigger>
+          <SelectContent>
+            {PROJECT_TYPES.map((t) => (
+              <SelectItem key={t.value} value={t.value}>
+                {t.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {errors.projectType && touched.projectType && (
+          <p className="text-xs text-destructive mt-1">{errors.projectType}</p>
+        )}
+      </div>
 
       {categoryName && (
         <div className="space-y-1.5">
@@ -412,7 +426,7 @@ function SectionBasics({
 
 // ─── Section: Contract Details (updated) ─────────────────────────────────────
 
-function SectionContract({
+export function SectionContract({
   form,
   set,
 }: {
@@ -472,16 +486,6 @@ function SectionContract({
       placeholder: "e.g. Director, Building Services",
     },
     {
-      key: "fiscalYear",
-      label: "Fiscal Year",
-      placeholder: "Auto‑filled from commencement date",
-    },
-    {
-      key: "contractSum",
-      label: "Contract Sum",
-      placeholder: "e.g. Kshs. 93,964,315",
-    },
-    {
       key: "commencementDate",
       label: "Commencement Date",
       placeholder: "",
@@ -495,6 +499,17 @@ function SectionContract({
       type: "date",
       min: today,
     },
+    {
+      key: "fiscalYear",
+      label: "Fiscal Year",
+      placeholder: "Auto‑filled from commencement date",
+    },
+    {
+      key: "contractSum",
+      label: "Contract Sum",
+      placeholder: "e.g. Kshs. 93,964,315",
+    },
+
     {
       key: "contractDuration",
       label: "Contract Duration",
@@ -564,7 +579,7 @@ function SectionContract({
 
 // ─── Section: Documents (unchanged) ───────────────────────────────────────────
 
-function SectionDocuments({
+export function SectionDocuments({
   files,
   setFiles,
 }: {
@@ -690,7 +705,7 @@ function SectionDocuments({
 
 // ─── Sidebar (unchanged) ──────────────────────────────────────────────────────
 
-function Sidebar({
+export function Sidebar({
   name,
   sector,
   budget,
@@ -860,8 +875,13 @@ export default function CreateProjectClient({
   const [budget, setBudget] = useState("");
   const [description, setDescription] = useState("");
   const [contributionValue, setContributionValue] = useState("");
+  const [projectType, setProjectType] = useState("");
 
-  const [location, setLocation] = useState<LocationData>(null);
+  const [location, setLocation] = useState<{
+    locationUnitId: string;
+    lat: number;
+    long: number;
+  } | null>(null);
   const [contract, setContract] = useState<ContractDetails>(EMPTY_CONTRACT);
   const setContractField = useCallback(
     (key: keyof ContractDetails, val: string) => {
@@ -892,6 +912,7 @@ export default function CreateProjectClient({
       description: description || undefined,
       contributionValue:
         contributionValue === "" ? undefined : contributionValue,
+      projectType,
     });
     if (!result.success) {
       const errors: Record<string, string> = {};
@@ -923,6 +944,7 @@ export default function CreateProjectClient({
     budget,
     description,
     contributionValue,
+    projectType,
     categoryId,
     remainingTarget,
   ]);
@@ -989,13 +1011,10 @@ export default function CreateProjectClient({
   }
 
   const handleLocationSaved = useCallback(
-    (data: { subCounty: string; ward: string; lat: number; long: number }) => {
-      const parsed = locationSchema.safeParse(data);
-      if (parsed.success) {
-        setLocation(data);
-        setDone((prev) => new Set([...prev, "location" as Step]));
-        toast.success("Location saved");
-      } else toast.error("Invalid location data");
+    (data: { locationUnitId: string; lat: number; long: number }) => {
+      setLocation(data);
+      setDone((prev) => new Set([...prev, "location" as Step]));
+      toast.success("Location saved");
     },
     [],
   );
@@ -1008,6 +1027,7 @@ export default function CreateProjectClient({
       description: description || undefined,
       contributionValue:
         contributionValue === "" ? undefined : contributionValue,
+      projectType,
     });
     if (!basicsResult.success) {
       setBasicsTouched({
@@ -1016,6 +1036,7 @@ export default function CreateProjectClient({
         budget: true,
         description: true,
         contributionValue: true,
+        projectType: true,
       });
       toast.error("Please fill in the required fields correctly");
       setCurrentStep("basics");
@@ -1056,10 +1077,10 @@ export default function CreateProjectClient({
         contributionValue: contributionValue
           ? Number(contributionValue)
           : undefined,
-        subCounty: location?.subCounty,
-        ward: location?.ward,
+
         lat: location?.lat,
         long: location?.long,
+        projectType,
         fundingSource: contract.fundingSource || undefined,
         employer: contract.employer || undefined,
         tenderNumber: contract.tenderNumber || undefined,
@@ -1154,6 +1175,8 @@ export default function CreateProjectClient({
                   setDescription={setDescription}
                   contributionValue={contributionValue}
                   setContributionValue={setContributionValue}
+                  projectType={projectType} // ✅ value
+                  setProjectType={setProjectType}
                   categoryName={categoryName}
                   categoryTarget={categoryTarget}
                   categoryTargetType={categoryTargetType}
@@ -1174,10 +1197,9 @@ export default function CreateProjectClient({
                   </div>
                   <ProjectLocationForm
                     initialData={{
-                      subCounty: location?.subCounty ?? null,
-                      ward: location?.ward ?? null,
-                      lat: location?.lat ?? null,
-                      long: location?.long ?? null,
+                      locationUnitId: location?.locationUnitId,
+                      lat: location?.lat,
+                      long: location?.long,
                     }}
                     onSave={handleLocationSaved}
                   />

@@ -45,6 +45,8 @@ import type {
 } from "@/lib/actions/dashboardActions";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
+import PortfolioReportButton from "./PortfolioReportButton";
+import { Role } from "@/lib/actions/adminActions";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types for the stats dashboard (same as before)
@@ -55,6 +57,7 @@ export interface DashboardStats {
   pendingProjects: number;
   notStartedProjects: number; // new
   completedProjects: number;
+  terminatedProjects: number;
   totalBudget: number;
   avgProgress: number;
   awaitingDraftReview: number;
@@ -62,6 +65,7 @@ export interface DashboardStats {
   recentTrackers: number;
   stalledProjects: number;
   nearCompleteProjects: number;
+
   sectorBreakdown: {
     sector: string;
     count: number;
@@ -75,6 +79,7 @@ export interface DashboardStats {
     type: "tracker" | "checklist" | "init" | "eval";
     detail: string;
     date: string;
+    sector: string;
   }[];
   budgetBySize: { size: string; budget: number; count: number }[];
   monthlyTrackers: { month: string; submissions: number }[];
@@ -351,18 +356,17 @@ function CumulativeView({
   const chartData = data.sectors.map((s) => ({
     name: s.sector.length > 18 ? s.sector.slice(0, 18) + "…" : s.sector,
     fullName: s.sector,
-    score: Number(s.score.toFixed(1)),
-    fill: scoreColor(s.score),
+    score: Number(s.averageScore.toFixed(1)),
+    fill: scoreColor(s.averageScore),
   }));
 
   return (
     <div className="space-y-6">
-      {/* Hero cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Big gauge: Score (tracker-based performance) */}
+      {/* Hero cards – percentages only */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="md:col-span-1 bg-white dark:bg-zinc-900 rounded-2xl border p-6 flex flex-col items-center justify-center gap-3">
           <ScoreGauge
-            score={data.cumulativeScore}
+            score={data.averageScore}
             size={140}
             label="Overall Score"
           />
@@ -371,43 +375,44 @@ function CumulativeView({
               Performance Score
             </p>
             <p className="text-xs text-zinc-400 mt-0.5">
-              {data.totalProjects} projects · {data.totalCategories} initiatives
+              {data.totalProjects} projects · {data.totalCategories} KPIs
             </p>
           </div>
         </div>
 
-        {/* Stat cards: Target & Coverage (absolute numbers) */}
-        <div className="md:col-span-2 grid grid-cols-2 gap-4">
-          <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-blue-100 dark:border-blue-900/40 p-4 space-y-2">
-            <div className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-950/30 flex items-center justify-center">
-              <Target className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-            </div>
-            <p className="text-2xl font-black">{100}%</p>
-            <p className="text-xs font-semibold text-zinc-500">Total Target</p>
-            <p className="text-xs text-zinc-400">Sum of all category targets</p>
+        <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-blue-100 dark:border-blue-900/40 p-4 space-y-2">
+          <div className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-950/30 flex items-center justify-center">
+            <Target className="w-5 h-5 text-blue-600 dark:text-blue-400" />
           </div>
+          <p className="text-2xl font-black">
+            {data.averageCoveragePercent.toFixed(1)}%
+          </p>
+          <p className="text-xs font-semibold text-zinc-500">
+            Average Coverage
+          </p>
+          <p className="text-xs text-zinc-400">
+            Across all {data.totalCategories} KPIs
+          </p>
+        </div>
 
-          {/*<div className="bg-white dark:bg-zinc-900 rounded-2xl border border-emerald-100 dark:border-emerald-900/40 p-4 space-y-2">
-            <div className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-center">
-              <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-            </div>
-            <p className="text-2xl font-black">{data.totalProjects}</p>
-            <p className="text-xs font-semibold text-zinc-500">
-              Total projects
-            </p>
-            <p className="text-xs text-zinc-400">
-              Number of initiated projects
-            </p>
-          </div>*/}
-
-          <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-amber-100 dark:border-amber-900/40 p-4 space-y-2 col-span-2">
-            <div className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-950/30 flex items-center justify-center">
-              <TrendingUp className="w-5 h-5 text-amber-600 dark:text-amber-400" />
-            </div>
-            <p className="text-2xl font-black">{data.totalCategories}</p>
-            <p className="text-xs font-semibold text-zinc-500">KPI</p>
-            <p className="text-xs text-zinc-400">Total number of KPIs</p>
+        <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-amber-100 dark:border-amber-900/40 p-4 space-y-2">
+          <div className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-950/30 flex items-center justify-center">
+            <CheckCircle2 className="w-5 h-5 text-amber-600 dark:text-amber-400" />
           </div>
+          <p className="text-2xl font-black">{data.totalProjects}</p>
+          <p className="text-xs font-semibold text-zinc-500">Total Projects</p>
+          <p className="text-xs text-zinc-400">
+            Active projects linked to KPIs
+          </p>
+        </div>
+
+        <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-emerald-100 dark:border-emerald-900/40 p-4 space-y-2">
+          <div className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-center">
+            <TrendingUp className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+          </div>
+          <p className="text-2xl font-black">{data.totalCategories}</p>
+          <p className="text-xs font-semibold text-zinc-500">KPIs</p>
+          <p className="text-xs text-zinc-400">Total approved categories</p>
         </div>
       </div>
 
@@ -466,7 +471,7 @@ function CumulativeView({
         </ResponsiveContainer>
       </div>
 
-      {/* Sector table: Score + coverage stats */}
+      {/* Sector table: Score + coverage */}
       <div className="bg-white dark:bg-zinc-900 rounded-2xl border overflow-hidden">
         <div className="px-5 py-4 border-b">
           <h3 className="text-sm font-bold uppercase tracking-widest">
@@ -486,20 +491,21 @@ function CumulativeView({
                     {sector.sector}
                   </span>
                   <span
-                    className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${scoreBg(sector.score)}`}
+                    className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${scoreBg(sector.averageScore)}`}
                   >
-                    {sector.score.toFixed(1)}%
+                    {sector.averageScore.toFixed(1)}%
                   </span>
                 </div>
-                <Bar2 value={sector.score} color={scoreColor(sector.score)} />
+                <Bar2
+                  value={sector.averageScore}
+                  color={scoreColor(sector.averageScore)}
+                />
                 <div className="flex gap-4 mt-1.5 text-xs text-zinc-400">
-                  <span>{sector.categoryCount} categories</span>
+                  <span>{sector.categoryCount} KPIs</span>
                   <span>{sector.projectCount} projects</span>
                   <span>
-                    Covered: {sector.totalCovered.toLocaleString()} /{" "}
-                    {sector.totalTarget.toLocaleString()}
+                    Coverage: {sector.averageCoveragePercent.toFixed(1)}%
                   </span>
-                  <span>Coverage: {sector.coveragePercent.toFixed(1)}%</span>
                 </div>
               </div>
               <ChevronRight className="w-4 h-4 text-zinc-400 group-hover:text-zinc-700" />
@@ -527,29 +533,27 @@ function SectorView({
 
   return (
     <div className="space-y-6">
-      {/* Sector header: Score gauge + stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-zinc-900 rounded-2xl border p-5 flex flex-col items-center justify-center">
-          <ScoreGauge score={sector.score} size={110} />
+          <ScoreGauge score={sector.averageScore} size={110} />
           <p className="text-xs text-zinc-400 text-center mt-2 font-medium">
             Sector Score
           </p>
         </div>
         {[
           {
-            label: "Initiatives",
+            label: "KPIs",
             value: sector.categoryCount,
             icon: <FolderKanban className="w-4 h-4 text-blue-600" />,
           },
-          // {
-          //   label: "Projects",
-          //   value: sector.projectCount,
-          //   icon: <FolderOpen className="w-4 h-4 text-emerald-600" />,
-          // },
           {
-            // label: "Covered / Target",
-            label: "Target",
-            value: `${sector.totalTarget.toLocaleString()}`,
+            label: "Projects",
+            value: sector.projectCount,
+            icon: <FolderOpen className="w-4 h-4 text-emerald-600" />,
+          },
+          {
+            label: "Coverage",
+            value: `${sector.averageCoveragePercent.toFixed(1)}%`,
             icon: <Target className="w-4 h-4 text-amber-600" />,
           },
         ].map((s) => (
@@ -614,11 +618,11 @@ function SectorView({
         </ResponsiveContainer>
       </div>
 
-      {/* Category list: Score + coverage numbers */}
+      {/* Category list – keep individual target/covered because it's within the same unit */}
       <div className="bg-white dark:bg-zinc-900 rounded-2xl border overflow-hidden">
         <div className="px-5 py-4 border-b">
           <h3 className="text-sm font-bold uppercase tracking-widest">
-            Initiatives in {sector.sector}
+            KPIs in {sector.sector}
           </h3>
         </div>
         <div className="divide-y">
@@ -832,8 +836,8 @@ function CategoryView({ category }: { category: CategoryPerformance }) {
 interface UnifiedDashboardProps {
   cidpData: CIDPPerformance;
   stats: DashboardStats;
-  user;
-  userRole: { id: number; name: string; description: string };
+  user: any;
+  userRole: Role;
   userName: string;
   reportProjects: ReportProject[];
   fiscalYears: string[];
@@ -854,7 +858,7 @@ export default function UnifiedDashboard({
   const [activeView, setActiveView] = useState<"dashboard" | "cidp">(
     "dashboard",
   );
-  const isME = user.sector === "Monitoring And Evaluation";
+  const isME = user?.sector === "Monitoring And Evaluation";
 
   const router = useRouter();
   const pathname = usePathname();
@@ -1057,20 +1061,23 @@ export default function UnifiedDashboard({
               }`}
             >
               <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
-              {isME
+              {/*{isME
                 ? "M&E Officer"
-                : userRole.name === "admin"
+                : userRole[0].name === "admin"
                   ? "Admin"
-                  : "Sector Officer"}
+                  : "Sector Officer"}*/}
+
+              {userRole.name}
             </span>
 
-            <button
+            {/*<button
               onClick={() => setShowReport(true)}
               className="flex items-center gap-2 px-4 py-2 bg-green-700 hover:bg-green-800 text-white rounded-xl text-sm font-semibold transition-colors shadow-sm"
             >
               <FileText className="w-4 h-4" />
               Generate Report
-            </button>
+            </button>*/}
+            <PortfolioReportButton />
           </div>
         </div>
 
@@ -1506,7 +1513,6 @@ export default function UnifiedDashboard({
           <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5">
             <div className="flex items-center justify-between mb-4">
               <div>
-                UnifiedDashboard
                 <h2 className="text-xs font-bold text-zinc-800 dark:text-zinc-200 uppercase tracking-widest">
                   County key performance indicators
                 </h2>

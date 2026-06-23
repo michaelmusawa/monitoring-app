@@ -1,7 +1,6 @@
-// components/projects/ProjectTrackers.tsx
 "use client";
 
-import React, { useState, useMemo, useEffect, useCallback } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +28,8 @@ import {
   Sparkles,
   Loader2,
   Circle,
+  StopCircle,
+  Upload,
 } from "lucide-react";
 import {
   Dialog,
@@ -66,16 +67,15 @@ import {
 import { AttachmentsField } from "@/components/trackers/AttachmentsField";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
 export interface TrackerItem {
   parameterId: string;
   weight: number;
   label: string;
   category: string;
-  status: string; // will always be one of the four statuses
+  status: string;
   percentComplete: number;
-  challenges?: string;
-  recommendations?: string;
+  challenges?: string[]; // was: string
+  recommendations?: string[]; // was: string
   attachments?: string[] | null;
 }
 
@@ -93,14 +93,12 @@ type ItemStatus = "NOT_STARTED" | "ONGOING" | "STALLED" | "COMPLETED";
 type Baselines = Record<string, number>;
 
 // ─── Permission helper ────────────────────────────────────────────────────────
-
 function hasPermission(perms: string[], required: string | string[]): boolean {
   if (typeof required === "string") return perms.includes(required);
   return required.some((p) => perms.includes(p));
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-
 const STATUS_CONFIG: Record<
   ItemStatus,
   { label: string; color: string; bg: string; icon: React.ReactNode }
@@ -132,7 +130,6 @@ const STATUS_CONFIG: Record<
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
 const computeOverall = (items: TrackerItem[]) => {
   const totalWeight = items.reduce((sum, it) => sum + it.weight, 0);
   if (totalWeight === 0) return 0;
@@ -181,14 +178,6 @@ const buildCategorySummary = (submission: TrackerSubmission) => {
   }));
 };
 
-/**
- * Compute the derived status for a tracker item.
- *
- * @param progress       current percent complete
- * @param baseline       percent from the immediately previous submission (if any)
- * @param baselineDate   ISO date string of that previous submission
- * @returns the computed ItemStatus
- */
 const computeItemStatus = (
   progress: number,
   baseline?: number,
@@ -196,22 +185,17 @@ const computeItemStatus = (
 ): ItemStatus => {
   if (progress === 100) return "COMPLETED";
   if (progress === 0) return "NOT_STARTED";
-
-  // For any other progress, default is ONGOING
-  // unless we have a baseline and the progress is unchanged for >3 months
   if (baseline !== undefined && baselineDate && progress === baseline) {
-    const threeMonthsMs = 3 * 30 * 24 * 60 * 60 * 1000; // approximate 3 months
+    const threeMonthsMs = 3 * 30 * 24 * 60 * 60 * 1000;
     const elapsed = Date.now() - new Date(baselineDate).getTime();
     if (elapsed > threeMonthsMs) {
       return "STALLED";
     }
   }
-
   return "ONGOING";
 };
 
 // ─── Sub‑components ───────────────────────────────────────────────────────────
-
 function StatusBadge({ status }: { status: string }) {
   const cfg = STATUS_CONFIG[status as ItemStatus] ?? STATUS_CONFIG.NOT_STARTED;
   return (
@@ -224,6 +208,31 @@ function StatusBadge({ status }: { status: string }) {
     >
       {cfg.icon}
       {cfg.label}
+    </span>
+  );
+}
+
+function ExpandableText({
+  text,
+  maxLength = 120,
+}: {
+  text: string;
+  maxLength?: number;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  if (text.length <= maxLength) return <span>{text}</span>;
+  return (
+    <span>
+      {expanded ? text : `${text.slice(0, maxLength)}…`}{" "}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setExpanded(!expanded);
+        }}
+        className="text-blue-600 hover:underline text-xs inline"
+      >
+        {expanded ? "Show less" : "Show more"}
+      </button>
     </span>
   );
 }
@@ -269,9 +278,6 @@ function TrackerCard({
   const statusCounts = useMemo(() => {
     const counts = { NOT_STARTED: 0, ONGOING: 0, STALLED: 0, COMPLETED: 0 };
     sub.items.forEach((it) => {
-      // For card summaries we still use the stored status (which is always
-      // derived, so it's fine). But if we want to be 100% consistent we
-      // could recalc, but that’s overkill here.
       const s = it.status as ItemStatus;
       if (s in counts) counts[s]++;
     });
@@ -442,10 +448,9 @@ function TrackerView({
               <AccordionContent>
                 <div className="space-y-3 pb-2">
                   {items.map((it, i) => {
-                    // For view, compute status on the fly using the previousDate prop
                     const status = computeItemStatus(
                       it.percentComplete,
-                      undefined, // baseline percent not needed for view; we rely on the stored status
+                      undefined,
                       previousDate,
                     );
                     return (
@@ -465,26 +470,68 @@ function TrackerView({
                           </div>
                         </div>
                         <ProgressBar value={it.percentComplete} />
-                        {it.challenges && (
-                          <div className="text-xs bg-red-50 border border-red-100 rounded p-2">
-                            <span className="font-semibold text-red-700">
-                              Challenges:{" "}
-                            </span>
-                            <span className="text-red-600">
-                              {it.challenges}
-                            </span>
-                          </div>
-                        )}
-                        {it.recommendations && (
-                          <div className="text-xs bg-blue-50 border border-blue-100 rounded p-2">
-                            <span className="font-semibold text-blue-700">
-                              Recommendations:{" "}
-                            </span>
-                            <span className="text-blue-600">
-                              {it.recommendations}
-                            </span>
-                          </div>
-                        )}
+                        {it.challenges != null &&
+                          (() => {
+                            let items: string[] = [];
+                            if (typeof it.challenges === "string") {
+                              try {
+                                items = JSON.parse(it.challenges);
+                              } catch {
+                                items = [];
+                              }
+                            } else if (Array.isArray(it.challenges)) {
+                              items = it.challenges;
+                            }
+                            if (items.length === 0) return null;
+                            return (
+                              <div className="text-xs bg-red-50 border border-red-100 rounded p-2">
+                                <span className="font-semibold text-red-700 block mb-1">
+                                  Challenges:
+                                </span>
+                                <ul className="list-disc pl-4 space-y-0.5">
+                                  {items.map((c, idx) => (
+                                    <li key={idx}>
+                                      <ExpandableText
+                                        text={c}
+                                        maxLength={100}
+                                      />
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            );
+                          })()}
+                        {it.recommendations != null &&
+                          (() => {
+                            let items: string[] = [];
+                            if (typeof it.recommendations === "string") {
+                              try {
+                                items = JSON.parse(it.recommendations);
+                              } catch {
+                                items = [];
+                              }
+                            } else if (Array.isArray(it.recommendations)) {
+                              items = it.recommendations;
+                            }
+                            if (items.length === 0) return null;
+                            return (
+                              <div className="text-xs bg-blue-50 border border-blue-100 rounded p-2">
+                                <span className="font-semibold text-blue-700 block mb-1">
+                                  Recommendations:
+                                </span>
+                                <ul className="list-disc pl-4 space-y-0.5">
+                                  {items.map((r, idx) => (
+                                    <li key={idx}>
+                                      <ExpandableText
+                                        text={r}
+                                        maxLength={100}
+                                      />
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            );
+                          })()}
                         {it.attachments && it.attachments.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-1">
                             {it.attachments.map((url, idx) => (
@@ -514,6 +561,146 @@ function TrackerView({
   );
 }
 
+function StringListField({
+  label,
+  items = [],
+  onChange,
+}: {
+  label: string;
+  items: string[];
+  onChange: (items: string[]) => void;
+}) {
+  const [input, setInput] = useState("");
+  const [editIdx, setEditIdx] = useState<number | null>(null);
+  const [editValue, setEditValue] = useState("");
+
+  const add = () => {
+    const trimmed = input.trim();
+    if (trimmed) {
+      onChange([...items, trimmed]);
+      setInput("");
+    }
+  };
+
+  const remove = (idx: number) => {
+    const updated = items.filter((_, i) => i !== idx);
+    onChange(updated);
+  };
+
+  const startEdit = (idx: number) => {
+    setEditIdx(idx);
+    setEditValue(items[idx]);
+  };
+
+  const saveEdit = () => {
+    if (editIdx !== null && editValue.trim()) {
+      const updated = items.map((item, i) =>
+        i === editIdx ? editValue.trim() : item,
+      );
+      onChange(updated);
+      cancelEdit();
+    }
+  };
+
+  const cancelEdit = () => {
+    setEditIdx(null);
+    setEditValue("");
+  };
+
+  return (
+    <div>
+      <label className="block text-xs font-medium text-zinc-600 mb-1">
+        {label}
+      </label>
+      <div className="flex gap-2">
+        <Input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              add();
+            }
+          }}
+          placeholder="Type and press Add or Enter"
+          className="h-8 text-sm flex-1"
+        />
+        <Button type="button" size="sm" variant="outline" onClick={add}>
+          Add
+        </Button>
+      </div>
+      {items.length > 0 && (
+        <ul className="mt-2 space-y-1.5">
+          {items.map((item, idx) => (
+            <li key={idx} className="flex items-start gap-2 text-sm">
+              {editIdx === idx ? (
+                <div className="flex-1 flex gap-2">
+                  <Input
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        saveEdit();
+                      } else if (e.key === "Escape") {
+                        cancelEdit();
+                      }
+                    }}
+                    autoFocus
+                    className="h-7 text-xs flex-1"
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    onClick={saveEdit}
+                  >
+                    Save
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-xs"
+                    onClick={cancelEdit}
+                  >
+                    <X className="w-3 h-3" />
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <span className="flex-1 break-words text-xs">
+                    <ExpandableText text={item} maxLength={100} />
+                  </span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => startEdit(idx)}
+                      className="text-muted-foreground hover:text-primary"
+                      title="Edit"
+                    >
+                      <Edit3 className="w-3 h-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => remove(idx)}
+                      className="text-destructive hover:text-destructive/80"
+                      title="Delete"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function TrackerForm({
   submission,
   onChange,
@@ -523,7 +710,7 @@ function TrackerForm({
   submission: TrackerSubmission;
   onChange: (s: TrackerSubmission) => void;
   baselines?: Baselines;
-  baselineDate?: string; // ISO date of the previous tracker
+  baselineDate?: string;
 }) {
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("ALL");
@@ -743,7 +930,6 @@ function TrackerForm({
                   <p className="text-xs text-zinc-400">{it.category}</p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  {/* Status badge instead of select */}
                   <StatusBadge status={status} />
                   <div className="flex items-center gap-1.5 w-28">
                     <ProgressBar
@@ -807,31 +993,19 @@ function TrackerForm({
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-zinc-600 mb-1">
-                        Challenges
-                      </label>
-                      <Textarea
-                        value={it.challenges ?? ""}
-                        onChange={(e) =>
-                          updateItem(i, { challenges: e.target.value })
-                        }
-                        placeholder="Any blockers or challenges..."
-                        rows={3}
-                        className="text-sm resize-none"
+                      <StringListField
+                        label="Challenges"
+                        items={it.challenges || []}
+                        onChange={(vals) => updateItem(i, { challenges: vals })}
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-zinc-600 mb-1">
-                        Recommendations
-                      </label>
-                      <Textarea
-                        value={it.recommendations ?? ""}
-                        onChange={(e) =>
-                          updateItem(i, { recommendations: e.target.value })
+                      <StringListField
+                        label="Recommendations"
+                        items={it.recommendations || []}
+                        onChange={(vals) =>
+                          updateItem(i, { recommendations: vals })
                         }
-                        placeholder="Suggested next steps..."
-                        rows={3}
-                        className="text-sm resize-none"
                       />
                     </div>
                   </div>
@@ -856,6 +1030,7 @@ interface Props {
   projectName?: string;
   projectSector?: string;
   projectLocation?: string;
+  projectStatus?: string; // NEW
   submissions: TrackerSubmission[];
   hasApprovedChecklist: boolean;
   userPermissions: string[];
@@ -866,6 +1041,7 @@ export function ProjectTrackers({
   projectName,
   projectSector,
   projectLocation,
+  projectStatus = "ACTIVE", // default
   submissions: initialSubmissions,
   hasApprovedChecklist,
   userPermissions,
@@ -879,6 +1055,7 @@ export function ProjectTrackers({
     userPermissions,
     "tracker:generate_report",
   );
+  const canTerminate = hasPermission(userPermissions, "tracker:terminate"); // optional permission
 
   const [submissions, setSubmissions] =
     useState<TrackerSubmission[]>(initialSubmissions);
@@ -896,6 +1073,12 @@ export function ProjectTrackers({
   const [generatingReport, setGeneratingReport] = useState(false);
   const [currentDraft, setCurrentDraft] = useState<ReportDraft | null>(null);
   const [currentAttachments, setCurrentAttachments] = useState<string[]>([]);
+
+  // Termination state
+  const [terminateOpen, setTerminateOpen] = useState(false);
+  const [terminateReason, setTerminateReason] = useState("");
+  const [terminateFiles, setTerminateFiles] = useState<File[]>([]);
+  const [terminating, setTerminating] = useState(false);
 
   const sortedSubmissions = useMemo(
     () =>
@@ -917,7 +1100,6 @@ export function ProjectTrackers({
   const latestSaved = sortedSubmissions[sortedSubmissions.length - 1] ?? null;
 
   const openView = (sub: TrackerSubmission) => {
-    // find the previous submission (by submission time) to compute stalled status
     const idx = sortedSubmissions.findIndex((s) => s.id === sub.id);
     const prev = idx > 0 ? sortedSubmissions[idx - 1] : null;
     setCurrent(sub);
@@ -961,7 +1143,7 @@ export function ProjectTrackers({
           weight: ci.weight ?? 1,
           label: ci.label,
           category: ci.category,
-          status: "NOT_STARTED", // default
+          status: "NOT_STARTED",
           percentComplete: 0,
           challenges: "",
           recommendations: "",
@@ -985,7 +1167,7 @@ export function ProjectTrackers({
           ? {
               ...ci,
               percentComplete: prev.percentComplete,
-              status: "ONGOING", // will be recomputed by form anyway
+              status: "ONGOING",
             }
           : ci;
       });
@@ -1152,11 +1334,45 @@ export function ProjectTrackers({
     }
   };
 
+  // ─── Terminate Project Handlers ──────────────────────────────────────────
+  const handleTerminate = async () => {
+    if (!terminateReason.trim()) {
+      toast.error("Reason for termination is required");
+      return;
+    }
+    setTerminating(true);
+    try {
+      const formData = new FormData();
+      formData.append("reason", terminateReason);
+      terminateFiles.forEach((f) => formData.append("files", f));
+
+      const res = await fetch(`/api/projects/${projectId}/terminate`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) throw new Error("Termination failed");
+      toast.success("Project terminated");
+      setTerminateOpen(false);
+      setTerminateReason("");
+      setTerminateFiles([]);
+      router.refresh();
+    } catch {
+      toast.error("Failed to terminate project");
+    } finally {
+      setTerminating(false);
+    }
+  };
+
   const latestOverall = latestSaved?.overallPercent ?? null;
   const projectComplete =
     latestSaved !== null &&
     latestSaved.items.length > 0 &&
     latestSaved.items.every((it) => it.percentComplete >= 100);
+
+  const canShowTerminate =
+    canTerminate &&
+    projectStatus !== "TERMINATED" &&
+    projectStatus !== "COMPLETED";
 
   return (
     <div className="space-y-5">
@@ -1193,6 +1409,15 @@ export function ProjectTrackers({
             <Button size="sm" onClick={openCreate} disabled={saving}>
               <Plus className="w-4 h-4 mr-2" />
               {saving ? "Creating..." : "Add Tracker"}
+            </Button>
+          )}
+          {canShowTerminate && (
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => setTerminateOpen(true)}
+            >
+              <StopCircle className="w-4 h-4 mr-2" /> Terminate
             </Button>
           )}
         </div>
@@ -1330,6 +1555,80 @@ export function ProjectTrackers({
                 </Button>
               </div>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Terminate Project Dialog */}
+      <Dialog open={terminateOpen} onOpenChange={setTerminateOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Terminate Project</DialogTitle>
+            <DialogDescription>
+              This action cannot be undone. Please provide a reason and any
+              supporting documents.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">
+                Reason for Termination{" "}
+                <span className="text-destructive">*</span>
+              </label>
+              <Textarea
+                value={terminateReason}
+                onChange={(e) => setTerminateReason(e.target.value)}
+                rows={3}
+                placeholder="e.g. Budget reallocation, policy change..."
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">
+                Supporting Documents
+              </label>
+              <Input
+                type="file"
+                multiple
+                onChange={(e) =>
+                  setTerminateFiles(Array.from(e.target.files || []))
+                }
+              />
+              {terminateFiles.length > 0 && (
+                <ul className="text-xs mt-2 space-y-1">
+                  {terminateFiles.map((f, i) => (
+                    <li key={i} className="flex items-center gap-1">
+                      <FileText className="w-3 h-3" /> {f.name}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setTerminateOpen(false)}
+              disabled={terminating}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleTerminate}
+              disabled={terminating || !terminateReason.trim()}
+            >
+              {terminating ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Terminating…
+                </>
+              ) : (
+                <>
+                  <StopCircle className="w-4 h-4 mr-2" />
+                  Confirm Termination
+                </>
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -6,6 +6,13 @@ import type { PublicProject } from "@/lib/actions/publicActions";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
+export type ProjectStatus =
+  | "NOT_STARTED"
+  | "ONGOING"
+  | "STALLED"
+  | "COMPLETED"
+  | "TERMINATED";
+
 function fmtCurrency(n: number | null | undefined) {
   if (!n) return "—";
   if (n >= 1_000_000_000) return `KES ${(n / 1_000_000_000).toFixed(1)}B`;
@@ -31,12 +38,35 @@ export default function ProjectList({
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
       {projects.map((project) => {
-        const statusVariant =
-          project.status === "ACTIVE"
-            ? "success"
-            : project.status === "COMPLETED"
-              ? "default"
-              : "warning";
+        const statusConfig: Record<
+          ProjectStatus,
+          { label: string; bg: string }
+        > = {
+          NOT_STARTED: {
+            label: "Not Started",
+            bg: "bg-zinc-100 text-zinc-600 border-zinc-200",
+          },
+          ONGOING: {
+            label: "Ongoing",
+            bg: "bg-blue-50 text-blue-700 border-blue-200",
+          },
+          STALLED: {
+            label: "Stalled",
+            bg: "bg-red-50 text-red-700 border-red-200",
+          },
+          COMPLETED: {
+            label: "Completed",
+            bg: "bg-emerald-50 text-emerald-700 border-emerald-200",
+          },
+          TERMINATED: {
+            label: "Terminated",
+            bg: "bg-zinc-200 text-zinc-700 border-zinc-300",
+          },
+        };
+        const statusKey: ProjectStatus =
+          (project.derivedStatus as ProjectStatus) ?? "NOT_STARTED";
+
+        const statusConfigItem = statusConfig[statusKey];
 
         const progressColor =
           (project.progress || 0) > 75
@@ -60,14 +90,10 @@ export default function ProjectList({
                     {project.name}
                   </h3>
                   <Badge
-                    variant={statusVariant as any}
-                    className="shrink-0 text-xs capitalize"
+                    variant="outline"
+                    className={`text-xs capitalize ${statusConfigItem.bg}`}
                   >
-                    {project.status === "ACTIVE"
-                      ? "Active"
-                      : project.status === "COMPLETED"
-                        ? "Completed"
-                        : "Pending"}
+                    {statusConfigItem.label}
                   </Badge>
                 </div>
 

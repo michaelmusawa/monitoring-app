@@ -13,16 +13,18 @@ import {
   List,
 } from "lucide-react";
 import Link from "next/link";
-import { SECTORS } from "@/lib/data/data";
+import { Role } from "@/lib/actions/adminActions";
 
 export default function ProjectsCategoryPageClient({
   userRole,
   userSector,
   currentView,
+  sectors,
 }: {
-  userRole: string;
+  userRole: Role[];
   userSector: string | undefined;
   currentView: string;
+  sectors: string[];
 }) {
   const searchParams = useSearchParams();
   const pathname = usePathname();
@@ -154,9 +156,10 @@ export default function ProjectsCategoryPageClient({
               isSectorRestricted ? "opacity-60 cursor-not-allowed" : ""
             }`}
           >
-            {SECTORS.map((s) => (
+            <option value="ALL">All Sectors</option>
+            {sectors.map((s) => (
               <option key={s} value={s}>
-                {s === "ALL" ? "All Sectors" : s}
+                {s}
               </option>
             ))}
           </select>

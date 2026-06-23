@@ -32,6 +32,7 @@ import {
 import { getTrackerSubmissions } from "@/lib/actions/trackerActions";
 import { getUser } from "@/lib/actions/usersActions";
 import { getUserPermissions } from "@/lib/actions/adminActions";
+import { Button } from "@/components/ui/button";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -39,8 +40,8 @@ const STATUS_META: Record<
   string,
   { label: string; dot: string; badge: string }
 > = {
-  ACTIVE: {
-    label: "Active",
+  ONGOING: {
+    label: "Ongoing",
     dot: "bg-emerald-500",
     badge:
       "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800",
@@ -57,14 +58,14 @@ const STATUS_META: Record<
     badge:
       "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800",
   },
-  CANCELLED: {
-    label: "Cancelled",
+  TERMINATED: {
+    label: "Terminated",
     dot: "bg-red-400",
     badge:
       "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-400 dark:border-red-800",
   },
-  PENDING: {
-    label: "Pending",
+  NOT_STARTED: {
+    label: "Not Started",
     dot: "bg-yellow-400",
     badge:
       "bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-950/40 dark:text-yellow-400 dark:border-yellow-800",
@@ -142,8 +143,12 @@ export default async function ProjectDetail(props: {
   const hasApprovedChecklist = checklist?.status === "Approved";
   const submissions = await getTrackerSubmissions(projectId);
 
-  const latestSubmission =
-    submissions.length > 0 ? submissions[submissions.length - 1] : null;
+  // Sort by date descending so the most recent submission is first
+  const sortedSubmissions = [...submissions].sort(
+    (a, b) =>
+      new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime(),
+  );
+  const latestSubmission = sortedSubmissions[0] ?? null;
   const overallProgress = latestSubmission?.overallPercent ?? 0;
 
   const checklistItemsForWorkplan = selectedItems.map((i) => ({
@@ -153,7 +158,8 @@ export default async function ProjectDetail(props: {
     weight: i.weight,
   }));
 
-  const statusMeta = STATUS_META[project?.status ?? ""] ?? STATUS_META.PENDING;
+  const statusMeta =
+    STATUS_META[project?.status ?? ""] ?? STATUS_META.NOT_STARTED;
   const checklistPhaseLabel =
     CHECKLIST_PHASE_LABEL[checklist?.status ?? ""] ?? "—";
 
@@ -217,14 +223,13 @@ export default async function ProjectDetail(props: {
                 )}
               </div>
             </div>
-            <Link
-              href={`/projects/${projectId}/reports`}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 hover:border-zinc-400 dark:hover:border-zinc-500 hover:text-zinc-900 dark:hover:text-white transition-all shrink-0"
-            >
-              <FileTextIcon className="w-3.5 h-3.5" />
-              Reports
-              <ArrowUpRightIcon className="w-3 h-3 opacity-50" />
-            </Link>
+            <div>
+              <Link href={`/projects/${project.id}/edit`}>
+                <Button variant="outline" size="sm">
+                  Edit Project
+                </Button>
+              </Link>
+            </div>
           </div>
         </div>
 

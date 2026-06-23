@@ -19,8 +19,12 @@ import {
   Plus,
   CheckCircle2,
   AlertCircle,
+  X,
+  CircleDot,
 } from "lucide-react";
 import ProjectsFlatList from "./ProjectsFlatList";
+import React from "react";
+import { Role } from "@/lib/actions/adminActions";
 
 // ─── Formatters (same as before) ─────────────────────────────────────────────
 function fmtCurrency(n: number | null) {
@@ -85,39 +89,59 @@ const SIZE_CLS: Record<string, string> = {
 
 // ─── Project mini-card (same as original) ────────────────────────────────────
 function ProjectMiniCard({ project }: { project: CategoryProject }) {
-  const isPending = project.status === "PENDING";
+  const status = project.derivedStatus ?? "NOT_STARTED";
   const pct = project.latestTrackerPercent ?? project.progress ?? 0;
+  const statusConfig = {
+    NOT_STARTED: {
+      label: "Not Started",
+      bg: "bg-zinc-100 text-zinc-600 border-zinc-200",
+      icon: <CircleDot className="w-3 h-3" />,
+    },
+    ONGOING: {
+      label: "Ongoing",
+      bg: "bg-blue-50 text-blue-700 border-blue-200",
+      icon: <Clock className="w-3 h-3" />,
+    },
+    STALLED: {
+      label: "Stalled",
+      bg: "bg-red-50 text-red-700 border-red-200",
+      icon: <AlertCircle className="w-3 h-3" />,
+    },
+    COMPLETED: {
+      label: "Completed",
+      bg: "bg-emerald-50 text-emerald-700 border-emerald-200",
+      icon: <CheckCircle2 className="w-3 h-3" />,
+    },
+    TERMINATED: {
+      label: "Terminated",
+      bg: "bg-zinc-200 text-zinc-700 border-zinc-300",
+      icon: <X className="w-3 h-3" />,
+    },
+  }[status] ?? { label: status, bg: "bg-zinc-50", icon: null };
 
   return (
     <div className="group relative bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-4 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="flex items-center gap-1.5 flex-wrap">
           <span
-            className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border ${
-              isPending
-                ? "bg-yellow-50 border-yellow-200 text-yellow-700"
-                : "bg-emerald-50 border-emerald-200 text-emerald-700"
-            }`}
+            className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border ${statusConfig.bg}`}
           >
-            {isPending ? "Pending" : "Active"}
+            {statusConfig.icon}
+            {statusConfig.label}
           </span>
           {project.size && (
             <span
-              className={`text-xs font-medium px-2 py-0.5 rounded-full ${SIZE_CLS[project.size] ?? "bg-zinc-50 text-zinc-500"}`}
+              className={`text-xs font-medium px-2 py-0.5 rounded-full ${SIZE_CLS[project.size]}`}
             >
               {project.size}
             </span>
           )}
         </div>
         <Link
-          href={
-            isPending
-              ? `/projects/${project.id}/initialize`
-              : `/projects/${project.id}`
-          }
+          href={`/projects/${project.id}`}
           className="shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-zinc-50 dark:bg-zinc-800 text-zinc-500 hover:bg-blue-600 hover:text-white border border-zinc-200 dark:border-zinc-700 transition-all"
         >
-          {isPending ? "Init" : "View"}
+          View
           <ChevronRight className="w-3 h-3" />
         </Link>
       </div>
@@ -241,7 +265,7 @@ function CategoryCard({
   sector,
 }: {
   category: CategoryWithProjects;
-  userRole: string;
+  userRole: Role[];
   sector: string;
 }) {
   const colors = getSectorColors(category.sector);
@@ -262,13 +286,20 @@ function CategoryCard({
                   {category.sector}
                 </span>
               )}
+
               <span className="text-xs text-zinc-400 font-medium px-2 py-0.5 rounded-full bg-zinc-50 border border-zinc-200">
                 {category.projectCount} project
                 {category.projectCount !== 1 ? "s" : ""}
-                {category.activeCount > 0 &&
-                  ` · ${category.activeCount} active`}
-                {category.pendingCount > 0 &&
-                  ` · ${category.pendingCount} pending`}
+                {category.ongoingCount > 0 &&
+                  ` · ${category.ongoingCount} ongoing`}
+                {category.completedCount > 0 &&
+                  ` · ${category.completedCount} completed`}
+                {category.notStartedCount > 0 &&
+                  ` · ${category.notStartedCount} not started`}
+                {category.stalledCount > 0 &&
+                  ` · ${category.stalledCount} stalled`}
+                {category.terminatedCount > 0 &&
+                  ` · ${category.terminatedCount} terminated`}
               </span>
             </div>
             <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 leading-snug text-base">
@@ -424,7 +455,7 @@ export default async function ProjectsByCategoryServer({
   minBudget?: number;
   maxBudget?: number;
   view: "grouped" | "flat";
-  userRole: string;
+  userRole: Role[];
   userEmail: string;
 }) {
   const filterSector = sector !== "ALL" ? sector : undefined;
@@ -466,8 +497,10 @@ export default async function ProjectsByCategoryServer({
 
   const totalProjects =
     categories.reduce((s, c) => s + c.projectCount, 0) + uncategorized.length;
-  const totalActive = categories.reduce((s, c) => s + c.activeCount, 0);
-  const totalPending = categories.reduce((s, c) => s + c.pendingCount, 0);
+  const totalNotStarted = categories.reduce((s, c) => s + c.notStartedCount, 0);
+  const totalOngoing = categories.reduce((s, c) => s + c.ongoingCount, 0);
+  const totalCompleted = categories.reduce((s, c) => s + c.completedCount, 0);
+  const totalTerminated = categories.reduce((s, c) => s + c.terminatedCount, 0);
 
   return (
     <div className="space-y-3">
@@ -485,22 +518,37 @@ export default async function ProjectsByCategoryServer({
           </span>{" "}
           total projects
         </span>
-        {totalActive > 0 && (
-          <>
-            <span className="text-zinc-300">·</span>
-            <span className="text-emerald-600">
-              <span className="font-semibold">{totalActive}</span> active
-            </span>
-          </>
-        )}
-        {totalPending > 0 && (
-          <>
-            <span className="text-zinc-300">·</span>
-            <span className="text-yellow-600">
-              <span className="font-semibold">{totalPending}</span> pending
-            </span>
-          </>
-        )}
+        {[
+          {
+            count: totalNotStarted,
+            label: "not started",
+            color: "text-amber-600",
+          },
+          {
+            count: totalOngoing,
+            label: "ongoing",
+            color: "text-blue-600",
+          },
+          {
+            count: totalCompleted,
+            label: "completed",
+            color: "text-emerald-600",
+          },
+          {
+            count: totalTerminated,
+            label: "terminated",
+            color: "text-red-600",
+          },
+        ]
+          .filter((item) => item.count > 0)
+          .map((item) => (
+            <React.Fragment key={item.label}>
+              <span className="text-zinc-300">·</span>
+              <span className={item.color}>
+                <span className="font-semibold">{item.count}</span> {item.label}
+              </span>
+            </React.Fragment>
+          ))}
         {uncategorized.length > 0 && (
           <>
             <span className="text-zinc-300">·</span>

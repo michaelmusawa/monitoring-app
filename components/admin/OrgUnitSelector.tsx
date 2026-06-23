@@ -38,10 +38,12 @@ export default function OrgUnitSelector({
   value,
   onChange,
   placeholder = "Select organisational unit",
+  className,
 }: {
   value?: string;
   onChange: (value: string) => void;
   placeholder?: string;
+  className?: string;
 }) {
   const [units, setUnits] = useState<{ id: string; label: string }[]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,11 +56,15 @@ export default function OrgUnitSelector({
   }, []);
 
   if (loading)
-    return <div className="h-9 w-full animate-pulse bg-muted rounded" />;
+    return (
+      <div
+        className={`h-9 w-full animate-pulse bg-muted rounded ${className ?? ""}`}
+      />
+    );
 
   return (
     <Select value={value} onValueChange={onChange}>
-      <SelectTrigger className="h-9 text-sm">
+      <SelectTrigger className={`h-9 text-sm ${className ?? ""}`}>
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
       <SelectContent>

@@ -1,3 +1,4 @@
+// components/reports/ReportsPage.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -12,9 +13,19 @@ import {
   CalendarDays,
   ChevronRight,
   Lock,
+  Sparkles,
+  Loader2,
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
+import {
+  ReportEditorDialog,
+  type ReportDraft,
+} from "@/components/trackers/ReportEditorDialog";
+import StatusReportPDFDocument from "./StatusReportPDFDocument";
+import { PDFDownloadLink } from "@react-pdf/renderer";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -91,7 +102,6 @@ interface TrackerProgressData {
   }[];
   categories: {
     name: string;
-    // Latest % per category across tracker submissions
     progressHistory: { submittedAt: string; avgPercent: number }[];
     latestPercent: number;
   }[];
@@ -129,6 +139,22 @@ type ReportId =
   | "workplan-actual";
 
 type UserRole = "sector" | "me" | "viewer";
+
+interface GenerationData {
+  projectName: string;
+  projectSector: string;
+  location: string;
+  checklistItems: {
+    label: string;
+    category: string;
+    percent: number;
+  }[];
+  trackerItems: any[];
+  trackerData: {
+    overallPercent: number;
+    categories: { name: string; latestPercent: number }[];
+  } | null;
+}
 
 // ─── Role access matrix ───────────────────────────────────────────────────────
 
@@ -283,13 +309,13 @@ function ProjectSummaryReport({ projectId }: { projectId: string }) {
       {/* Project identity */}
       <Section title="Project Details">
         <Grid cols={2}>
-          <Field label="Project Name" value={project.name} large />
-          <Field label="Sector" value={project.sector} />
-          <Field label="Status" value={project.status.replace("_", " ")} />
-          <Field label="Created" value={fmtDate(project.createdAt)} />
-          {project.description && (
+          <Field label="Project Name" value={project?.name} large />
+          <Field label="Sector" value={project?.sector} />
+          <Field label="Status" value={project?.status.replace("_", " ")} />
+          <Field label="Created" value={fmtDate(project?.createdAt)} />
+          {project?.description && (
             <div className="col-span-2">
-              <Field label="Description" value={project.description} />
+              <Field label="Description" value={project?.description} />
             </div>
           )}
         </Grid>
@@ -488,14 +514,6 @@ function ChecklistReport({ projectId }: { projectId: string }) {
   if (loading) return <ReportSkeleton />;
   if (!data) return <ReportError />;
 
-  const PHASE_ORDER = [
-    "Draft",
-    "DraftReview",
-    "WeightsAssignment",
-    "WeightsReview",
-    "Approved",
-  ];
-
   return (
     <div className="space-y-8">
       <ReportHeader
@@ -504,112 +522,112 @@ function ChecklistReport({ projectId }: { projectId: string }) {
         generatedAt={new Date().toISOString()}
       />
 
-      {/* Meta */}
       <Section title="Checklist Status">
         <Grid cols={3}>
-          <Field label="Current Phase" value={data.checklist.status} />
-          <Field label="Version" value={`v${data.checklist.version}`} />
+          <Field label="Current Phase" value={data?.checklist?.status} />
+          <Field label="Version" value={`v${data?.checklist?.version}`} />
           <Field
             label="Last Modified"
-            value={fmtDate(data.checklist.lastModified)}
+            value={fmtDate(data?.checklist?.lastModified)}
           />
           <Field
             label="Last Modified By"
-            value={data.checklist.lastModifiedBy}
+            value={data.checklist?.lastModifiedBy}
           />
-          <Field label="Total Items" value={String(data.totalItems)} />
-          <Field label="Total Weight" value={`${data.totalWeight} / 100`} />
+          <Field label="Total Items" value={String(data?.totalItems)} />
+          <Field label="Total Weight" value={`${data?.totalWeight} / 100`} />
         </Grid>
-        {data.checklist.editReason && (
+        {data?.checklist?.editReason && (
           <div className="mt-3 p-3 rounded-lg bg-amber-50 border border-amber-200">
             <p className="text-xs font-semibold text-amber-700 mb-1">
               Last edit reason
             </p>
             <p className="text-sm text-amber-800">
-              {data.checklist.editReason}
+              {data?.checklist?.editReason}
             </p>
           </div>
         )}
       </Section>
 
-      {/* Items by category */}
       <Section title="Selected Items by Category">
         <div className="space-y-5">
-          {data.categories.map((cat) => (
-            <div key={cat.name}>
-              <div className="flex items-center justify-between mb-2">
-                <h4 className="font-semibold text-sm">{cat.name}</h4>
-                <span className="text-xs font-mono bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded">
-                  {cat.totalWeight} pts
-                </span>
-              </div>
-              <div className="rounded-lg border overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-zinc-50 dark:bg-zinc-900 border-b">
-                      <th className="text-left px-3 py-2 text-xs font-semibold text-zinc-500">
-                        ID
-                      </th>
-                      <th className="text-left px-3 py-2 text-xs font-semibold text-zinc-500">
-                        Item
-                      </th>
-                      <th className="text-right px-3 py-2 text-xs font-semibold text-zinc-500">
-                        Weight
-                      </th>
-                      <th className="text-right px-3 py-2 text-xs font-semibold text-zinc-500">
-                        Share
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cat.items.map((item, i) => (
-                      <tr
-                        key={item.parameterId}
-                        className={cn(
-                          "border-b last:border-0",
-                          i % 2 === 0
-                            ? "bg-white dark:bg-zinc-950"
-                            : "bg-zinc-50/50 dark:bg-zinc-900/50",
-                        )}
-                      >
-                        <td className="px-3 py-2 text-xs text-zinc-400 font-mono">
-                          {item.parameterId}
-                        </td>
-                        <td className="px-3 py-2 text-zinc-700 dark:text-zinc-300">
-                          {item.label}
-                        </td>
-                        <td className="px-3 py-2 text-right font-semibold tabular-nums">
-                          {item.weight}
-                        </td>
-                        <td className="px-3 py-2 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <ProgressBar
-                              value={item.weight}
-                              className="w-16"
-                              thin
-                            />
-                            <span className="text-xs text-zinc-500 w-8 text-right tabular-nums">
-                              {item.weight}%
-                            </span>
-                          </div>
-                        </td>
+          {data.categories &&
+            data?.categories.map((cat) => (
+              <div key={cat?.name}>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-semibold text-sm">{cat?.name}</h4>
+                  <span className="text-xs font-mono bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded">
+                    {cat?.totalWeight} pts
+                  </span>
+                </div>
+                <div className="rounded-lg border overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-zinc-50 dark:bg-zinc-900 border-b">
+                        <th className="text-left px-3 py-2 text-xs font-semibold text-zinc-500">
+                          ID
+                        </th>
+                        <th className="text-left px-3 py-2 text-xs font-semibold text-zinc-500">
+                          Item
+                        </th>
+                        <th className="text-right px-3 py-2 text-xs font-semibold text-zinc-500">
+                          Weight
+                        </th>
+                        <th className="text-right px-3 py-2 text-xs font-semibold text-zinc-500">
+                          Share
+                        </th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {cat.items &&
+                        cat.items.map((item, i) => (
+                          <tr
+                            key={item.parameterId}
+                            className={cn(
+                              "border-b last:border-0",
+                              i % 2 === 0
+                                ? "bg-white dark:bg-zinc-950"
+                                : "bg-zinc-50/50 dark:bg-zinc-900/50",
+                            )}
+                          >
+                            <td className="px-3 py-2 text-xs text-zinc-400 font-mono">
+                              {item.parameterId}
+                            </td>
+                            <td className="px-3 py-2 text-zinc-700 dark:text-zinc-300">
+                              {item.label}
+                            </td>
+                            <td className="px-3 py-2 text-right font-semibold tabular-nums">
+                              {item.weight}
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <ProgressBar
+                                  value={item.weight}
+                                  className="w-16"
+                                  thin
+                                />
+                                <span className="text-xs text-zinc-500 w-8 text-right tabular-nums">
+                                  {item.weight}%
+                                </span>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
         </div>
       </Section>
 
-      {/* Approval trail */}
       <Section title="Approval Trail">
-        {data.history.length === 0 ? (
+        {!data.history ? (
+          <p className="text-sm text-zinc-400">No history available.</p>
+        ) : data.history.length === 0 ? (
           <p className="text-sm text-zinc-400">No history entries yet.</p>
         ) : (
           <div className="relative pl-5">
-            {/* Vertical line */}
             <div className="absolute left-[7px] top-2 bottom-2 w-px bg-zinc-200 dark:bg-zinc-700" />
             <div className="space-y-4">
               {data.history.map((entry, i) => {
@@ -712,7 +730,6 @@ function TrackerProgressReport({ projectId }: { projectId: string }) {
         generatedAt={new Date().toISOString()}
       />
 
-      {/* Overall curve */}
       <Section title="Overall Progress Curve">
         {sorted.length === 0 ? (
           <p className="text-sm text-zinc-400">No tracker submissions yet.</p>
@@ -818,7 +835,6 @@ function TrackerProgressReport({ projectId }: { projectId: string }) {
         )}
       </Section>
 
-      {/* Submission table */}
       <Section title="Submission Log">
         {sorted.length === 0 ? (
           <p className="text-sm text-zinc-400">No submissions yet.</p>
@@ -923,7 +939,6 @@ function TrackerProgressReport({ projectId }: { projectId: string }) {
         )}
       </Section>
 
-      {/* Category breakdown */}
       {data.categories.length > 0 && (
         <Section title="Latest Progress by Category">
           <div className="space-y-3">
@@ -979,7 +994,6 @@ function WorkplanActualReport({ projectId }: { projectId: string }) {
   if (loading) return <ReportSkeleton />;
   if (!data) return <ReportError />;
 
-  // Gantt helpers
   const totalDays = data.totalPlannedDays || 1;
 
   function barStyle(item: WorkplanActualData["items"][0]) {
@@ -998,7 +1012,6 @@ function WorkplanActualReport({ projectId }: { projectId: string }) {
         generatedAt={new Date().toISOString()}
       />
 
-      {/* Summary */}
       <Section title="Project Timeline">
         <Grid cols={3}>
           <Field
@@ -1016,7 +1029,6 @@ function WorkplanActualReport({ projectId }: { projectId: string }) {
         </Grid>
       </Section>
 
-      {/* Category summary */}
       <Section title="By Category">
         <div className="space-y-3">
           {data.categories.map((cat) => (
@@ -1046,16 +1058,13 @@ function WorkplanActualReport({ projectId }: { projectId: string }) {
         </div>
       </Section>
 
-      {/* Gantt — planned bars with progress overlay */}
       <Section title="Gantt — Planned vs Progress">
         <div className="rounded-xl border overflow-hidden">
-          {/* Timeline header */}
           <div className="flex border-b bg-zinc-50 dark:bg-zinc-900">
             <div className="w-48 shrink-0 px-3 py-2 text-xs font-semibold text-zinc-500 border-r">
               Item
             </div>
             <div className="flex-1 relative h-8">
-              {/* Tick marks at 0%, 25%, 50%, 75%, 100% */}
               {[0, 25, 50, 75, 100].map((v) => (
                 <div
                   key={v}
@@ -1074,8 +1083,6 @@ function WorkplanActualReport({ projectId }: { projectId: string }) {
               ))}
             </div>
           </div>
-
-          {/* Item rows */}
           {data.items.map((item) => {
             const style = barStyle(item);
             return (
@@ -1090,12 +1097,10 @@ function WorkplanActualReport({ projectId }: { projectId: string }) {
                   </div>
                 </div>
                 <div className="flex-1 relative py-3 px-1">
-                  {/* Planned bar */}
                   <div
                     className="absolute top-3 h-5 rounded bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 overflow-hidden"
                     style={style}
                   >
-                    {/* Progress fill */}
                     <div
                       className={cn(
                         "h-full opacity-80",
@@ -1104,7 +1109,6 @@ function WorkplanActualReport({ projectId }: { projectId: string }) {
                       style={{ width: `${item.latestPercent}%` }}
                     />
                   </div>
-                  {/* % label to the right of bar */}
                   <span
                     className={cn(
                       "absolute right-2 top-1/2 -translate-y-1/2 text-xs font-bold tabular-nums",
@@ -1130,7 +1134,6 @@ function WorkplanActualReport({ projectId }: { projectId: string }) {
         </div>
       </Section>
 
-      {/* Detail table */}
       <Section title="Item Detail">
         <div className="rounded-xl border overflow-x-auto">
           <table className="w-full text-sm min-w-[600px]">
@@ -1413,19 +1416,74 @@ const REPORTS = [
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+interface Props {
+  projectId: string;
+  projectName: string;
+  userRole: UserRole;
+  generationData?: GenerationData;
+}
+
 export default function ReportsPage({
   projectId,
   projectName,
   userRole,
-}: {
-  projectId: string;
-  projectName: string;
-  userRole: UserRole;
-}) {
+  generationData,
+}: Props) {
   const [activeReport, setActiveReport] = useState<ReportId | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [draft, setDraft] = useState<ReportDraft | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [existingDraft, setExistingDraft] = useState<ReportDraft | null>(null);
+
+  useEffect(() => {
+    if (userRole === "me") {
+      fetch(`/api/projects/${projectId}/reports/status-report`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data && data.status === "finalized") setExistingDraft(data);
+        })
+        .catch(() => {});
+    }
+  }, [projectId, userRole]);
+
+  const handleGenerateReport = async () => {
+    if (!generationData) {
+      toast.error("No tracker data available for report generation.");
+      return;
+    }
+    setGenerating(true);
+    try {
+      const res = await fetch(
+        `/api/projects/${projectId}/reports/status-report`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            projectName: generationData.projectName,
+            projectSector: generationData.projectSector,
+            location: generationData.location,
+            trackerData: generationData.trackerData,
+            checklistItems: generationData.checklistItems,
+            trackerItems: generationData.trackerItems,
+          }),
+        },
+      );
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error ?? "Generation failed");
+      }
+      const data: ReportDraft = await res.json();
+      setDraft(data);
+      setEditorOpen(true);
+      toast.success("Report draft generated!");
+    } catch (err: any) {
+      toast.error(err.message || "Report generation failed");
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   const accessibleReports = REPORTS.filter((r) => r.roles.includes(userRole));
-
   const active = REPORTS.find((r) => r.id === activeReport);
 
   return (
@@ -1451,7 +1509,7 @@ export default function ReportsPage({
         </div>
 
         {activeReport === null ? (
-          /* ── Report catalogue view ── */
+          /* Report catalogue */
           <div className="space-y-6">
             <div>
               <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">
@@ -1485,14 +1543,12 @@ export default function ReportsPage({
                         : "bg-zinc-50 dark:bg-zinc-900/50 border-zinc-100 dark:border-zinc-800/50 opacity-50 cursor-not-allowed",
                     )}
                   >
-                    {/* Accent strip */}
                     <div
                       className={cn(
                         "absolute left-0 top-4 bottom-4 w-1 rounded-full",
                         hasAccess ? report.accentColor : "bg-zinc-300",
                       )}
                     />
-
                     <div className="pl-3">
                       <div className="flex items-start justify-between gap-3">
                         <div
@@ -1517,14 +1573,12 @@ export default function ReportsPage({
                           <ChevronRight className="w-4 h-4 text-zinc-300 group-hover:text-zinc-500 group-hover:translate-x-0.5 transition-all mt-1 shrink-0" />
                         )}
                       </div>
-
                       <h3 className="font-semibold text-zinc-800 dark:text-zinc-100 mt-3 mb-1">
                         {report.label}
                       </h3>
                       <p className="text-sm text-zinc-500 leading-relaxed">
                         {report.description}
                       </p>
-
                       {!hasAccess && (
                         <p className="text-xs text-zinc-400 mt-2">
                           Available to:{" "}
@@ -1546,9 +1600,8 @@ export default function ReportsPage({
             </div>
           </div>
         ) : (
-          /* ── Report view ── */
+          /* Report view */
           <div className="space-y-5">
-            {/* Report header bar */}
             <div className="flex items-center justify-between">
               <button
                 onClick={() => setActiveReport(null)}
@@ -1573,7 +1626,6 @@ export default function ReportsPage({
               )}
             </div>
 
-            {/* Report content panel */}
             <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 sm:p-8">
               {activeReport === "summary" && (
                 <ProjectSummaryReport projectId={projectId} />
@@ -1588,9 +1640,75 @@ export default function ReportsPage({
                 <WorkplanActualReport projectId={projectId} />
               )}
             </div>
+
+            {/* Generate status report button for ME officers */}
+            {userRole === "me" && activeReport === "summary" && (
+              <div className="mt-6 flex justify-end gap-3 flex-wrap">
+                <Button
+                  onClick={handleGenerateReport}
+                  disabled={generating}
+                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  {generating ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Generating…
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4 mr-2" />
+                      Generate Status Report
+                    </>
+                  )}
+                </Button>
+
+                {/* Only show PDF download when a finalized draft exists */}
+                {existingDraft && existingDraft.status === "finalized" && (
+                  <PDFDownloadLink
+                    document={
+                      <StatusReportPDFDocument
+                        reportTitle={existingDraft.reportTitle}
+                        reportContent={existingDraft.reportContent}
+                        // Optional: pass department name from project or default
+                        departmentName="MONITORING AND EVALUATION"
+                      />
+                    }
+                    fileName={`${existingDraft.reportTitle.replace(/[^a-z0-9]/gi, "_")}.pdf`}
+                  >
+                    {({ loading }) => (
+                      <Button
+                        variant="outline"
+                        className="gap-2"
+                        disabled={loading}
+                      >
+                        <FileText className="w-4 h-4" />
+                        {loading
+                          ? "Generating PDF..."
+                          : "Download Finalized Report (PDF)"}
+                      </Button>
+                    )}
+                  </PDFDownloadLink>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
+
+      {/* Report Editor Dialog */}
+      {editorOpen && draft && (
+        <ReportEditorDialog
+          open={editorOpen}
+          onClose={() => setEditorOpen(false)}
+          draft={draft}
+          projectId={projectId}
+          attachments={[]}
+          onSaved={(updated) => {
+            setDraft(updated);
+            setExistingDraft(updated); // also update existing draft
+          }}
+        />
+      )}
     </div>
   );
 }

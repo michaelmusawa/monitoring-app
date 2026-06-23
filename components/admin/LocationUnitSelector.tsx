@@ -8,13 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { fetchLocationUnitsForSelect } from "@/lib/actions/locationActions";
-
-interface LocationOption {
-  id: string;
-  name: string;
-  level: string;
-}
+import { fetchLocationTreeFlattened } from "@/lib/actions/locationActions";
 
 export default function LocationUnitSelector({
   value,
@@ -25,11 +19,13 @@ export default function LocationUnitSelector({
   onChange: (value: string) => void;
   placeholder?: string;
 }) {
-  const [options, setOptions] = useState<LocationOption[]>([]);
+  const [options, setOptions] = useState<{ value: string; label: string }[]>(
+    [],
+  );
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchLocationUnitsForSelect()
+    fetchLocationTreeFlattened()
       .then(setOptions)
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -43,10 +39,14 @@ export default function LocationUnitSelector({
       <SelectTrigger className="h-9 text-sm">
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent className="max-h-60">
         {options.map((opt) => (
-          <SelectItem key={opt.id} value={opt.id} className="text-sm">
-            {opt.name} ({opt.level})
+          <SelectItem
+            key={opt.value}
+            value={opt.value}
+            className="text-sm font-mono"
+          >
+            {opt.label}
           </SelectItem>
         ))}
       </SelectContent>

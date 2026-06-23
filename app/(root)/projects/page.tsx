@@ -5,6 +5,7 @@ import ProjectsByCategoryServer from "@/components/projects/ProjectsByCategorySe
 import ProjectsCategoryPageClient from "@/components/projects/ProjectsCategoryPageClient";
 import ProjectsTableSkeleton from "@/components/skeleton/ProjectsTableSkeleton";
 import { getUserRoles } from "@/lib/actions/adminActions";
+import { fetchRootSectors } from "@/lib/actions/orgActions";
 
 const Page = async (props: {
   searchParams?: Promise<{
@@ -42,6 +43,8 @@ const Page = async (props: {
       ? userSector
       : urlSector;
 
+  const sectors = await fetchRootSectors();
+
   return (
     <main className="min-h-screen bg-[#F7F8FC] dark:bg-[#0E1117] p-4 md:p-6 lg:p-8">
       <div className="max-w-7xl mx-auto space-y-6">
@@ -49,6 +52,7 @@ const Page = async (props: {
           userRole={userRole}
           userSector={userSector}
           currentView={view}
+          sectors={sectors}
         />
         <Suspense
           key={`${categoryQuery}-${effectiveSector}-${projectName}-${projectStatus}-${minBudget}-${maxBudget}-${view}`}
