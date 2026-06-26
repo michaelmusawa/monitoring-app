@@ -31,7 +31,7 @@ jobs:
 
       - name: Deploy application via PM2
         run: |
-          echo "Deploying Monitoring app..."
+          echo "Deploying Monitoring app...."
           cd ~/monitoring-app/monitoring-app
 
           echo "Pulling latest master branch..."
