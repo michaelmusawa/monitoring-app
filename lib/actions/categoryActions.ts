@@ -920,7 +920,7 @@ export async function fetchCategoriesWithProjects(filters?: {
     const projectIds = filtered.map((p) => p.id);
     let trackerByProject = new Map<
       string,
-      { overallPercent: number; submittedAt: string }
+      { overallPercent: number; submittedAt: Date } // ✅ now a Date
     >();
     let countByProject = new Map<string, number>();
 

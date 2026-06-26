@@ -705,6 +705,14 @@ export function SectionDocuments({
 
 // ─── Sidebar (unchanged) ──────────────────────────────────────────────────────
 
+type SidebarLocation = {
+  locationUnitId: string;
+  lat: number;
+  long: number;
+  subCounty?: string; // optional for display
+  ward?: string; // optional for display
+} | null;
+
 export function Sidebar({
   name,
   sector,
@@ -716,7 +724,7 @@ export function Sidebar({
   name: string;
   sector: string;
   budget: string;
-  location: LocationData | null;
+  location: SidebarLocation;
   contractFilled: number;
   categoryName?: string;
 }) {
@@ -780,7 +788,8 @@ export function Sidebar({
             <div>
               <p className="text-xs text-muted-foreground mb-0.5">Location</p>
               <p className="font-medium text-sm">
-                {location.ward}, {location.subCounty}
+                {location.ward || location.locationUnitId}
+                {location.subCounty && `, ${location.subCounty}`}
               </p>
             </div>
           )}

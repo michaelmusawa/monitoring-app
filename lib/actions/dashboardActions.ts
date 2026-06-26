@@ -413,6 +413,8 @@ export async function getCIDPPerformance(
       averageCoveragePercent: 0,
       sectors: [],
       lastUpdated: new Date().toISOString(),
+      cumulativeScore: 0, // added
+      cumulativeActual: 0, // added
     };
   }
 
@@ -479,7 +481,7 @@ export async function getCIDPPerformance(
     const score = projectCount > 0 ? sumTracker / projectCount : 0;
 
     // Determine root sector
-    let rootSector = cat.sector; // fallback
+    let rootSector = cat.sector;
     if (cat.projects.length > 0) {
       const firstOrg = cat.projects[0].orgUnitId;
       if (firstOrg) {
@@ -493,8 +495,9 @@ export async function getCIDPPerformance(
       sector: rootSector,
       target: cat.target,
       targetType: cat.targetType,
-      covered, // still include for the category detail view
+      covered,
       coveragePercent,
+      actualPercent: coveragePercent, // ✅ added
       score,
       projectCount,
       projects: cat.projects.map((p: any) => ({
@@ -503,10 +506,18 @@ export async function getCIDPPerformance(
         categoryId: cat.id,
         latestTrackerPercent: p.latestTrackerPercent,
         contributionValue: p.contributionValue,
+        contribution: p.contributionValue, // ✅ added
         status: p.status,
       })),
     });
   }
+
+  // ─── Compute cumulative values ──────────────────────────────────────────────
+  const cumulativeScore = categoriesPerf.reduce((sum, c) => sum + c.score, 0);
+  const cumulativeActual = categoriesPerf.reduce(
+    (sum, c) => sum + c.covered,
+    0,
+  );
 
   // Build SectorPerformance[] – purely percentage‑based
   const sectorMap = new Map<string, CategoryPerformance[]>();
@@ -516,6 +527,7 @@ export async function getCIDPPerformance(
   }
 
   const sectors: SectorPerformance[] = [];
+  // In getCIDPPerformance, inside the sector loop:
   for (const [sectorName, cats] of sectorMap) {
     const projectCount = cats.reduce((sum, c) => sum + c.projectCount, 0);
     const categoryCount = cats.length;
@@ -524,6 +536,8 @@ export async function getCIDPPerformance(
       0,
     );
     const totalScore = cats.reduce((sum, c) => sum + c.score, 0);
+    const totalActual = cats.reduce((sum, c) => sum + c.covered, 0); // ✅ compute totalActual
+
     sectors.push({
       sector: sectorName,
       categoryCount,
@@ -532,6 +546,8 @@ export async function getCIDPPerformance(
         categoryCount > 0 ? totalCoveragePercent / categoryCount : 0,
       averageScore: categoryCount > 0 ? totalScore / categoryCount : 0,
       categories: cats.sort((a, b) => b.score - a.score),
+      score: totalScore, // ✅ add score (sum of category scores)
+      totalActual: totalActual, // ✅ add totalActual
     });
   }
   sectors.sort((a, b) => b.averageScore - a.averageScore);
@@ -558,6 +574,8 @@ export async function getCIDPPerformance(
     averageCoveragePercent,
     sectors,
     lastUpdated: new Date().toISOString(),
+    cumulativeScore, // ✅ added
+    cumulativeActual, // ✅ added
   };
 }
 

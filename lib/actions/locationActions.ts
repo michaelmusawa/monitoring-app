@@ -41,6 +41,8 @@ function mapUnit(row: any): LocationUnit {
     description: row.description ?? null,
     displayOrder: row.displayOrder ?? 0,
     isActive: row.isActive ?? true,
+    lat: row.lat ?? null, // ✅ added
+    long: row.long ?? null, // ✅ added
     createdAt: row.createdAt?.toISOString() ?? new Date().toISOString(),
     updatedAt: row.updatedAt?.toISOString() ?? new Date().toISOString(),
   };

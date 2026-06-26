@@ -213,7 +213,7 @@ export async function removeUserFromUnit(
 
 // ─── Options for dropdowns (e.g., parent selector) ───────────────────────────
 export async function fetchUnitsForSelect(
-  level?: UnitLevel,
+  level?: string,
 ): Promise<{ id: string; name: string; level: string }[]> {
   let query = `SELECT id, name, level FROM OrganisationalUnit WHERE isActive = 1`;
   const params: any[] = [];

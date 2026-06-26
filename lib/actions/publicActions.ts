@@ -20,6 +20,7 @@ export interface PublicProject {
   latestTrackerPercent: number | null;
   latestTrackerDate: string | null;
   derivedStatus: ProjectStatus;
+  orgUnitId?: string | null; // ✅ added
 }
 
 interface LatestTrackerInfo {
@@ -135,8 +136,7 @@ export async function fetchPublicProjects(filters?: {
   // Base SQL without sector filter (we'll handle in code)
   let query = `
     SELECT
-      p.id, p.name, p.orgUnitId, p.status, p.budget, p.progress,
-      p.subCounty, p.ward, p.createdAt,
+      p.id, p.name, p.orgUnitId, p.status, p.budget, p.progress, p.createdAt,
       t.overallPercent as latestTrackerPercent,
       t.submittedAt as latestTrackerDate
     FROM Project p
@@ -158,14 +158,7 @@ export async function fetchPublicProjects(filters?: {
     query += ` AND p.status = @p${idx++}`;
     params.push(filters.status);
   }
-  if (filters?.subCounty) {
-    query += ` AND p.subCounty = @p${idx++}`;
-    params.push(filters.subCounty);
-  }
-  if (filters?.ward) {
-    query += ` AND p.ward = @p${idx++}`;
-    params.push(filters.ward);
-  }
+
   if (filters?.fiscalYear) {
     query += ` AND p.fiscalYear = @p${idx++}`;
     params.push(filters.fiscalYear);
@@ -199,22 +192,16 @@ export async function fetchPublicProjects(filters?: {
       const root = await getRootUnitName(row.orgUnitId, unitLookup);
       if (root !== filters.sector) continue;
     }
-    const tracker = trackerMap.get(row.id);
-    const derivedStatus = computePublicStatus(row.status, tracker);
-    // apply status filter if present
+    const project = mapPublicProject(row);
+    // derivedStatus is already inside `project` now, so we don't need to add it manually.
+    // But we may still need to filter by status; use `project.derivedStatus`.
     if (
       filters?.status &&
       filters.status !== "ALL" &&
-      derivedStatus !== filters.status
+      project.derivedStatus !== filters.status
     )
       continue;
-    filtered.push({
-      ...mapPublicProject(row),
-      sector: row.orgUnitId
-        ? await getRootUnitName(row.orgUnitId, unitLookup)
-        : null,
-      derivedStatus,
-    });
+    filtered.push(project);
   }
   if (filters?.limit !== undefined) {
     return filtered.slice(0, filters.limit);
@@ -230,7 +217,7 @@ export async function fetchPublicProjectDetail(
   const { rows } = await safeQuery<any>(
     `SELECT
        p.id, p.name, p.sector, p.status, p.budget, p.progress,
-       p.subCounty, p.ward, p.createdAt, p.description,
+        p.createdAt, p.description,
        p.fundingSource, p.contractSum, p.contractDuration,
        p.commencementDate, p.plannedCompletion, p.costToCompletion,
        p.employer, p.projectManager, p.fiscalYear,
@@ -315,7 +302,7 @@ export async function submitPublicComment(
 
   const parsed = commentSchema.safeParse(raw);
   if (!parsed.success) {
-    return { success: false, message: parsed.error.errors[0].message };
+    return { success: false, message: parsed.error.issues[0].message };
   }
 
   const { projectId, authorName, authorEmail, content, fileUrl } = parsed.data;
@@ -340,6 +327,17 @@ export async function submitPublicComment(
 
 // ─── Helper mapper ────────────────────────────────────────────────────────
 function mapPublicProject(row: any): PublicProject {
+  const tracker =
+    row.latestTrackerPercent !== null && row.latestTrackerPercent !== undefined
+      ? {
+          overallPercent: Number(row.latestTrackerPercent),
+          submittedAt: row.latestTrackerDate
+            ? new Date(row.latestTrackerDate)
+            : new Date(),
+          prevOverallPercent: null,
+        }
+      : undefined;
+
   return {
     id: row.id,
     name: row.name,
@@ -355,6 +353,8 @@ function mapPublicProject(row: any): PublicProject {
         ? Number(row.latestTrackerPercent)
         : null,
     latestTrackerDate: row.latestTrackerDate?.toISOString() ?? null,
+    derivedStatus: computePublicStatus(row.status, tracker),
+    orgUnitId: row.orgUnitId ?? null, // ✅ added
   };
 }
 
@@ -560,7 +560,8 @@ export async function fetchPublicStats() {
   const trackerMap = await getLatestTrackerInfoMap();
 
   const { rows: projects } = await safeQuery<any>(
-    `SELECT id, budget, subCounty, ward, orgUnitId, status FROM Project`,
+    `SELECT id, budget,
+     orgUnitId, status FROM Project`,
     [],
   );
 
@@ -644,7 +645,9 @@ export async function fetchBreakdownData(
 
   // Build base project query (no grouping)
   let projectSQL = `
-    SELECT p.id, p.orgUnitId, p.subCounty, p.ward, p.fiscalYear,
+    SELECT p.id, p.orgUnitId,
+    ,
+    p.fiscalYear,
            p.sector, p.budget, p.status, p.name
     FROM Project p
     WHERE 1=1
@@ -969,8 +972,7 @@ export async function fetchOverviewGroups(
   const trackerMap = await getLatestTrackerInfoMap();
 
   let query = `
-    SELECT p.id, p.name, p.orgUnitId, p.subCounty, p.budget, p.status,
-           p.ward, p.createdAt,
+    SELECT p.id, p.name, p.orgUnitId, p.budget, p.status, p.createdAt,
            t.overallPercent as latestTrackerPercent,
            t.submittedAt as latestTrackerDate
     FROM Project p
@@ -999,7 +1001,9 @@ export async function fetchOverviewGroups(
   for (const proj of allProjects) {
     let key = "Unknown";
     if (groupBy === "org") {
-      key = await getRootUnitName(proj.orgUnitId, unitLookup);
+      key = proj.orgUnitId
+        ? await getRootUnitName(proj.orgUnitId, unitLookup)
+        : "Unknown";
     } else {
       key = proj.subCounty || "Unknown";
     }

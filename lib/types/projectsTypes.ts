@@ -16,4 +16,5 @@ export type Project = {
   size?: string;
   categoryId?: string;
   updatedAt?: Date;
+  contributionValue?: number | null;
 };
