@@ -32,7 +32,7 @@ jobs:
       - name: Deploy application via PM2
         run: |
           echo "Deploying Monitoring app...."
-          cd ~/monitoring-app/monitoring-app
+          cd ~/monitoring-app/
 
           echo "Pulling latest master branch..."
           git fetch origin main && git reset --hard origin/main
