@@ -36,10 +36,6 @@ import {
   StepIndicator,
   STEPS,
 } from "./createProjectClient";
-// reuse constants
-
-// If your CreateProjectClient does not export these, you can copy them into this file.
-// For brevity, I assume they are exported from CreateProjectClient – adjust accordingly.
 
 interface EditProjectClientProps {
   project: any;
@@ -50,6 +46,20 @@ interface EditProjectClientProps {
 
 type Step = "basics" | "location" | "contract" | "documents";
 const STEP_ORDER: Step[] = ["basics", "location", "contract", "documents"];
+const stepsToShow: Step[] = ["basics", "location", "contract", "documents"];
+
+// Flatten tree helper (same as in create client)
+function flattenTree(
+  units: any[],
+  prefix = "",
+): { id: string; label: string }[] {
+  const result: { id: string; label: string }[] = [];
+  for (const u of units) {
+    result.push({ id: u.id, label: prefix + u.name + ` (${u.level})` });
+    if (u.children) result.push(...flattenTree(u.children, prefix + "  "));
+  }
+  return result;
+}
 
 export default function EditProjectClient({
   project,
@@ -61,9 +71,10 @@ export default function EditProjectClient({
   const [currentStep, setCurrentStep] = useState<Step>("basics");
   const [done, setDone] = useState<Set<Step>>(new Set());
 
-  // ─── Basic Info state ─────────────────────────────────────────────────────
+  // Basic Info state
   const [name, setName] = useState(project.name);
   const [orgUnitId, setOrgUnitId] = useState(project.orgUnitId || "");
+  const [orgUnitName, setOrgUnitName] = useState(""); // <-- new
   const [budget, setBudget] = useState(project.budget?.toString() || "");
   const [description, setDescription] = useState(project.description || "");
   const [contributionValue, setContributionValue] = useState(
@@ -72,7 +83,7 @@ export default function EditProjectClient({
   const [projectType, setProjectType] = useState(project.projectType || "");
   const [status, setStatus] = useState(project.status || "NOT-STARTED");
 
-  // ─── Location state ───────────────────────────────────────────────────────
+  // Location
   const [location, setLocation] = useState<{
     locationUnitId: string;
     lat: number;
@@ -87,7 +98,7 @@ export default function EditProjectClient({
       : null,
   );
 
-  // ─── Contract state ───────────────────────────────────────────────────────
+  // Contract
   const [contract, setContract] = useState({
     fundingSource: project.fundingSource || "",
     employer: project.employer || "",
@@ -109,9 +120,8 @@ export default function EditProjectClient({
     [],
   );
 
-  // ─── Documents state (not persisted yet, but we keep for future) ──────────
+  // Documents
   const [files, setFiles] = useState<File[]>([]);
-
   const [submitting, setSubmitting] = useState(false);
   const [basicsErrors, setBasicsErrors] = useState<Record<string, string>>({});
   const [basicsTouched, setBasicsTouched] = useState<Record<string, boolean>>(
@@ -120,7 +130,30 @@ export default function EditProjectClient({
   const setBasicsTouchedField = (field: string) =>
     setBasicsTouched((prev) => ({ ...prev, [field]: true }));
 
-  // Validation effect (same as creation)
+  // Resolve org unit name on mount and when orgUnitId changes
+  useEffect(() => {
+    if (!orgUnitId) {
+      setOrgUnitName("");
+      return;
+    }
+    let cancelled = false;
+    fetch("/api/admin/organisation/tree")
+      .then((res) => res.json())
+      .then((tree: any[]) => {
+        if (cancelled) return;
+        const units = flattenTree(tree);
+        const unit = units.find((u: any) => u.id === orgUnitId);
+        setOrgUnitName(unit?.label ?? orgUnitId);
+      })
+      .catch(() => {
+        if (!cancelled) setOrgUnitName(orgUnitId);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [orgUnitId]);
+
+  // Validation
   useEffect(() => {
     const result = basicsSchema.safeParse({
       name,
@@ -296,9 +329,6 @@ export default function EditProjectClient({
 
   const currentStepMeta = STEPS.find((s) => s.id === currentStep)!;
 
-  // STEPS constant must be imported or defined (same as in CreateProjectClient)
-  // If not exported, copy the STEPS array from CreateProjectClient here.
-
   return (
     <div className="max-w-5xl mx-auto p-4 md:p-6">
       <div className="mb-8">
@@ -314,15 +344,20 @@ export default function EditProjectClient({
             </h1>
             <p className="text-muted-foreground mt-1">Update project details</p>
           </div>
-          {orgUnitId && (
+          {orgUnitName && (
             <Badge variant="outline" className="px-3 py-1 text-sm shrink-0">
-              <CircleDot className="w-3 h-3 mr-1.5" /> {orgUnitId}
+              <CircleDot className="w-3 h-3 mr-1.5" /> {orgUnitName}
             </Badge>
           )}
         </div>
       </div>
 
-      <StepIndicator current={currentStep} done={done} />
+      {/* Fixed: pass stepsToShow */}
+      <StepIndicator
+        current={currentStep}
+        done={done}
+        stepsToShow={stepsToShow}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
@@ -349,8 +384,10 @@ export default function EditProjectClient({
                 <SectionBasics
                   name={name}
                   setName={setName}
-                  sector={orgUnitId}
-                  setSector={setOrgUnitId}
+                  orgUnitId={orgUnitId}
+                  setOrgUnitId={setOrgUnitId}
+                  orgUnitName={orgUnitName}
+                  setOrgUnitName={setOrgUnitName}
                   budget={budget}
                   setBudget={setBudget}
                   description={description}
@@ -360,7 +397,9 @@ export default function EditProjectClient({
                   projectType={projectType}
                   setProjectType={setProjectType}
                   categoryName={
-                    project.categoryId ? "Category assigned" : undefined
+                    project.categoryId
+                      ? project.categoryName || "Assigned category"
+                      : undefined
                   }
                   categoryTarget={categoryTarget}
                   categoryTargetType={categoryTargetType}
@@ -448,11 +487,15 @@ export default function EditProjectClient({
         <div>
           <Sidebar
             name={name}
-            sector={orgUnitId}
+            orgUnitName={orgUnitName} // pass name, not ID
             budget={budget}
             location={location}
             contractFilled={Object.values(contract).filter((v) => v).length}
-            categoryName={project.categoryId ? "Assigned category" : undefined}
+            categoryName={
+              project.categoryId
+                ? project.categoryName || "Assigned category"
+                : undefined
+            }
           />
         </div>
       </div>

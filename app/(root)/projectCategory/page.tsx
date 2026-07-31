@@ -14,14 +14,5 @@ export default async function Page() {
     permissions = await getUserPermissions(user.id);
   }
 
-  // Fallback role display string (derived from sector for backward compatibility)
-  let displayRole = "viewer";
-  if (user?.sector === "Monitoring And Evaluation") displayRole = "me";
-  else if (user?.sector && user.sector !== "Monitoring And Evaluation")
-    displayRole = "sector";
-  else if (user?.role === "system admin") displayRole = "viewer";
-
-  return (
-    <CIDPCategoriesPage userPermissions={permissions} userRole={displayRole} />
-  );
+  return <CIDPCategoriesPage userPermissions={permissions} />;
 }

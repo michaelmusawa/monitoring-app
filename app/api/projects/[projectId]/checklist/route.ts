@@ -166,13 +166,32 @@ export async function PUT(
     // can be promoted to the correct Template. Fetch it lazily only when needed.
     let projectSector: string | undefined;
     if (status === "Approved") {
-      const { rows: projRows } = await safeQuery<any>(
-        "SELECT sector FROM Project WHERE id = @p1",
+      // 1. Get the project's organisational unit ID
+      const { rows: projRows } = await safeQuery<{ orgUnitId: string }>(
+        "SELECT orgUnitId FROM Project WHERE id = @p1",
         [projectId],
       );
-      projectSector = projRows[0]?.sector ?? undefined;
-    }
+      const orgUnitId = projRows[0]?.orgUnitId;
 
+      if (orgUnitId) {
+        // 2. Use a recursive CTE to find the top‑level (root) unit name
+        const { rows: rootRows } = await safeQuery<{ name: string }>(
+          `WITH cte AS (
+             SELECT id, parentId, name, 0 AS lvl
+             FROM OrganisationalUnit
+             WHERE id = @p1 AND isActive = 1
+             UNION ALL
+             SELECT u.id, u.parentId, u.name, cte.lvl + 1
+             FROM OrganisationalUnit u
+             INNER JOIN cte ON u.id = cte.parentId
+           )
+           SELECT TOP 1 name FROM cte
+           ORDER BY lvl DESC`,
+          [orgUnitId],
+        );
+        projectSector = rootRows[0]?.name ?? undefined;
+      }
+    }
     const updated = await saveChecklist(checklistId, {
       status,
       items,

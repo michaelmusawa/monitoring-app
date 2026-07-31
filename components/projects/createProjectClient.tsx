@@ -36,11 +36,16 @@ import {
   ChevronRight,
   FolderKanban,
   CircleDot,
+  Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import { ProjectLocationForm } from "@/components/projects/ProjectLocationForm";
 import { createFullProject } from "@/lib/actions/projectActions";
 import OrgUnitSelector from "../admin/OrgUnitSelector";
+import {
+  fetchCategoryStats,
+  fetchProjectCategories,
+} from "@/lib/actions/categoryActions";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -72,7 +77,7 @@ export const basicsSchema = z.object({
     .trim()
     .min(1, "Project name is required")
     .max(200, "Name too long"),
-  sector: z.string().min(1, "Please select a sector"),
+  sector: z.string().min(1, "Please select an organisational unit"), // keep key 'sector' but label updated
   budget: z
     .union([
       z.string().transform((val) => (val.trim() === "" ? undefined : val)),
@@ -137,12 +142,17 @@ const EMPTY_CONTRACT: ContractDetails = {
   costToCompletion: "",
 };
 
-type Step = "basics" | "location" | "contract" | "documents";
+type Step = "category" | "basics" | "location" | "contract" | "documents";
 export const STEPS: { id: Step; label: string; description: string }[] = [
+  {
+    id: "category",
+    label: "Category",
+    description: "Select CIDP category",
+  },
   {
     id: "basics",
     label: "Basic Info",
-    description: "Project name, sector & budget",
+    description: "Project name, org unit & budget",
   },
   {
     id: "location",
@@ -152,7 +162,13 @@ export const STEPS: { id: Step; label: string; description: string }[] = [
   { id: "contract", label: "Contract", description: "Funding, scope & dates" },
   { id: "documents", label: "Documents", description: "Supporting files" },
 ];
-const STEP_ORDER: Step[] = ["basics", "location", "contract", "documents"];
+const STEP_ORDER: Step[] = [
+  "category",
+  "basics",
+  "location",
+  "contract",
+  "documents",
+];
 
 function getFiscalYearFromDate(dateStr: string): string {
   if (!dateStr) return "";
@@ -169,16 +185,19 @@ function getFiscalYearFromDate(dateStr: string): string {
 export function StepIndicator({
   current,
   done,
+  stepsToShow, // only the steps that should appear
 }: {
   current: Step;
   done: Set<Step>;
+  stepsToShow: Step[];
 }) {
   return (
     <div className="flex items-center mb-8">
-      {STEPS.map((s, i) => {
+      {stepsToShow.map((stepId, i) => {
+        const s = STEPS.find((st) => st.id === stepId)!;
         const isActive = s.id === current;
         const isDone = done.has(s.id);
-        const isLast = i === STEPS.length - 1;
+        const isLast = i === stepsToShow.length - 1;
         return (
           <div key={s.id} className="flex items-center flex-1">
             <div className="flex flex-col items-center gap-1.5 shrink-0">
@@ -219,13 +238,75 @@ export function StepIndicator({
   );
 }
 
-// ─── Section: Basic Info (unchanged) ─────────────────────────────────────────
+// ─── Category Selection Step ──────────────────────────────────────────────────
+
+function SectionCategory({
+  categories,
+  onSelect,
+}: {
+  categories: {
+    id: string;
+    name: string;
+    target?: number;
+    targetType?: string;
+  }[];
+  onSelect: (id: string, name: string) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const filtered = categories.filter((c) =>
+    c.name.toLowerCase().includes(search.toLowerCase()),
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <Input
+          placeholder="Search categories…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="pl-9 h-9 text-sm"
+        />
+      </div>
+      <div className="grid gap-2 max-h-80 overflow-auto">
+        {filtered.map((cat) => (
+          <button
+            key={cat.id}
+            type="button"
+            onClick={() => onSelect(cat.id, cat.name)}
+            className="flex items-center justify-between p-3 rounded-lg border hover:border-primary hover:bg-primary/5 transition-colors text-left"
+          >
+            <div>
+              <p className="text-sm font-medium">{cat.name}</p>
+              {cat.target != null && (
+                <p className="text-xs text-muted-foreground">
+                  Target: {cat.target}
+                  {cat.targetType === "PERCENT" ? "%" : ""}
+                </p>
+              )}
+            </div>
+            <ChevronRight className="w-4 h-4 text-muted-foreground" />
+          </button>
+        ))}
+        {filtered.length === 0 && (
+          <p className="text-sm text-muted-foreground text-center py-4">
+            No categories found
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Section: Basic Info (updated to use orgUnitId) ─────────────────────────
 
 export function SectionBasics({
   name,
   setName,
-  sector,
-  setSector,
+  orgUnitId,
+  setOrgUnitId,
+  orgUnitName, // ⬅️ new
+  setOrgUnitName, // ⬅️ new
   budget,
   setBudget,
   description,
@@ -244,8 +325,10 @@ export function SectionBasics({
 }: {
   name: string;
   setName: (v: string) => void;
-  sector: string;
-  setSector: (v: string) => void;
+  orgUnitId: string;
+  setOrgUnitId: (v: string) => void;
+  orgUnitName: string; // added
+  setOrgUnitName: (v: string) => void; // added
   budget: string;
   setBudget: (v: string) => void;
   description: string;
@@ -314,8 +397,9 @@ export function SectionBasics({
             Organisation Unit <span className="text-destructive">*</span>
           </Label>
           <OrgUnitSelector
-            value={sector} // we reuse the same state variable name
-            onChange={setSector}
+            value={orgUnitId}
+            onChange={setOrgUnitId}
+            onLabelChange={setOrgUnitName} // <-- update name on change
             placeholder="Select a unit…"
           />
           {errors.sector && touched.sector && (
@@ -423,7 +507,6 @@ export function SectionBasics({
     </div>
   );
 }
-
 // ─── Section: Contract Details (updated) ─────────────────────────────────────
 
 export function SectionContract({
@@ -709,20 +792,20 @@ type SidebarLocation = {
   locationUnitId: string;
   lat: number;
   long: number;
-  subCounty?: string; // optional for display
-  ward?: string; // optional for display
+  subCounty?: string;
+  ward?: string;
 } | null;
 
 export function Sidebar({
   name,
-  sector,
+  orgUnitName, // <-- changed
   budget,
   location,
   contractFilled,
   categoryName,
 }: {
   name: string;
-  sector: string;
+  orgUnitName: string; // <-- changed
   budget: string;
   location: SidebarLocation;
   contractFilled: number;
@@ -730,7 +813,7 @@ export function Sidebar({
 }) {
   const checks = [
     { label: "Project name entered", done: name.trim().length > 0 },
-    { label: "Sector selected", done: sector.length > 0 },
+    { label: "Organisational unit selected", done: orgUnitName.length > 0 },
     { label: "Location saved", done: !!location },
     { label: "Contract details (3+ fields)", done: contractFilled >= 3 },
   ];
@@ -761,10 +844,10 @@ export function Sidebar({
             </p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground mb-1">Sector</p>
-            {sector ? (
+            <p className="text-xs text-muted-foreground mb-1">Org Unit</p>
+            {orgUnitName ? (
               <Badge variant="outline" className="text-xs">
-                {sector}
+                {orgUnitName}
               </Badge>
             ) : (
               <p className="text-muted-foreground italic text-xs">
@@ -829,7 +912,7 @@ export function Sidebar({
         <CardContent className="space-y-3">
           {[
             {
-              title: "Name & sector are required",
+              title: "Name & org unit are required",
               body: "All other fields are optional and can be updated later.",
             },
             {
@@ -855,32 +938,75 @@ export function Sidebar({
   );
 }
 
-// ─── Main Component (updated handleCreate) ───────────────────────────────────
+function flattenTree(
+  units: any[],
+  prefix = "",
+): { id: string; label: string }[] {
+  const result: { id: string; label: string }[] = [];
+  for (const u of units) {
+    result.push({ id: u.id, label: prefix + u.name + ` (${u.level})` });
+    if (u.children) result.push(...flattenTree(u.children, prefix + "  "));
+  }
+  return result;
+}
+
+// ─── Main Component (updated) ─────────────────────────────────────────────────
 
 interface Props {
-  categoryId?: string;
-  categoryName?: string;
-  defaultSector?: string;
-  categoryTarget?: number | null;
-  categoryTargetType?: "NUMBER" | "PERCENT" | null;
-  remainingTarget?: number | null;
+  initialCategoryId?: string; // from server if adding to specific category
+  initialCategoryName?: string;
+  defaultOrgUnitId?: string;
+  initialCategoryTarget?: number | null;
+  initialCategoryTargetType?: "NUMBER" | "PERCENT" | null;
+  initialRemainingTarget?: number | null;
 }
 
 export default function CreateProjectClient({
-  categoryId,
-  categoryName,
-  defaultSector,
-  categoryTarget,
-  categoryTargetType,
-  remainingTarget,
+  initialCategoryId,
+  initialCategoryName,
+  defaultOrgUnitId = "",
+  initialCategoryTarget = null,
+  initialCategoryTargetType = null,
+  initialRemainingTarget = null,
 }: Props) {
   const router = useRouter();
 
-  const [currentStep, setCurrentStep] = useState<Step>("basics");
+  // If initialCategoryId exists, skip category step.
+  const hasPreSelectedCategory = !!initialCategoryId;
+
+  // Category state
+  const [categoryId, setCategoryId] = useState<string>(initialCategoryId || "");
+  const [categoryName, setCategoryName] = useState<string>(
+    initialCategoryName || "",
+  );
+  const [categoryTarget, setCategoryTarget] = useState<number | null>(
+    initialCategoryTarget,
+  );
+  const [categoryTargetType, setCategoryTargetType] = useState<
+    "NUMBER" | "PERCENT" | null
+  >(initialCategoryTargetType);
+  const [remainingTarget, setRemainingTarget] = useState<number | null>(
+    initialRemainingTarget,
+  );
+  const [categories, setCategories] = useState<
+    { id: string; name: string; target?: number; targetType?: string }[]
+  >([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(
+    !hasPreSelectedCategory,
+  );
+
+  // Steps & navigation
+  const [currentStep, setCurrentStep] = useState<Step>(
+    hasPreSelectedCategory ? "basics" : "category",
+  );
   const [done, setDone] = useState<Set<Step>>(new Set());
 
+  const stepsToShow: Step[] = hasPreSelectedCategory
+    ? ["basics", "location", "contract", "documents"]
+    : ["category", "basics", "location", "contract", "documents"];
+
   const [name, setName] = useState("");
-  const [sector, setSector] = useState(defaultSector || "");
+  const [orgUnitId, setOrgUnitId] = useState(defaultOrgUnitId);
   const [budget, setBudget] = useState("");
   const [description, setDescription] = useState("");
   const [contributionValue, setContributionValue] = useState("");
@@ -905,6 +1031,8 @@ export default function CreateProjectClient({
   const [files, setFiles] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
+  const [orgUnitName, setOrgUnitName] = useState("");
+
   const [basicsErrors, setBasicsErrors] = useState<Record<string, string>>({});
   const [basicsTouched, setBasicsTouched] = useState<Record<string, boolean>>(
     {},
@@ -912,11 +1040,65 @@ export default function CreateProjectClient({
   const setBasicsTouchedField = (field: string) =>
     setBasicsTouched((prev) => ({ ...prev, [field]: true }));
 
+  // ── Resolve initial org unit name from ID ─────────────────────────
+  useEffect(() => {
+    if (!orgUnitId) {
+      setOrgUnitName("");
+      return;
+    }
+    let cancelled = false;
+    fetch("/api/admin/organisation/tree")
+      .then((res) => res.json())
+      .then((tree: any[]) => {
+        if (cancelled) return;
+        const units = flattenTree(tree); // reuse the same flatten logic
+        const unit = units.find((u: any) => u.id === orgUnitId);
+        setOrgUnitName(unit?.label ?? orgUnitId); // fallback to ID if not found
+      })
+      .catch(() => {
+        if (!cancelled) setOrgUnitName(orgUnitId);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [orgUnitId]);
+
+  // Helper: flatten the organisational unit tree (identical to the one in OrgUnitSelector)
+
+  // Load categories if needed
+  useEffect(() => {
+    if (!hasPreSelectedCategory) {
+      fetchProjectCategories()
+        .then((cats) => setCategories(cats))
+        .catch(() => toast.error("Failed to load categories"))
+        .finally(() => setCategoriesLoading(false));
+    }
+  }, [hasPreSelectedCategory]);
+
+  // When user picks a category, fetch its target/remaining info (same as server page does)
+  const handleCategorySelect = useCallback(async (id: string, name: string) => {
+    setCategoryId(id);
+    setCategoryName(name);
+    // Fetch target and remaining via server action
+    try {
+      const stats = await fetchCategoryStats(id);
+      setCategoryTarget(stats.target);
+      setCategoryTargetType(stats.targetType as "NUMBER" | "PERCENT" | null);
+      setRemainingTarget(stats.remaining);
+    } catch (err) {
+      console.error("Failed to fetch category stats", err);
+      toast.error("Could not load category details");
+    }
+    // Mark category as done and move to next step
+    setDone((prev) => new Set([...prev, "category" as Step]));
+    setCurrentStep("basics");
+  }, []);
+
   // Validate basics including contribution if category is provided
   useEffect(() => {
     const result = basicsSchema.safeParse({
       name,
-      sector,
+      sector: orgUnitId,
       budget: budget === "" ? undefined : budget,
       description: description || undefined,
       contributionValue:
@@ -932,14 +1114,9 @@ export default function CreateProjectClient({
       setBasicsErrors(errors);
     } else {
       setBasicsErrors({});
-      // Additional custom validation: contribution must not exceed remaining target
       if (categoryId && contributionValue) {
         const val = parseFloat(contributionValue);
-        if (
-          remainingTarget !== undefined &&
-          remainingTarget !== null &&
-          val > remainingTarget
-        ) {
+        if (remainingTarget != null && val > remainingTarget) {
           setBasicsErrors((prev) => ({
             ...prev,
             contributionValue: `Contribution cannot exceed remaining target (${remainingTarget})`,
@@ -949,7 +1126,7 @@ export default function CreateProjectClient({
     }
   }, [
     name,
-    sector,
+    orgUnitId,
     budget,
     description,
     contributionValue,
@@ -965,6 +1142,7 @@ export default function CreateProjectClient({
       (!basicsErrors.contributionValue &&
         contributionValue &&
         parseFloat(contributionValue) > 0));
+
   const isLocationValid = location !== null;
   const isContractDatesValid = () => {
     const today = new Date();
@@ -981,14 +1159,16 @@ export default function CreateProjectClient({
       return false;
     return true;
   };
+
   const canProceed = () => {
+    if (currentStep === "category") return true; // category selection is always valid if an item is selected (handled by onSelect)
     if (currentStep === "basics") return isBasicsValid;
     if (currentStep === "location") return isLocationValid;
     if (currentStep === "contract") return isContractDatesValid();
     return true;
   };
 
-  const stepIndex = STEP_ORDER.indexOf(currentStep);
+  const currentStepIndex = stepsToShow.indexOf(currentStep);
   const isLastStep = currentStep === "documents";
 
   function advance() {
@@ -1011,12 +1191,17 @@ export default function CreateProjectClient({
       return;
     }
     setDone((prev) => new Set([...prev, currentStep]));
-    if (stepIndex < STEP_ORDER.length - 1)
-      setCurrentStep(STEP_ORDER[stepIndex + 1]);
+    const nextIndex = stepsToShow.indexOf(currentStep) + 1;
+    if (nextIndex < stepsToShow.length) {
+      setCurrentStep(stepsToShow[nextIndex]);
+    }
   }
 
   function goBack() {
-    if (stepIndex > 0) setCurrentStep(STEP_ORDER[stepIndex - 1]);
+    const prevIndex = stepsToShow.indexOf(currentStep) - 1;
+    if (prevIndex >= 0) {
+      setCurrentStep(stepsToShow[prevIndex]);
+    }
   }
 
   const handleLocationSaved = useCallback(
@@ -1031,7 +1216,7 @@ export default function CreateProjectClient({
   async function handleCreate() {
     const basicsResult = basicsSchema.safeParse({
       name,
-      sector,
+      sector: orgUnitId,
       budget: budget === "" ? undefined : budget,
       description: description || undefined,
       contributionValue:
@@ -1079,14 +1264,13 @@ export default function CreateProjectClient({
     try {
       const project = await createFullProject({
         name: name.trim(),
-        orgUnitId: sector,
+        orgUnitId: orgUnitId,
         budget: budget ? Number(budget) : undefined,
         description: description || undefined,
         categoryId,
         contributionValue: contributionValue
           ? Number(contributionValue)
           : undefined,
-
         lat: location?.lat,
         long: location?.long,
         projectType,
@@ -1141,15 +1325,19 @@ export default function CreateProjectClient({
               </p>
             )}
           </div>
-          {sector && (
+          {orgUnitName && (
             <Badge variant="outline" className="px-3 py-1 text-sm shrink-0">
-              <CircleDot className="w-3 h-3 mr-1.5" /> {sector}
+              <CircleDot className="w-3 h-3 mr-1.5" /> {orgUnitName}
             </Badge>
           )}
         </div>
       </div>
 
-      <StepIndicator current={currentStep} done={done} />
+      <StepIndicator
+        current={currentStep}
+        done={done}
+        stepsToShow={stepsToShow}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
@@ -1158,7 +1346,7 @@ export default function CreateProjectClient({
               <div className="flex items-center gap-2.5">
                 <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center shrink-0">
                   <span className="text-xs font-bold text-primary-foreground">
-                    {stepIndex + 1}
+                    {stepsToShow.indexOf(currentStep) + 1}
                   </span>
                 </div>
                 <div>
@@ -1172,19 +1360,35 @@ export default function CreateProjectClient({
               </div>
             </CardHeader>
             <CardContent className="pt-6">
+              {currentStep === "category" && (
+                <>
+                  {categoriesLoading ? (
+                    <div className="flex justify-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin" />
+                    </div>
+                  ) : (
+                    <SectionCategory
+                      categories={categories}
+                      onSelect={handleCategorySelect}
+                    />
+                  )}
+                </>
+              )}
               {currentStep === "basics" && (
                 <SectionBasics
                   name={name}
                   setName={setName}
-                  sector={sector}
-                  setSector={setSector}
+                  orgUnitId={orgUnitId}
+                  setOrgUnitId={setOrgUnitId}
+                  orgUnitName={orgUnitName} // pass the name
+                  setOrgUnitName={setOrgUnitName} // pass the setter
                   budget={budget}
                   setBudget={setBudget}
                   description={description}
                   setDescription={setDescription}
                   contributionValue={contributionValue}
                   setContributionValue={setContributionValue}
-                  projectType={projectType} // ✅ value
+                  projectType={projectType}
                   setProjectType={setProjectType}
                   categoryName={categoryName}
                   categoryTarget={categoryTarget}
@@ -1226,11 +1430,12 @@ export default function CreateProjectClient({
                 variant="ghost"
                 size="sm"
                 onClick={goBack}
-                disabled={stepIndex === 0}
+                disabled={stepsToShow.indexOf(currentStep) === 0}
               >
                 <ArrowLeft className="w-3.5 h-3.5 mr-1.5" /> Back
               </Button>
               <div className="flex items-center gap-2">
+                {/* Skip button: only on contract and documents if not required */}
                 {(currentStep === "contract" ||
                   currentStep === "documents") && (
                   <Button
@@ -1273,7 +1478,7 @@ export default function CreateProjectClient({
         <div>
           <Sidebar
             name={name}
-            sector={sector}
+            orgUnitName={orgUnitName}
             budget={budget}
             location={location}
             contractFilled={contractFilled}

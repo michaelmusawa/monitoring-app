@@ -195,6 +195,22 @@ const computeItemStatus = (
   return "ONGOING";
 };
 
+// ─── Normalization helper ───────────────────────────────────────────────────
+function normalizeStringList(value: unknown): string[] {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+      // Not JSON, treat as a single string
+    }
+    return [value];
+  }
+  return [];
+}
+
 // ─── Sub‑components ───────────────────────────────────────────────────────────
 function StatusBadge({ status }: { status: string }) {
   const cfg = STATUS_CONFIG[status as ItemStatus] ?? STATUS_CONFIG.NOT_STARTED;
@@ -372,6 +388,7 @@ function TrackerView({
   submission: TrackerSubmission;
   previousDate?: string;
 }) {
+  const [attachmentLoading, setAttachmentLoading] = useState(false);
   const grouped = useMemo(() => {
     const g: Record<string, TrackerItem[]> = {};
     submission.items.forEach((it) => {
@@ -382,6 +399,29 @@ function TrackerView({
   }, [submission.items]);
 
   const overall = computeOverall(submission.items);
+
+  const handleViewAttachment = async (url: string) => {
+    if (attachmentLoading) return;
+    setAttachmentLoading(true);
+    try {
+      const res = await fetch(
+        `/api/minio/presigned?url=${encodeURIComponent(url)}`,
+      );
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to generate download URL");
+      }
+      const data = await res.json();
+      // Open the presigned URL in a new tab
+      window.open(data.url, "_blank");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Unable to access file",
+      );
+    } finally {
+      setAttachmentLoading(false);
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -472,16 +512,7 @@ function TrackerView({
                         <ProgressBar value={it.percentComplete} />
                         {it.challenges != null &&
                           (() => {
-                            let items: string[] = [];
-                            if (typeof it.challenges === "string") {
-                              try {
-                                items = JSON.parse(it.challenges);
-                              } catch {
-                                items = [];
-                              }
-                            } else if (Array.isArray(it.challenges)) {
-                              items = it.challenges;
-                            }
+                            const items = normalizeStringList(it.challenges);
                             if (items.length === 0) return null;
                             return (
                               <div className="text-xs bg-red-50 border border-red-100 rounded p-2">
@@ -503,16 +534,9 @@ function TrackerView({
                           })()}
                         {it.recommendations != null &&
                           (() => {
-                            let items: string[] = [];
-                            if (typeof it.recommendations === "string") {
-                              try {
-                                items = JSON.parse(it.recommendations);
-                              } catch {
-                                items = [];
-                              }
-                            } else if (Array.isArray(it.recommendations)) {
-                              items = it.recommendations;
-                            }
+                            const items = normalizeStringList(
+                              it.recommendations,
+                            );
                             if (items.length === 0) return null;
                             return (
                               <div className="text-xs bg-blue-50 border border-blue-100 rounded p-2">
@@ -535,17 +559,21 @@ function TrackerView({
                         {it.attachments && it.attachments.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-1">
                             {it.attachments.map((url, idx) => (
-                              <a
+                              <button
                                 key={idx}
-                                href={url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 text-xs text-blue-600 underline hover:text-blue-800"
+                                onClick={() => handleViewAttachment(url)}
+                                disabled={attachmentLoading}
+                                className="inline-flex items-center gap-1 text-xs text-blue-600 underline hover:text-blue-800 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 <Paperclip className="w-3 h-3" />
                                 {url.split("/").pop()}
-                              </a>
+                              </button>
                             ))}
+                            {attachmentLoading && (
+                              <span className="text-xs text-muted-foreground ml-1">
+                                Loading...
+                              </span>
+                            )}
                           </div>
                         )}
                       </div>
@@ -995,14 +1023,14 @@ function TrackerForm({
                     <div>
                       <StringListField
                         label="Challenges"
-                        items={it.challenges || []}
+                        items={normalizeStringList(it.challenges)}
                         onChange={(vals) => updateItem(i, { challenges: vals })}
                       />
                     </div>
                     <div>
                       <StringListField
                         label="Recommendations"
-                        items={it.recommendations || []}
+                        items={normalizeStringList(it.recommendations)}
                         onChange={(vals) =>
                           updateItem(i, { recommendations: vals })
                         }
@@ -1114,7 +1142,13 @@ export function ProjectTrackers({
     const prev = idx > 0 ? sortedSubmissions[idx - 1] : null;
     setCurrentBaselines(prev ? buildBaselines(prev) : {});
     setPreviousDate(prev?.submittedAt);
-    setCurrent({ ...sub, items: sub.items.map((it) => ({ ...it })) });
+    // Normalize challenges and recommendations to arrays
+    const normalizedItems = sub.items.map((it) => ({
+      ...it,
+      challenges: normalizeStringList(it.challenges),
+      recommendations: normalizeStringList(it.recommendations),
+    }));
+    setCurrent({ ...sub, items: normalizedItems });
     setMode("edit");
     setDialogOpen(true);
   };
@@ -1145,8 +1179,8 @@ export function ProjectTrackers({
           category: ci.category,
           status: "NOT_STARTED",
           percentComplete: 0,
-          challenges: "",
-          recommendations: "",
+          challenges: [],
+          recommendations: [],
           attachments: null,
         }),
       );
@@ -1163,13 +1197,20 @@ export function ProjectTrackers({
         const prev = latestSaved?.items.find(
           (p) => p.parameterId === ci.parameterId,
         );
-        return prev
-          ? {
-              ...ci,
-              percentComplete: prev.percentComplete,
-              status: "ONGOING",
-            }
-          : ci;
+        const baseItem = {
+          ...ci,
+          challenges: [],
+          recommendations: [],
+          attachments: null,
+        };
+        if (prev) {
+          return {
+            ...baseItem,
+            percentComplete: prev.percentComplete,
+            status: "ONGOING",
+          };
+        }
+        return baseItem;
       });
       const draft: TrackerSubmission = {
         id: "__new__",

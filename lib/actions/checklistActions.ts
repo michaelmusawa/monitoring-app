@@ -377,7 +377,7 @@ export async function saveChecklist(
           const insertItem = new sql.Request(trx);
           insertItem.input("checklistId", sql.Int, numericId);
           insertItem.input("parameterId", sql.NVarChar, item.parameterId);
-          insertItem.input("weight", sql.Int, item.weight);
+          insertItem.input("weight", sql.Decimal(10, 2), item.weight);
           insertItem.input("label", sql.NVarChar, item.label);
           insertItem.input("category", sql.NVarChar, item.category);
           await insertItem.query(`

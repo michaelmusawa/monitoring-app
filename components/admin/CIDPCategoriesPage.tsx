@@ -1326,14 +1326,10 @@ function AddCategoryForm({
 
 interface CIDPCategoriesPageProps {
   userPermissions: string[];
-  userRole?: string;
-  displayRole?: string;
 }
 
 export default function CIDPCategoriesPage({
   userPermissions,
-  userRole = "viewer",
-  displayRole,
 }: CIDPCategoriesPageProps) {
   const [categories, setCategories] = useState<ProjectCategory[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1618,7 +1614,7 @@ export default function CIDPCategoriesPage({
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs px-2.5 py-1 rounded-full border font-medium bg-slate-100 text-slate-700 border-slate-200">
-              {displayRole}
+              {/*{displayRole}*/}
             </span>
             {canSubmit && (
               <Button size="sm" onClick={handleSubmitAll}>

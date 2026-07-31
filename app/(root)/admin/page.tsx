@@ -149,11 +149,11 @@ export default async function AdminPage() {
 
   console.log("role", role);
 
-  const hasAccess = (role: string) => ["System Admin", "admin"].includes(role);
+  // const hasAccess = (role: string) => ["System Admin", "admin"].includes(role);
 
-  if (!user || !hasAccess(role[0].name)) {
-    redirect("/");
-  }
+  // if (!user || !hasAccess(role[0].name)) {
+  //   redirect("/");
+  // }
 
   const [stats, activity] = await Promise.all([
     getAdminStats(),

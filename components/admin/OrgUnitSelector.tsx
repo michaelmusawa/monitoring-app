@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Select,
   SelectContent,
@@ -37,11 +37,13 @@ function flattenTree(
 export default function OrgUnitSelector({
   value,
   onChange,
+  onLabelChange, // <-- new prop
   placeholder = "Select organisational unit",
   className,
 }: {
   value?: string;
   onChange: (value: string) => void;
+  onLabelChange?: (label: string) => void; // <-- new
   placeholder?: string;
   className?: string;
 }) {
@@ -55,6 +57,16 @@ export default function OrgUnitSelector({
       .finally(() => setLoading(false));
   }, []);
 
+  const handleChange = useCallback(
+    (newValue: string) => {
+      onChange(newValue);
+      if (onLabelChange) {
+        const selected = units.find((u) => u.id === newValue);
+        onLabelChange(selected?.label ?? "");
+      }
+    },
+    [onChange, onLabelChange, units],
+  );
   if (loading)
     return (
       <div
@@ -63,7 +75,7 @@ export default function OrgUnitSelector({
     );
 
   return (
-    <Select value={value} onValueChange={onChange}>
+    <Select value={value} onValueChange={handleChange}>
       <SelectTrigger className={`h-9 text-sm ${className ?? ""}`}>
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>

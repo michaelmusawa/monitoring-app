@@ -1,4 +1,3 @@
-// lib/actions/projectActions.ts
 "use server";
 
 import { revalidatePath } from "next/cache";
@@ -10,13 +9,21 @@ import { buildUnitLookup, getRootUnitName } from "./orgActions";
 
 // ─── getProject ───────────────────────────────────────────────────────────────
 
-// lib/actions/projectActions.ts – getProject
-
 export async function getProject(id: string): Promise<any | null> {
   const unitLookup = await buildUnitLookup();
   try {
+    // Explicitly list all columns except 'sector' (which doesn't exist)
     const sqlQuery = `
-      SELECT p.*, ou.name AS directUnitName
+      SELECT
+        p.id, p.name, p.orgUnitId, p.budget, p.status, p.description,
+        p.categoryId, p.contributionValue, p.locationUnitId,
+        p.lat, p.long, p.projectType,
+        p.fundingSource, p.employerRep, p.tenderNumber,
+        p.projectScope, p.projectObjective, p.contractor,
+        p.fiscalYear, p.contractSum, p.contractDuration,
+        p.commencementDate, p.plannedCompletion, p.costToCompletion,
+        p.createdAt, p.updatedAt,
+        ou.name AS directUnitName
       FROM Project p
       LEFT JOIN OrganisationalUnit ou ON p.orgUnitId = ou.id
       WHERE p.id = @p1
@@ -25,12 +32,11 @@ export async function getProject(id: string): Promise<any | null> {
     if (rows.length === 0) return null;
     const row = rows[0];
     const sector = row.orgUnitId
-      ? await getRootUnitName(row.orgUnitId, unitLookup) // ← await added
+      ? await getRootUnitName(row.orgUnitId, unitLookup)
       : "Unknown";
     return {
       ...row,
-      sector,
-      directUnitName: row.directUnitName,
+      sector, // computed, not from DB
     };
   } catch (error) {
     console.error("getProject error:", error);
@@ -39,19 +45,17 @@ export async function getProject(id: string): Promise<any | null> {
 }
 
 // ─── Slug helper ──────────────────────────────────────────────────────────────
-// Project.id is NVARCHAR(50). We reserve 5 chars for the "-xxxx" random suffix,
-// leaving 45 chars for the slugified name portion.
 
-const SLUG_NAME_MAX = 45; // 50 - 5 ("-xxxx")
+const SLUG_NAME_MAX = 45;
 
 function generateSlug(name: string): string {
   const base = name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "")
-    .slice(0, SLUG_NAME_MAX); // hard cap at 45 chars
-  const suffix = Math.random().toString(36).substring(2, 6); // 4-char random
-  return `${base}-${suffix}`; // max 50 chars total
+    .slice(0, SLUG_NAME_MAX);
+  const suffix = Math.random().toString(36).substring(2, 6);
+  return `${base}-${suffix}`;
 }
 
 // ─── Filter helpers ───────────────────────────────────────────────────────────
@@ -164,7 +168,7 @@ export async function fetchFilteredProjects({
     );
     const offset = (currentPage - 1) * ITEMS_PER_PAGE;
     const sqlStr = `
-      SELECT id, name, sector, status, budget, progress, lat, long, createdAt,
+      SELECT id, name, status, budget, progress, lat, long, createdAt,
              categoryId
       FROM Project
       ${whereClause}
@@ -205,7 +209,7 @@ export async function fetchProjectsForMap({
       ? " AND lat IS NOT NULL AND long IS NOT NULL"
       : "WHERE lat IS NOT NULL AND long IS NOT NULL";
     const sqlStr = `
-      SELECT id, name, sector, status, budget, progress, lat, long, createdAt
+      SELECT id, name, status, budget, progress, lat, long, createdAt
       FROM Project
       ${whereClause}${coordCondition}
       ORDER BY createdAt DESC
@@ -218,6 +222,7 @@ export async function fetchProjectsForMap({
   }
 }
 
+// ─── mapProjectRow ──────────────────────────────────────────────────────────
 function mapProjectRow(row: any): Project {
   let size: any["size"] = null;
   if (row.budget !== null) {
@@ -228,7 +233,6 @@ function mapProjectRow(row: any): Project {
   return {
     id: row.id.toString(),
     name: row.name,
-    sector: row.sector,
     status: row.status,
     budget: row.budget,
     progress: row.progress,
@@ -236,25 +240,23 @@ function mapProjectRow(row: any): Project {
     long: row.long,
     createdAt: new Date(row.createdAt),
     size,
-    subCounty: row.subCounty ?? null,
-    ward: row.ward ?? null,
     categoryId: row.categoryId ?? null,
     contributionValue: row.contributionValue ?? null,
   };
 }
+
 // ─── getProjects ──────────────────────────────────────────────────────────────
 
 export async function getProjects(): Promise<Project[]> {
   try {
     const sqlQuery = `
-      SELECT id, name, sector, budget, status, lat, long, description, createdAt, updatedAt
+      SELECT id, name, budget, status, lat, long, description, createdAt, updatedAt
       FROM Project ORDER BY createdAt DESC
     `;
     const { rows } = await safeQuery<any>(sqlQuery, []);
     return rows.map((row: any) => ({
       id: row.id,
       name: row.name,
-      sector: row.sector,
       budget: row.budget,
       status: row.status,
       lat: row.lat,
@@ -273,7 +275,6 @@ export async function getProjects(): Promise<Project[]> {
 
 export async function createProject(data: {
   name: string;
-  sector?: string;
   budget?: number;
   lat?: number;
   long?: number;
@@ -282,16 +283,15 @@ export async function createProject(data: {
   const slug = generateSlug(data.name);
   try {
     const sqlQuery = `
-      INSERT INTO Project (id, name, sector, budget, lat, long, description, status)
-      OUTPUT INSERTED.id, INSERTED.name, INSERTED.sector,
+      INSERT INTO Project (id, name, budget, lat, long, description, status)
+      OUTPUT INSERTED.id, INSERTED.name,
              INSERTED.budget, INSERTED.status, INSERTED.lat, INSERTED.long,
              INSERTED.description, INSERTED.createdAt, INSERTED.updatedAt
-      VALUES (@p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8)
+      VALUES (@p1, @p2, @p3, @p4, @p5, @p6, @p7)
     `;
     const { rows } = await safeQuery<any>(sqlQuery, [
       slug,
       data.name,
-      data.sector || null,
       data.budget || null,
       data.lat || null,
       data.long || null,
@@ -302,7 +302,6 @@ export async function createProject(data: {
     return {
       id: row.id,
       name: row.name,
-      sector: row.sector,
       budget: row.budget,
       status: row.status,
       lat: row.lat,
@@ -330,7 +329,6 @@ export async function updateProject(
 
   const fields: [keyof typeof data, string][] = [
     ["name", "name"],
-    ["sector", "sector"],
     ["budget", "budget"],
     ["status", "status"],
     ["lat", "lat"],
@@ -353,7 +351,7 @@ export async function updateProject(
   const sqlQuery = `
     UPDATE Project
     SET ${updates.join(", ")}
-    OUTPUT INSERTED.id, INSERTED.name, INSERTED.sector,
+    OUTPUT INSERTED.id, INSERTED.name,
            INSERTED.budget, INSERTED.status, INSERTED.lat, INSERTED.long,
            INSERTED.description, INSERTED.createdAt, INSERTED.updatedAt,
            INSERTED.contributionValue
@@ -367,7 +365,7 @@ export async function updateProject(
     return {
       id: row.id.toString(),
       name: row.name,
-      sector: row.sector,
+
       budget: row.budget,
       status: row.status,
       lat: row.lat,
@@ -400,7 +398,6 @@ export async function deleteProject(id: string): Promise<void> {
 export async function batchCreateProjects(
   projects: {
     name: string;
-    sector?: string;
     budget?: number;
     lat?: number;
     long?: number;
@@ -415,24 +412,22 @@ export async function batchCreateProjects(
       const req = new sql.Request(trx);
       req.input("slug", sql.NVarChar(50), slug);
       req.input("name", sql.NVarChar(500), data.name);
-      req.input("sector", sql.NVarChar(200), data.sector || null);
       req.input("budget", sql.Decimal(18, 2), data.budget || null);
       req.input("lat", sql.Decimal(10, 8), data.lat || null);
       req.input("long", sql.Decimal(11, 8), data.long || null);
       req.input("description", sql.NVarChar(sql.MAX), data.description || null);
       req.input("status", sql.NVarChar(50), "PENDING");
       const result = await req.query(`
-        INSERT INTO Project (id, name, sector, budget, lat, long, description, status)
-        OUTPUT INSERTED.id, INSERTED.name, INSERTED.sector,
+        INSERT INTO Project (id, name, budget, lat, long, description, status)
+        OUTPUT INSERTED.id, INSERTED.name,
                INSERTED.budget, INSERTED.status, INSERTED.lat, INSERTED.long,
                INSERTED.description, INSERTED.createdAt, INSERTED.updatedAt
-        VALUES (@slug, @name, @sector, @budget, @lat, @long, @description, @status)
+        VALUES (@slug, @name, @budget, @lat, @long, @description, @status)
       `);
       const row = result.recordset[0];
       created.push({
         id: row.id,
         name: row.name,
-        sector: row.sector,
         budget: row.budget,
         status: row.status,
         lat: row.lat,
@@ -446,38 +441,14 @@ export async function batchCreateProjects(
   });
 }
 
-// ─── updateProjectLocation ────────────────────────────────────────────────────
-
-export async function updateProjectLocation(
-  projectId: string,
-  data: { subCounty: string; ward: string; lat: number; long: number },
-): Promise<void> {
-  await withTransaction(async (trx) => {
-    const req = new sql.Request(trx);
-    req.input("id", sql.NVarChar, projectId);
-    req.input("subCounty", sql.NVarChar, data.subCounty);
-    req.input("ward", sql.NVarChar, data.ward);
-    req.input("lat", sql.Decimal(10, 8), data.lat);
-    req.input("long", sql.Decimal(11, 8), data.long);
-    await req.query(`
-      UPDATE Project
-      SET subCounty = @subCounty, ward = @ward,
-          lat = @lat, long = @long, updatedAt = GETDATE()
-      WHERE id = @id
-    `);
-  });
-  revalidatePath(`/projects/${projectId}`);
-}
-
 // ─── updateProjectDetails ─────────────────────────────────────────────────────
 
 export async function updateProjectDetails(
   projectId: string,
   data: {
     fundingSource?: string;
-    employer?: string;
     employerRep?: string;
-    projectManager?: string;
+    contractor?: string;
     fiscalYear?: string;
     contractSum?: string;
     contractDuration?: string;
@@ -490,9 +461,8 @@ export async function updateProjectDetails(
     const req = new sql.Request(trx);
     req.input("id", sql.NVarChar, projectId);
     req.input("fundingSource", sql.NVarChar, data.fundingSource || null);
-    req.input("employer", sql.NVarChar, data.employer || null);
     req.input("employerRep", sql.NVarChar, data.employerRep || null);
-    req.input("projectManager", sql.NVarChar, data.projectManager || null);
+    req.input("contractor", sql.NVarChar, data.contractor || null);
     req.input("fiscalYear", sql.NVarChar, data.fiscalYear || null);
     req.input("contractSum", sql.NVarChar, data.contractSum || null);
     req.input("contractDuration", sql.NVarChar, data.contractDuration || null);
@@ -510,9 +480,8 @@ export async function updateProjectDetails(
     await req.query(`
       UPDATE Project
       SET fundingSource    = @fundingSource,
-          employer         = @employer,
           employerRep      = @employerRep,
-          projectManager   = @projectManager,
+          contractor       = @contractor,
           fiscalYear       = @fiscalYear,
           contractSum      = @contractSum,
           contractDuration = @contractDuration,
@@ -542,8 +511,6 @@ export async function initializeProject(projectId: string): Promise<void> {
 }
 
 // ─── createFullProject ────────────────────────────────────────────────────────
-// Creates a project with ALL details in one shot, immediately ACTIVE.
-// Used by the new "Create Project" form that replaces the old init flow.
 
 export async function createFullProject(data: {
   name: string;
@@ -551,10 +518,8 @@ export async function createFullProject(data: {
   budget?: number;
   description?: string;
   categoryId?: string;
-  contributionValue?: number; // new
+  contributionValue?: number;
   locationUnitId?: string;
-  subCounty?: string;
-  ward?: string;
   lat?: number;
   long?: number;
   projectType?: string;
@@ -564,6 +529,7 @@ export async function createFullProject(data: {
   projectScope?: string;
   projectObjective?: string;
   projectManager?: string;
+  contractor?: string;
   fiscalYear?: string;
   contractSum?: string;
   contractDuration?: string;
@@ -573,7 +539,6 @@ export async function createFullProject(data: {
 }): Promise<any> {
   const slug = generateSlug(data.name);
   try {
-    // Optional: validate contribution does not exceed category target (soft check)
     if (data.categoryId && data.contributionValue !== undefined) {
       const catRes = await safeQuery<{ target: number }>(
         `SELECT target FROM ProjectCategory WHERE id = @p1`,
@@ -591,57 +556,59 @@ export async function createFullProject(data: {
       }
     }
 
+    // Columns: id, name, orgUnitId, budget, description, status (literal), categoryId, contributionValue,
+    // locationUnitId, lat, long, projectType, fundingSource, tenderNumber,
+    // projectScope, projectObjective, contractor, fiscalYear, contractSum, contractDuration,
+    // commencementDate, plannedCompletion, costToCompletion
+    // Total 22 parameters (status is literal)
+
     const { rows } = await safeQuery<any>(
       `INSERT INTO Project (
          id, name, orgUnitId, budget, description, status, categoryId, contributionValue, locationUnitId,
-         subCounty, ward, lat, long,  projectType,
-         fundingSource, employer, tenderNumber, projectScope, projectObjective,
-         projectManager, fiscalYear, contractSum, contractDuration,
+         lat, long, projectType,
+         fundingSource, tenderNumber, projectScope, projectObjective,
+         contractor, fiscalYear, contractSum, contractDuration,
          commencementDate, plannedCompletion, costToCompletion
        )
        OUTPUT
-         INSERTED.id, INSERTED.name, INSERTED.sector, INSERTED.budget,
+         INSERTED.id, INSERTED.name, INSERTED.budget,
          INSERTED.status, INSERTED.description, INSERTED.categoryId, INSERTED.locationUnitId,
-         INSERTED.subCounty, INSERTED.ward, INSERTED.lat, INSERTED.long, INSERTED.projectType,
+         INSERTED.lat, INSERTED.long, INSERTED.projectType,
          INSERTED.createdAt, INSERTED.updatedAt,
-         INSERTED.fundingSource, INSERTED.employer, INSERTED.tenderNumber,
+         INSERTED.fundingSource, INSERTED.tenderNumber,
          INSERTED.projectScope, INSERTED.projectObjective,
-         INSERTED.projectManager, INSERTED.fiscalYear, INSERTED.contractSum,
+         INSERTED.contractor, INSERTED.fiscalYear, INSERTED.contractSum,
          INSERTED.contractDuration, INSERTED.commencementDate,
          INSERTED.plannedCompletion, INSERTED.costToCompletion, INSERTED.contributionValue
        VALUES (
          @p1,  @p2,  @p3,  @p4,  @p5,  'NOT-STARTED', @p6, @p7,
-         @p8,  @p9,  @p10, @p11,
-         @p12, @p13, @p14, @p15, @p16,
-         @p17, @p18, @p19, @p20,
-         @p21, @p22, @p23, @p24, @p25
+         @p8,  @p9,  @p10, @p11, @p12, @p13, @p14, @p15,
+         @p16, @p17, @p18, @p19,
+         @p20, @p21, @p22
        )`,
       [
-        slug,
-        data.name,
-        data.orgUnitId ?? null,
-        data.budget ?? null,
-        data.description ?? null,
-        data.categoryId ?? null,
-        data.contributionValue ?? null,
-        data.locationUnitId ?? null,
-        data.subCounty ?? null,
-        data.ward ?? null,
-        data.lat ?? null,
-        data.long ?? null,
-        data.projectType ?? null,
-        data.fundingSource ?? null,
-        data.employer ?? null,
-        data.tenderNumber ?? null,
-        data.projectScope ?? null,
-        data.projectObjective ?? null,
-        data.projectManager ?? null,
-        data.fiscalYear ?? null,
-        data.contractSum ?? null,
-        data.contractDuration ?? null,
-        data.commencementDate ? new Date(data.commencementDate) : null,
-        data.plannedCompletion ? new Date(data.plannedCompletion) : null,
-        data.costToCompletion ?? null,
+        slug, // p1
+        data.name, // p2
+        data.orgUnitId ?? null, // p3
+        data.budget ?? null, // p4
+        data.description ?? null, // p5
+        data.categoryId ?? null, // p6
+        data.contributionValue ?? null, // p7
+        data.locationUnitId ?? null, // p8
+        data.lat ?? null, // p9
+        data.long ?? null, // p10
+        data.projectType ?? null, // p11
+        data.fundingSource ?? null, // p12
+        data.tenderNumber ?? null, // p13
+        data.projectScope ?? null, // p14
+        data.projectObjective ?? null, // p15
+        data.contractor ?? null, // p16
+        data.fiscalYear ?? null, // p17
+        data.contractSum ?? null, // p18
+        data.contractDuration ?? null, // p19
+        data.commencementDate ? new Date(data.commencementDate) : null, // p20
+        data.plannedCompletion ? new Date(data.plannedCompletion) : null, // p21
+        data.costToCompletion ?? null, // p22
       ],
     );
     const row = rows[0];
@@ -649,24 +616,20 @@ export async function createFullProject(data: {
     return {
       id: row.id,
       name: row.name,
-      sector: row.sector,
       budget: row.budget,
       status: row.status,
       description: row.description,
       categoryId: row.categoryId ?? null,
       contributionValue: row.contributionValue ?? null,
-      subCounty: row.subCounty ?? null,
-      ward: row.ward ?? null,
       lat: row.lat,
       long: row.long,
       createdAt: row.createdAt?.toISOString(),
       updatedAt: row.updatedAt?.toISOString(),
       fundingSource: row.fundingSource ?? null,
-      employer: row.employer ?? null,
       tenderNumber: row.tenderNumber ?? null,
       projectScope: row.projectScope ?? null,
       projectObjective: row.projectObjective ?? null,
-      projectManager: row.projectManager ?? null,
+      contractor: row.contractor ?? null,
       fiscalYear: row.fiscalYear ?? null,
       contractSum: row.contractSum ?? null,
       contractDuration: row.contractDuration ?? null,
@@ -678,7 +641,7 @@ export async function createFullProject(data: {
     };
   } catch (error) {
     console.error("createFullProject error:", error);
-    throw new DatabaseError();
+    throw error;
   }
 }
 
@@ -690,8 +653,8 @@ export async function getFullProject(id: string): Promise<any | null> {
         p.id, p.name, p.orgUnitId, p.budget, p.status, p.description,
         p.categoryId, p.contributionValue, p.locationUnitId,
         p.lat, p.long, p.projectType,
-        p.fundingSource, p.employer, p.tenderNumber,
-        p.projectScope, p.projectObjective, p.projectManager,
+        p.fundingSource, p.tenderNumber,
+        p.projectScope, p.projectObjective, p.contractor,
         p.fiscalYear, p.contractSum, p.contractDuration,
         p.commencementDate, p.plannedCompletion, p.costToCompletion,
         ou.name AS orgUnitName, lu.name AS locationUnitName
@@ -719,11 +682,10 @@ export async function getFullProject(id: string): Promise<any | null> {
       long: row.long,
       projectType: row.projectType ?? null,
       fundingSource: row.fundingSource ?? null,
-      employer: row.employer ?? null,
       tenderNumber: row.tenderNumber ?? null,
       projectScope: row.projectScope ?? null,
       projectObjective: row.projectObjective ?? null,
-      projectManager: row.projectManager ?? null,
+      contractor: row.contractor ?? null,
       fiscalYear: row.fiscalYear ?? null,
       contractSum: row.contractSum ?? null,
       contractDuration: row.contractDuration ?? null,
@@ -762,6 +724,7 @@ export async function updateFullProject(
     projectScope?: string | null;
     projectObjective?: string | null;
     projectManager?: string | null;
+    contractor?: string | null;
     fiscalYear?: string | null;
     contractSum?: string | null;
     contractDuration?: string | null;
@@ -771,7 +734,6 @@ export async function updateFullProject(
   },
 ): Promise<any> {
   try {
-    // Optional: validate contribution against category target
     if (
       data.categoryId &&
       data.contributionValue !== undefined &&
@@ -809,11 +771,10 @@ export async function updateFullProject(
       ["projectType", "projectType"],
       ["status", "status"],
       ["fundingSource", "fundingSource"],
-      ["employer", "employer"],
       ["tenderNumber", "tenderNumber"],
       ["projectScope", "projectScope"],
       ["projectObjective", "projectObjective"],
-      ["projectManager", "projectManager"],
+      ["contractor", "contractor"],
       ["fiscalYear", "fiscalYear"],
       ["contractSum", "contractSum"],
       ["contractDuration", "contractDuration"],
@@ -844,8 +805,8 @@ export async function updateFullProject(
              INSERTED.status, INSERTED.description, INSERTED.categoryId,
              INSERTED.contributionValue, INSERTED.locationUnitId, INSERTED.lat,
              INSERTED.long, INSERTED.projectType, INSERTED.fundingSource,
-             INSERTED.employer, INSERTED.tenderNumber, INSERTED.projectScope,
-             INSERTED.projectObjective, INSERTED.projectManager,
+             INSERTED.tenderNumber, INSERTED.projectScope,
+             INSERTED.projectObjective, INSERTED.contractor,
              INSERTED.fiscalYear, INSERTED.contractSum, INSERTED.contractDuration,
              INSERTED.commencementDate, INSERTED.plannedCompletion,
              INSERTED.costToCompletion, INSERTED.createdAt, INSERTED.updatedAt
@@ -870,11 +831,10 @@ export async function updateFullProject(
       long: row.long,
       projectType: row.projectType,
       fundingSource: row.fundingSource,
-      employer: row.employer,
       tenderNumber: row.tenderNumber,
       projectScope: row.projectScope,
       projectObjective: row.projectObjective,
-      projectManager: row.projectManager,
+      contractor: row.contractor,
       fiscalYear: row.fiscalYear,
       contractSum: row.contractSum,
       contractDuration: row.contractDuration,

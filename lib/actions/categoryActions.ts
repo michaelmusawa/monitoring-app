@@ -5,6 +5,7 @@ import { DatabaseError, safeQuery } from "../db";
 import { withTransaction } from "./checklistActions";
 import sql from "mssql";
 import { buildUnitLookup, getRootUnitName } from "./orgActions";
+import { logAudit } from "./auditActions";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export type CategoryStatus =
@@ -179,7 +180,7 @@ async function createNotification(data: {
 
 async function getMEOfficerIds(): Promise<string[]> {
   const { rows } = await safeQuery<{ id: string }>(
-    `SELECT id FROM [User] WHERE sector = 'Monitoring And Evaluation' AND status = 'active'`,
+    `SELECT id FROM [User] WHERE sector = 'Monitoring And Evaluation'`,
   );
   return rows.map((r) => r.id);
 }
@@ -271,7 +272,7 @@ export async function batchCreateCategories(
   createdBy?: string,
 ): Promise<ProjectCategory[]> {
   if (items.length === 0) return [];
-  return await withTransaction(async (trx) => {
+  const results = await withTransaction(async (trx) => {
     const created: ProjectCategory[] = [];
     for (const item of items) {
       const slug = generateSlug(item.name);
@@ -306,6 +307,23 @@ export async function batchCreateCategories(
     }
     return created;
   });
+  // Audit each created category
+  for (const cat of results) {
+    await logAudit({
+      action: "category.create",
+      entityType: "ProjectCategory",
+      entityId: cat.id,
+      newValues: {
+        name: cat.name,
+        sector: cat.sector,
+        target: cat.target,
+        targetType: cat.targetType,
+        budget: cat.budget,
+      },
+    });
+  }
+
+  return results;
 }
 
 // ─── addCategory ──────────────────────────────────────────────────────────────
@@ -346,6 +364,21 @@ export async function updateCategory(
   id: string,
   data: UpdateCategoryData,
 ): Promise<ProjectCategory> {
+  // Fetch existing for oldValues
+  const existing = await getCategory(id);
+  const oldValues = existing
+    ? {
+        name: existing.name,
+        sector: existing.sector,
+        target: existing.target,
+        targetType: existing.targetType,
+        targetUnit: existing.targetUnit,
+        baselineValue: existing.baselineValue,
+        targetDirection: existing.targetDirection,
+        budget: existing.budget,
+      }
+    : null;
+
   const updates: string[] = [];
   const params: any[] = [];
 
@@ -376,13 +409,51 @@ export async function updateCategory(
   );
   if (rows.length === 0) throw new DatabaseError();
   revalidatePath("/cidp");
-  return mapCategory(rows[0]);
+  const updated = mapCategory(rows[0]);
+
+  // Audit
+  await logAudit({
+    action: "category.update",
+    entityType: "ProjectCategory",
+    entityId: id,
+    oldValues,
+    newValues: {
+      name: updated.name,
+      sector: updated.sector,
+      target: updated.target,
+      targetType: updated.targetType,
+      targetUnit: updated.targetUnit,
+      baselineValue: updated.baselineValue,
+      targetDirection: updated.targetDirection,
+      budget: updated.budget,
+    },
+  });
+
+  return updated;
 }
 
 // ─── deleteCategory ───────────────────────────────────────────────────────────
 export async function deleteCategory(id: string): Promise<void> {
+  const existing = await getCategory(id);
+  const oldValues = existing
+    ? {
+        name: existing.name,
+        sector: existing.sector,
+        target: existing.target,
+        budget: existing.budget,
+        status: existing.status,
+      }
+    : null;
+
   await safeQuery(`DELETE FROM ProjectCategory WHERE id = @p1`, [id]);
   revalidatePath("/cidp");
+
+  await logAudit({
+    action: "category.delete",
+    entityType: "ProjectCategory",
+    entityId: id,
+    oldValues,
+  });
 }
 
 // ─── submitForReview ──────────────────────────────────────────────────────────
@@ -414,6 +485,19 @@ export async function submitForReview(
   });
   revalidatePath("/cidp");
 
+  // Audit each submission
+  for (const id of categoryIds) {
+    await logAudit({
+      action: "category.submit",
+      entityType: "ProjectCategory",
+      entityId: id,
+      newValues: {
+        status: "PENDING_REVIEW",
+        submittedAt: new Date().toISOString(),
+      },
+    });
+  }
+
   // --- Notifications ---
   const meOfficerIds = await getMEOfficerIds();
   const categoryNames = await getCategoryNames(categoryIds);
@@ -430,6 +514,23 @@ export async function submitForReview(
       link,
       metadata,
     });
+  }
+
+  // Inside submitForReview, after transaction
+  for (const id of categoryIds) {
+    const category = await getCategory(id);
+    if (category?.createdBy) {
+      const userId = await getUserIdByEmail(category.createdBy);
+      if (userId) {
+        await createNotification({
+          userId,
+          type: "submission_confirmation",
+          title: "Submission Received",
+          message: `Your category "${category.name}" has been submitted and is pending review.`,
+          link: "/cidp",
+        });
+      }
+    }
   }
 }
 
@@ -461,6 +562,15 @@ export async function approveCategories(
     }
   });
   revalidatePath("/cidp");
+
+  for (const id of categoryIds) {
+    await logAudit({
+      action: "category.approve",
+      entityType: "ProjectCategory",
+      entityId: id,
+      newValues: { status: "APPROVED", reviewedAt: new Date().toISOString() },
+    });
+  }
 
   // --- Notifications to creators ---
   for (const id of categoryIds) {
@@ -567,6 +677,21 @@ export async function requestChanges(
   });
   revalidatePath("/cidp");
 
+  await logAudit({
+    action: "category.request_changes",
+    entityType: "ProjectCategory",
+    entityId: categoryId,
+    oldValues: { status: "PENDING_REVIEW" },
+    newValues: {
+      status: "CHANGES_REQUESTED",
+      changes: changes.map((c) => ({
+        field: c.field,
+        from: c.originalValue,
+        to: c.suggestedValue,
+      })),
+    },
+  });
+
   // --- Notification to creator ---
   const category = await getCategory(categoryId);
   if (category?.createdBy) {
@@ -583,8 +708,11 @@ export async function requestChanges(
         link: `/cidp?category=${categoryId}`,
         metadata: { categoryId, changes, reviewerEmail },
       });
+      console.log("Notification created");
     }
   }
+
+  console.log("No Notification created");
 }
 
 // ─── acknowledgeChanges ───────────────────────────────────────────────────────
@@ -598,6 +726,14 @@ export async function acknowledgeChanges(categoryId: string): Promise<void> {
     [categoryId],
   );
   revalidatePath("/cidp");
+
+  await logAudit({
+    action: "category.acknowledge_changes",
+    entityType: "ProjectCategory",
+    entityId: categoryId,
+    oldValues: { status: "CHANGES_REQUESTED" },
+    newValues: { status: "DRAFT" },
+  });
 
   const category = await getCategory(categoryId);
   const meIds = await getMEOfficerIds();
@@ -1040,11 +1176,26 @@ export async function assignProjectToCategory(
   projectId: string,
   categoryId: string | null,
 ): Promise<void> {
+  // Fetch old categoryId if desired
+  const { rows: oldRows } = await safeQuery<any>(
+    `SELECT categoryId FROM Project WHERE id = @p1`,
+    [projectId],
+  );
+  const oldCategoryId = oldRows[0]?.categoryId ?? null;
+
   await safeQuery(
     `UPDATE Project SET categoryId = @p1, updatedAt = GETDATE() WHERE id = @p2`,
     [categoryId, projectId],
   );
   revalidatePath("/projects");
+
+  await logAudit({
+    action: "project.assign_category",
+    entityType: "Project",
+    entityId: projectId,
+    oldValues: { categoryId: oldCategoryId },
+    newValues: { categoryId },
+  });
 }
 
 // ─── createProjectInCategory ──────────────────────────────────────────────────
@@ -1077,6 +1228,62 @@ export async function createProjectInCategory(
       categoryId,
     ],
   );
+  const newProjectId = rows[0].id;
   revalidatePath("/projects");
-  return { id: rows[0].id };
+
+  await logAudit({
+    action: "project.create",
+    entityType: "Project",
+    entityId: newProjectId,
+    newValues: {
+      name: data.name,
+      sector: data.sector,
+      budget: data.budget,
+      categoryId,
+    },
+  });
+
+  return { id: newProjectId };
+}
+
+export async function fetchProjectCategories(): Promise<
+  { id: string; name: string; target?: number; targetType?: string }[]
+> {
+  const { rows } = await safeQuery<any>(
+    `SELECT id, name, target, targetType FROM ProjectCategory ORDER BY name`,
+  );
+  return rows.map((r: any) => ({
+    id: r.id,
+    name: r.name,
+    target: r.target != null ? Number(r.target) : undefined,
+    targetType: r.targetType ?? undefined,
+  }));
+}
+
+// lib/actions/categoryActions.ts
+
+export async function fetchCategoryStats(categoryId: string): Promise<{
+  target: number | null;
+  targetType: string | null;
+  remaining: number | null;
+}> {
+  const catRes = await safeQuery<{ target: number; targetType: string }>(
+    `SELECT target, targetType FROM ProjectCategory WHERE id = @p1`,
+    [categoryId],
+  );
+  if (catRes.rows.length === 0) {
+    return { target: null, targetType: null, remaining: null };
+  }
+  const target = Number(catRes.rows[0].target) || null;
+  const targetType = catRes.rows[0].targetType || null;
+
+  const contribRes = await safeQuery<{ sum: number }>(
+    `SELECT SUM(contributionValue) AS sum FROM Project WHERE categoryId = @p1`,
+    [categoryId],
+  );
+  const currentSum = contribRes.rows[0]?.sum ?? 0;
+  let remaining = (target ?? 0) - currentSum;
+  if (remaining < 0) remaining = 0;
+
+  return { target, targetType, remaining };
 }
