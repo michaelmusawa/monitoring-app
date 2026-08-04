@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -56,6 +56,7 @@ import {
 } from "@/components/ui/select";
 import { SECTORS } from "@/lib/data/data";
 import OrgUnitSelector from "./OrgUnitSelector";
+import { fetchOrganisationalUnits } from "@/lib/actions/orgActions";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const FASTAPI_BASE =
@@ -379,6 +380,23 @@ function MEReviewDrawer({
   const [approving, setApproving] = useState(false);
   const [sending, setSending] = useState(false);
   const [changes, setChanges] = useState<Record<string, PendingChange>>({});
+  const [orgUnits, setOrgUnits] = useState<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    async function loadUnits() {
+      try {
+        const units = await fetchOrganisationalUnits(
+          undefined,
+          undefined,
+          false,
+        );
+        setOrgUnits(units.map((u) => ({ id: u.id, name: u.name })));
+      } catch (error) {
+        console.error("Failed to load org units:", error);
+      }
+    }
+    loadUnits();
+  }, []);
 
   const fields: Array<{
     key: FieldChange["field"];
@@ -617,7 +635,22 @@ function MEReviewDrawer({
                                 : f.value || "—"}
                       </span>
                       <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0" />
-                      {f.type === "select" ? (
+
+                      {f.key === "sector" ? (
+                        <OrgUnitSelector
+                          value={pending?.suggestedValue ?? f.value}
+                          onChange={(val) =>
+                            setChange(
+                              f.key,
+                              val,
+                              pending?.reason ?? "",
+                              f.value,
+                            )
+                          }
+                          placeholder="Select sector"
+                          className="h-7 text-xs flex-1"
+                        />
+                      ) : f.type === "select" ? (
                         <Select
                           value={pending?.suggestedValue ?? f.value}
                           onValueChange={(val) =>
@@ -733,6 +766,7 @@ function CategoryRow({
   onUpdate,
   onDelete,
   onReviewOpen,
+  orgUnitMap,
 }: {
   category: ProjectCategory;
   canEdit: boolean;
@@ -743,12 +777,15 @@ function CategoryRow({
   onUpdate: (data: Partial<ProjectCategory>) => Promise<void>;
   onDelete: () => Promise<void>;
   onReviewOpen: () => void;
+  orgUnitMap: Map<string, string>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({ ...category });
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  console.log(category);
 
   useEffect(() => {
     const t = draft.target;
@@ -822,7 +859,9 @@ function CategoryRow({
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium truncate">{category.name}</p>
           <p className="text-xs text-muted-foreground truncate">
-            {category.sector ?? "No sector"}
+            {orgUnitMap.get(category.sector ?? "") ??
+              category.sector ??
+              "No sector"}
           </p>
         </div>
         <div className="hidden sm:flex items-center gap-4 shrink-0">
@@ -1031,7 +1070,10 @@ function CategoryRow({
                 {
                   icon: <Building2 className="w-3.5 h-3.5" />,
                   label: "Sector",
-                  value: category.sector ?? "—",
+                  value:
+                    orgUnitMap.get(category.sector ?? "") ??
+                    category.sector ??
+                    "—",
                 },
                 {
                   icon: <Target className="w-3.5 h-3.5" />,
@@ -1191,8 +1233,6 @@ function AddCategoryForm({
     );
   }
 
-  const sectorOptions = SECTORS.filter((s) => s !== "ALL");
-
   return (
     <div className="border border-primary/30 rounded-xl p-4 space-y-3 bg-primary/3">
       <p className="text-sm font-semibold">New Initiative</p>
@@ -1333,6 +1373,7 @@ export default function CIDPCategoriesPage({
 }: CIDPCategoriesPageProps) {
   const [categories, setCategories] = useState<ProjectCategory[]>([]);
   const [loading, setLoading] = useState(true);
+  const [orgUnitMap, setOrgUnitMap] = useState<Map<string, string>>(new Map());
 
   const [file, setFile] = useState<File | null>(null);
   const [extracting, setExtracting] = useState(false);
@@ -1424,6 +1465,37 @@ export default function CIDPCategoriesPage({
   const approvedCount = categories.filter(
     (c) => c.status === "APPROVED",
   ).length;
+
+  useEffect(() => {
+    async function loadOrgUnits() {
+      try {
+        const units = await fetchOrganisationalUnits(
+          undefined,
+          undefined,
+          false,
+        );
+        const map = new Map<string, string>();
+        units.forEach((u) => map.set(u.id, u.name));
+        setOrgUnitMap(map);
+      } catch (error) {
+        console.error("Failed to load org units:", error);
+      }
+    }
+    loadOrgUnits();
+  }, []);
+
+  const sectorOptions = useMemo(() => {
+    const uniqueIds = new Set(
+      categories.map((c) => c.sector).filter(Boolean),
+    ) as Set<string>;
+    const options: { id: string; name: string }[] = [];
+    uniqueIds.forEach((id) => {
+      const name = orgUnitMap.get(id) ?? id;
+      options.push({ id, name });
+    });
+    options.sort((a, b) => a.name.localeCompare(b.name));
+    return options;
+  }, [categories, orgUnitMap]);
 
   // Extraction
   const handleExtract = async () => {
@@ -1613,9 +1685,6 @@ export default function CIDPCategoriesPage({
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs px-2.5 py-1 rounded-full border font-medium bg-slate-100 text-slate-700 border-slate-200">
-              {/*{displayRole}*/}
-            </span>
             {canSubmit && (
               <Button size="sm" onClick={handleSubmitAll}>
                 <Send className="w-3.5 h-3.5 mr-1.5" />
@@ -1785,9 +1854,9 @@ export default function CIDPCategoriesPage({
             className="text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none"
           >
             <option value="ALL">All sectors</option>
-            {sectors.map((s) => (
-              <option key={s} value={s}>
-                {s}
+            {sectorOptions.map(({ id, name }) => (
+              <option key={id} value={id}>
+                {name}
               </option>
             ))}
           </select>
@@ -1864,6 +1933,7 @@ export default function CIDPCategoriesPage({
                     onUpdate={(data) => handleUpdate(cat.id, data)}
                     onDelete={() => handleDelete(cat.id)}
                     onReviewOpen={() => setReviewTarget(cat)}
+                    orgUnitMap={orgUnitMap}
                   />
                 </div>
               </div>

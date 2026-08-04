@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { getUser } from "@/lib/actions/usersActions";
+import { getUserPermissions } from "@/lib/actions/adminActions";
 import { fetchAuditLogs } from "@/lib/actions/auditActions";
 import AuditLogTable from "@/components/admin/AuditLogTable";
 
@@ -13,11 +14,23 @@ export default async function AdminAuditPage(props: {
   }>;
 }) {
   const session = await auth();
-  const user = await getUser(session?.user?.email ?? "");
-  if (!session || user?.role !== "admin ") redirect("/");
+  if (!session?.user?.email) redirect("/login");
+
+  const user = await getUser(session.user.email);
+  if (!user) redirect("/login");
+
+  // ✅ Fetch permissions
+  const permissions = await getUserPermissions(user.id);
+
+  // ✅ Check for required permission
+  const canViewAudit = permissions.some((p) =>
+    ["audit:view", "audit:manage", "admin:full"].includes(p),
+  );
+  if (!canViewAudit) redirect("/");
 
   const params = await props.searchParams;
   const page = Number(params?.page) || 1;
+
   const { logs, totalPages } = await fetchAuditLogs({
     page,
     entityType: params?.entity,

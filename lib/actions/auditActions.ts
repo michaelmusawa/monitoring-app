@@ -69,16 +69,18 @@ export async function fetchAuditLogs(filters?: {
   let idx = 1;
 
   if (filters?.entityType) {
-    conditions.push(`entityType = @p${idx++}`);
-    params.push(filters.entityType);
+    conditions.push(`entityType LIKE @p${idx++}`);
+    params.push(`%${filters.entityType}%`);
   }
   if (filters?.action) {
-    conditions.push(`action = @p${idx++}`);
-    params.push(filters.action);
+    conditions.push(`action LIKE @p${idx++}`);
+    params.push(`%${filters.action}%`);
   }
   if (filters?.userId) {
-    conditions.push(`userId = @p${idx++}`);
-    params.push(filters.userId);
+    // ✅ Search both userId and userEmail
+    conditions.push(`(userId LIKE @p${idx} OR userEmail LIKE @p${idx})`);
+    params.push(`%${filters.userId}%`);
+    idx++;
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -90,19 +92,17 @@ export async function fetchAuditLogs(filters?: {
   );
   const total = countRows[0]?.total || 0;
 
-  // Guard: if no records, return empty result
   if (total === 0) {
     return { logs: [], totalPages: 0 };
   }
 
-  // Fetch page – ensure limit > 0
   const safeLimit = Math.max(1, limit);
   params.push(offset, safeLimit);
 
   const { rows } = await safeQuery<any>(
     `SELECT * FROM AuditLog ${where}
-      ORDER BY createdAt DESC
-      OFFSET @p${params.length - 1} ROWS FETCH NEXT @p${params.length} ROWS ONLY`,
+       ORDER BY createdAt DESC
+       OFFSET @p${params.length - 1} ROWS FETCH NEXT @p${params.length} ROWS ONLY`,
     params,
   );
 

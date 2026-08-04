@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -50,6 +50,13 @@ export default function AuditLogTable({
     else params.delete(key);
     params.set("page", "1");
     router.push(`/admin/audit?${params.toString()}`);
+  };
+
+  // ✅ Build pagination URLs preserving all filters
+  const buildPageUrl = (page: number) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("page", String(page));
+    return `/admin/audit?${params.toString()}`;
   };
 
   const actionColors: Record<string, string> = {
@@ -116,10 +123,9 @@ export default function AuditLogTable({
               </tr>
             </thead>
             <tbody className="divide-y">
-              {logs.map((log, i) => (
-                <>
+              {logs.map((log) => (
+                <React.Fragment key={log.id}>
                   <tr
-                    key={log.id + i}
                     className="hover:bg-muted/30 cursor-pointer"
                     onClick={() =>
                       setExpandedId(expandedId === log.id ? null : log.id)
@@ -140,7 +146,9 @@ export default function AuditLogTable({
                     </td>
                     <td className="px-4 py-2">
                       <span
-                        className={`text-xs px-2 py-0.5 rounded-full border ${actionColors[log.action] || "bg-gray-100"}`}
+                        className={`text-xs px-2 py-0.5 rounded-full border ${
+                          actionColors[log.action] || "bg-gray-100"
+                        }`}
                       >
                         {log.action}
                       </span>
@@ -192,7 +200,7 @@ export default function AuditLogTable({
                       </td>
                     </tr>
                   )}
-                </>
+                </React.Fragment>
               ))}
             </tbody>
           </table>
@@ -212,14 +220,22 @@ export default function AuditLogTable({
           </p>
           <div className="flex gap-1">
             <Link
-              href={`?${new URLSearchParams({ ...Object.fromEntries(searchParams), page: String(currentPage - 1) })}`}
-              className={`px-3 py-1 rounded-lg border text-sm ${currentPage <= 1 ? "opacity-40 pointer-events-none" : "hover:bg-muted"}`}
+              href={buildPageUrl(currentPage - 1)}
+              className={`px-3 py-1 rounded-lg border text-sm ${
+                currentPage <= 1
+                  ? "opacity-40 pointer-events-none"
+                  : "hover:bg-muted"
+              }`}
             >
               <ChevronLeft className="h-4 w-4" />
             </Link>
             <Link
-              href={`?${new URLSearchParams({ ...Object.fromEntries(searchParams), page: String(currentPage + 1) })}`}
-              className={`px-3 py-1 rounded-lg border text-sm ${currentPage >= totalPages ? "opacity-40 pointer-events-none" : "hover:bg-muted"}`}
+              href={buildPageUrl(currentPage + 1)}
+              className={`px-3 py-1 rounded-lg border text-sm ${
+                currentPage >= totalPages
+                  ? "opacity-40 pointer-events-none"
+                  : "hover:bg-muted"
+              }`}
             >
               <ChevronRight className="h-4 w-4" />
             </Link>
