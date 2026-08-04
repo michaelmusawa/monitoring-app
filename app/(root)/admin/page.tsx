@@ -6,6 +6,7 @@ import { getUser } from "@/lib/actions/usersActions";
 import {
   getAdminStats,
   getRecentActivity,
+  getUserPermissions,
   getUserRoles,
   type AdminActivity,
 } from "@/lib/actions/adminActions";
@@ -103,38 +104,39 @@ function StatCard({
   );
 }
 
-function QuickAction({
-  href,
-  icon,
-  label,
-  description,
-  accent,
-}: {
+// components/admin/QuickAction.tsx
+interface QuickActionProps {
   href: string;
   icon: React.ReactNode;
   label: string;
   description: string;
   accent: string;
-}) {
+  visible?: boolean;
+}
+
+export function QuickAction({
+  href,
+  icon,
+  label,
+  description,
+  accent,
+  visible = true,
+}: QuickActionProps) {
+  if (!visible) return null;
   return (
     <Link
       href={href}
-      className="group flex items-center gap-4 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:shadow-md hover:border-zinc-300 dark:hover:border-zinc-700 hover:-translate-y-0.5 transition-all duration-200"
+      className={`flex items-center gap-3 p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-600 transition-colors bg-white dark:bg-zinc-900 ${accent}`}
     >
-      <div
-        className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${accent}`}
-      >
-        {icon}
-      </div>
+      <div className="shrink-0">{icon}</div>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
           {label}
         </p>
-        <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5 truncate">
+        <p className="text-xs text-zinc-500 dark:text-zinc-400 truncate">
           {description}
         </p>
       </div>
-      <ChevronRight className="w-4 h-4 text-zinc-300 dark:text-zinc-600 group-hover:text-zinc-500 dark:group-hover:text-zinc-400 transition-colors shrink-0" />
     </Link>
   );
 }
@@ -144,16 +146,16 @@ function QuickAction({
 export default async function AdminPage() {
   const session = await auth();
   const user = await getUser(session?.user?.email ?? "");
+  const permissions = await getUserPermissions(user?.id ?? "");
 
-  const role = await getUserRoles(user?.id ?? "");
+  // Permission checks
+  const hasAdminAccess = permissions.some((p) =>
+    ["admin:access", "admin:full", "user:manage"].includes(p),
+  );
 
-  console.log("role", role);
-
-  // const hasAccess = (role: string) => ["System Admin", "admin"].includes(role);
-
-  // if (!user || !hasAccess(role[0].name)) {
-  //   redirect("/");
-  // }
+  if (!hasAdminAccess) {
+    redirect("/");
+  }
 
   const [stats, activity] = await Promise.all([
     getAdminStats(),
@@ -161,6 +163,12 @@ export default async function AdminPage() {
   ]);
 
   const userName = session?.user?.name ?? session?.user?.email ?? "Admin";
+
+  // Helper to check specific permissions
+  const can = (required: string | string[]) => {
+    if (typeof required === "string") return permissions.includes(required);
+    return required.some((p) => permissions.includes(p));
+  };
 
   return (
     <div className="min-h-screen bg-[#F7F8FC] dark:bg-[#0E1117] p-4 md:p-6 lg:p-8">
@@ -257,22 +265,21 @@ export default async function AdminPage() {
                 Quick Actions
               </h2>
               <div className="space-y-2">
-                {/*{role === "system admin" && (*/}
                 <QuickAction
                   href="/admin/users"
                   icon={<Users className="w-5 h-5 text-violet-600" />}
                   label="Manage Users"
                   description="Add, edit or archive user accounts"
                   accent="bg-violet-50 dark:bg-violet-950/30"
+                  visible={can(["user:manage", "admin:full"])}
                 />
-                {/*)}*/}
-
                 <QuickAction
                   href="/admin/roles"
                   icon={<Shield className="w-5 h-5 text-purple-600" />}
                   label="Roles & Permissions"
                   description="Manage roles and permissions"
                   accent="bg-purple-50 dark:bg-purple-950/30"
+                  visible={can(["role:manage", "admin:full"])}
                 />
                 <QuickAction
                   href="/admin/permissions"
@@ -280,14 +287,15 @@ export default async function AdminPage() {
                   label="Permissions"
                   description="Granular permission codes"
                   accent="bg-indigo-50 dark:bg-indigo-950/30"
+                  visible={can(["permission:manage", "admin:full"])}
                 />
-
                 <QuickAction
                   href="/admin/checklists"
                   icon={<CheckSquare className="w-5 h-5 text-emerald-600" />}
                   label="Checklist Templates"
                   description="Edit sector checklist templates"
                   accent="bg-emerald-50 dark:bg-emerald-950/30"
+                  visible={can(["checklist:manage", "admin:full"])}
                 />
                 <QuickAction
                   href="/projects"
@@ -295,6 +303,11 @@ export default async function AdminPage() {
                   label="All Projects"
                   description="Browse and manage all projects"
                   accent="bg-blue-50 dark:bg-blue-950/30"
+                  visible={can([
+                    "project:view",
+                    "project:manage",
+                    "admin:full",
+                  ])}
                 />
                 <QuickAction
                   href="/cidp"
@@ -302,6 +315,7 @@ export default async function AdminPage() {
                   label="CIDP Categories"
                   description="Review and approve CIDP key outputs"
                   accent="bg-teal-50 dark:bg-teal-950/30"
+                  visible={can(["cidp:review", "cidp:manage", "admin:full"])}
                 />
                 <QuickAction
                   href="/dashboard"
@@ -309,6 +323,7 @@ export default async function AdminPage() {
                   label="Performance Dashboard"
                   description="CIDP target vs actual delivery"
                   accent="bg-amber-50 dark:bg-amber-950/30"
+                  visible={can(["dashboard:view", "admin:full"])}
                 />
                 <QuickAction
                   href="/settings"
@@ -316,6 +331,7 @@ export default async function AdminPage() {
                   label="System Settings"
                   description="Application configuration"
                   accent="bg-zinc-100 dark:bg-zinc-800"
+                  visible={can(["settings:manage", "admin:full"])}
                 />
                 <QuickAction
                   href="/admin/organisation"
@@ -323,6 +339,7 @@ export default async function AdminPage() {
                   label="Organisation"
                   description="Organisation Structure"
                   accent="bg-zinc-100 dark:bg-zinc-800"
+                  visible={can(["org:manage", "admin:full"])}
                 />
                 <QuickAction
                   href="/admin/audit"
@@ -330,6 +347,7 @@ export default async function AdminPage() {
                   label="Audit Logs"
                   description="View all user actions"
                   accent="bg-purple-50 dark:bg-purple-950/30"
+                  visible={can(["audit:view", "admin:full"])}
                 />
               </div>
             </div>

@@ -6,6 +6,14 @@ import { Project } from "../types/projectsTypes";
 import { withTransaction } from "./checklistActions";
 import sql from "mssql";
 import { buildUnitLookup, getRootUnitName } from "./orgActions";
+import { logAudit } from "./auditActions";
+import { auth } from "@/auth";
+
+// ─── Helper to get actor email ───────────────────────────────────────────────
+async function getActorEmail(): Promise<string | null> {
+  const session = await auth();
+  return session?.user?.email ?? null;
+}
 
 // ─── getProject ───────────────────────────────────────────────────────────────
 
@@ -280,6 +288,7 @@ export async function createProject(data: {
   long?: number;
   description?: string;
 }): Promise<Project> {
+  const actor = await getActorEmail();
   const slug = generateSlug(data.name);
   try {
     const sqlQuery = `
@@ -299,7 +308,7 @@ export async function createProject(data: {
       "PENDING",
     ]);
     const row = rows[0];
-    return {
+    const project = {
       id: row.id,
       name: row.name,
       budget: row.budget,
@@ -310,6 +319,19 @@ export async function createProject(data: {
       createdAt: row.createdAt?.toISOString(),
       updatedAt: row.updatedAt?.toISOString(),
     };
+    await logAudit({
+      action: "project.create",
+      entityType: "Project",
+      entityId: project.id,
+      newValues: {
+        name: project.name,
+        budget: project.budget,
+        status: project.status,
+        description: project.description,
+      },
+      actorEmail: actor,
+    });
+    return project;
   } catch (error) {
     console.error("createProject error:", error);
     throw new DatabaseError();
@@ -324,6 +346,20 @@ export async function updateProject(
     contributionValue?: number;
   },
 ): Promise<Project> {
+  const actor = await getActorEmail();
+  const oldProject = await getProject(id);
+  const oldValues = oldProject
+    ? {
+        name: oldProject.name,
+        budget: oldProject.budget,
+        status: oldProject.status,
+        lat: oldProject.lat,
+        long: oldProject.long,
+        description: oldProject.description,
+        contributionValue: oldProject.contributionValue,
+      }
+    : null;
+
   const updates: string[] = [];
   const params: any[] = [];
 
@@ -361,11 +397,9 @@ export async function updateProject(
     const { rows } = await safeQuery<any>(sqlQuery, params);
     if (rows.length === 0) throw new Error("Project not found");
     const row = rows[0];
-    revalidatePath("/settings");
-    return {
+    const updated = {
       id: row.id.toString(),
       name: row.name,
-
       budget: row.budget,
       status: row.status,
       lat: row.lat,
@@ -375,6 +409,24 @@ export async function updateProject(
       updatedAt: row.updatedAt?.toISOString(),
       contributionValue: row.contributionValue ?? null,
     };
+    revalidatePath("/settings");
+    await logAudit({
+      action: "project.update",
+      entityType: "Project",
+      entityId: id,
+      oldValues,
+      newValues: {
+        name: updated.name,
+        budget: updated.budget,
+        status: updated.status,
+        lat: updated.lat,
+        long: updated.long,
+        description: updated.description,
+        contributionValue: updated.contributionValue,
+      },
+      actorEmail: actor,
+    });
+    return updated;
   } catch (error) {
     console.error("updateProject error:", error);
     throw new DatabaseError();
@@ -384,9 +436,26 @@ export async function updateProject(
 // ─── deleteProject ────────────────────────────────────────────────────────────
 
 export async function deleteProject(id: string): Promise<void> {
+  const actor = await getActorEmail();
+  const oldProject = await getProject(id);
+  const oldValues = oldProject
+    ? {
+        name: oldProject.name,
+        budget: oldProject.budget,
+        status: oldProject.status,
+      }
+    : null;
+
   try {
     await safeQuery("DELETE FROM Project WHERE id = @p1", [id]);
     revalidatePath("/settings");
+    await logAudit({
+      action: "project.delete",
+      entityType: "Project",
+      entityId: id,
+      oldValues,
+      actorEmail: actor,
+    });
   } catch (error) {
     console.error("deleteProject error:", error);
     throw new DatabaseError();
@@ -405,8 +474,9 @@ export async function batchCreateProjects(
   }[],
 ): Promise<Project[]> {
   if (projects.length === 0) return [];
-  return await withTransaction(async (trx) => {
-    const created: Project[] = [];
+  const actor = await getActorEmail();
+  const created: Project[] = [];
+  await withTransaction(async (trx) => {
     for (const data of projects) {
       const slug = generateSlug(data.name);
       const req = new sql.Request(trx);
@@ -437,8 +507,22 @@ export async function batchCreateProjects(
         updatedAt: row.updatedAt?.toISOString(),
       });
     }
-    return created;
   });
+  for (const proj of created) {
+    await logAudit({
+      action: "project.create",
+      entityType: "Project",
+      entityId: proj.id,
+      newValues: {
+        name: proj.name,
+        budget: proj.budget,
+        status: proj.status,
+        description: proj.description,
+      },
+      actorEmail: actor,
+    });
+  }
+  return created;
 }
 
 // ─── updateProjectDetails ─────────────────────────────────────────────────────
@@ -457,6 +541,22 @@ export async function updateProjectDetails(
     costToCompletion?: string;
   },
 ): Promise<void> {
+  const actor = await getActorEmail();
+  const oldProject = await getFullProject(projectId);
+  const oldValues = oldProject
+    ? {
+        fundingSource: oldProject.fundingSource,
+        employerRep: oldProject.employerRep,
+        contractor: oldProject.contractor,
+        fiscalYear: oldProject.fiscalYear,
+        contractSum: oldProject.contractSum,
+        contractDuration: oldProject.contractDuration,
+        commencementDate: oldProject.commencementDate,
+        plannedCompletion: oldProject.plannedCompletion,
+        costToCompletion: oldProject.costToCompletion,
+      }
+    : null;
+
   await withTransaction(async (trx) => {
     const req = new sql.Request(trx);
     req.input("id", sql.NVarChar, projectId);
@@ -494,11 +594,23 @@ export async function updateProjectDetails(
   });
   revalidatePath(`/projects/${projectId}`);
   revalidatePath(`/projects/${projectId}/initialize`);
+  await logAudit({
+    action: "project.update_details",
+    entityType: "Project",
+    entityId: projectId,
+    oldValues,
+    newValues: data,
+    actorEmail: actor,
+  });
 }
 
 // ─── initializeProject ────────────────────────────────────────────────────────
 
 export async function initializeProject(projectId: string): Promise<void> {
+  const actor = await getActorEmail();
+  const oldProject = await getProject(projectId);
+  const oldStatus = oldProject?.status ?? null;
+
   await withTransaction(async (trx) => {
     const req = new sql.Request(trx);
     req.input("id", sql.NVarChar, projectId);
@@ -508,6 +620,14 @@ export async function initializeProject(projectId: string): Promise<void> {
     `);
   });
   revalidatePath(`/projects/${projectId}`);
+  await logAudit({
+    action: "project.initialize",
+    entityType: "Project",
+    entityId: projectId,
+    oldValues: { status: oldStatus },
+    newValues: { status: "ACTIVE" },
+    actorEmail: actor,
+  });
 }
 
 // ─── createFullProject ────────────────────────────────────────────────────────
@@ -537,6 +657,7 @@ export async function createFullProject(data: {
   plannedCompletion?: string;
   costToCompletion?: string;
 }): Promise<any> {
+  const actor = await getActorEmail();
   const slug = generateSlug(data.name);
   try {
     if (data.categoryId && data.contributionValue !== undefined) {
@@ -555,12 +676,6 @@ export async function createFullProject(data: {
         }
       }
     }
-
-    // Columns: id, name, orgUnitId, budget, description, status (literal), categoryId, contributionValue,
-    // locationUnitId, lat, long, projectType, fundingSource, tenderNumber,
-    // projectScope, projectObjective, contractor, fiscalYear, contractSum, contractDuration,
-    // commencementDate, plannedCompletion, costToCompletion
-    // Total 22 parameters (status is literal)
 
     const { rows } = await safeQuery<any>(
       `INSERT INTO Project (
@@ -587,33 +702,33 @@ export async function createFullProject(data: {
          @p20, @p21, @p22
        )`,
       [
-        slug, // p1
-        data.name, // p2
-        data.orgUnitId ?? null, // p3
-        data.budget ?? null, // p4
-        data.description ?? null, // p5
-        data.categoryId ?? null, // p6
-        data.contributionValue ?? null, // p7
-        data.locationUnitId ?? null, // p8
-        data.lat ?? null, // p9
-        data.long ?? null, // p10
-        data.projectType ?? null, // p11
-        data.fundingSource ?? null, // p12
-        data.tenderNumber ?? null, // p13
-        data.projectScope ?? null, // p14
-        data.projectObjective ?? null, // p15
-        data.contractor ?? null, // p16
-        data.fiscalYear ?? null, // p17
-        data.contractSum ?? null, // p18
-        data.contractDuration ?? null, // p19
-        data.commencementDate ? new Date(data.commencementDate) : null, // p20
-        data.plannedCompletion ? new Date(data.plannedCompletion) : null, // p21
-        data.costToCompletion ?? null, // p22
+        slug,
+        data.name,
+        data.orgUnitId ?? null,
+        data.budget ?? null,
+        data.description ?? null,
+        data.categoryId ?? null,
+        data.contributionValue ?? null,
+        data.locationUnitId ?? null,
+        data.lat ?? null,
+        data.long ?? null,
+        data.projectType ?? null,
+        data.fundingSource ?? null,
+        data.tenderNumber ?? null,
+        data.projectScope ?? null,
+        data.projectObjective ?? null,
+        data.contractor ?? null,
+        data.fiscalYear ?? null,
+        data.contractSum ?? null,
+        data.contractDuration ?? null,
+        data.commencementDate ? new Date(data.commencementDate) : null,
+        data.plannedCompletion ? new Date(data.plannedCompletion) : null,
+        data.costToCompletion ?? null,
       ],
     );
     const row = rows[0];
     revalidatePath("/projects");
-    return {
+    const newProject = {
       id: row.id,
       name: row.name,
       budget: row.budget,
@@ -639,6 +754,26 @@ export async function createFullProject(data: {
         row.plannedCompletion?.toISOString().slice(0, 10) ?? null,
       costToCompletion: row.costToCompletion ?? null,
     };
+    await logAudit({
+      action: "project.create_full",
+      entityType: "Project",
+      entityId: newProject.id,
+      newValues: {
+        name: newProject.name,
+        budget: newProject.budget,
+        status: newProject.status,
+        description: newProject.description,
+        categoryId: newProject.categoryId,
+        contributionValue: newProject.contributionValue,
+        orgUnitId: data.orgUnitId,
+        locationUnitId: data.locationUnitId,
+        projectType: data.projectType,
+        fundingSource: data.fundingSource,
+        tenderNumber: data.tenderNumber,
+      },
+      actorEmail: actor,
+    });
+    return newProject;
   } catch (error) {
     console.error("createFullProject error:", error);
     throw error;
@@ -733,6 +868,35 @@ export async function updateFullProject(
     costToCompletion?: string | null;
   },
 ): Promise<any> {
+  const actor = await getActorEmail();
+  const oldProject = await getFullProject(id);
+  const oldValues = oldProject
+    ? {
+        name: oldProject.name,
+        orgUnitId: oldProject.orgUnitId,
+        budget: oldProject.budget,
+        description: oldProject.description,
+        categoryId: oldProject.categoryId,
+        contributionValue: oldProject.contributionValue,
+        locationUnitId: oldProject.locationUnitId,
+        lat: oldProject.lat,
+        long: oldProject.long,
+        projectType: oldProject.projectType,
+        status: oldProject.status,
+        fundingSource: oldProject.fundingSource,
+        tenderNumber: oldProject.tenderNumber,
+        projectScope: oldProject.projectScope,
+        projectObjective: oldProject.projectObjective,
+        contractor: oldProject.contractor,
+        fiscalYear: oldProject.fiscalYear,
+        contractSum: oldProject.contractSum,
+        contractDuration: oldProject.contractDuration,
+        commencementDate: oldProject.commencementDate,
+        plannedCompletion: oldProject.plannedCompletion,
+        costToCompletion: oldProject.costToCompletion,
+      }
+    : null;
+
   try {
     if (
       data.categoryId &&
@@ -817,7 +981,7 @@ export async function updateFullProject(
     const row = rows[0];
     revalidatePath(`/projects/${id}`);
     revalidatePath(`/projects/${id}/edit`);
-    return {
+    const updated = {
       id: row.id,
       name: row.name,
       orgUnitId: row.orgUnitId,
@@ -848,6 +1012,38 @@ export async function updateFullProject(
       createdAt: row.createdAt?.toISOString(),
       updatedAt: row.updatedAt?.toISOString(),
     };
+    await logAudit({
+      action: "project.update_full",
+      entityType: "Project",
+      entityId: id,
+      oldValues,
+      newValues: {
+        name: updated.name,
+        orgUnitId: updated.orgUnitId,
+        budget: updated.budget,
+        description: updated.description,
+        categoryId: updated.categoryId,
+        contributionValue: updated.contributionValue,
+        locationUnitId: updated.locationUnitId,
+        lat: updated.lat,
+        long: updated.long,
+        projectType: updated.projectType,
+        status: updated.status,
+        fundingSource: updated.fundingSource,
+        tenderNumber: updated.tenderNumber,
+        projectScope: updated.projectScope,
+        projectObjective: updated.projectObjective,
+        contractor: updated.contractor,
+        fiscalYear: updated.fiscalYear,
+        contractSum: updated.contractSum,
+        contractDuration: updated.contractDuration,
+        commencementDate: updated.commencementDate,
+        plannedCompletion: updated.plannedCompletion,
+        costToCompletion: updated.costToCompletion,
+      },
+      actorEmail: actor,
+    });
+    return updated;
   } catch (error) {
     console.error("updateFullProject error:", error);
     throw new DatabaseError();

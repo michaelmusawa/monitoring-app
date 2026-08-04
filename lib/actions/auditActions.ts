@@ -14,11 +14,14 @@ export async function logAudit(data: {
   entityId?: string | null;
   oldValues?: any;
   newValues?: any;
+  actorEmail?: string | null; // 👈 added
 }) {
   try {
     const session = await auth();
-    const userId = session?.user?.id || "anonymous";
-    const userEmail = session?.user?.email || "unknown";
+    // Use provided actorEmail, fallback to session email
+    const userEmail = data.actorEmail ?? session?.user?.email ?? "unknown";
+    const userId = session?.user?.id ?? "anonymous"; // still use session userId if available
+
     const headersList = await headers();
     const ip =
       headersList.get("x-forwarded-for") ||
@@ -28,7 +31,7 @@ export async function logAudit(data: {
 
     await safeQuery(
       `INSERT INTO AuditLog (userId, userEmail, action, entityType, entityId, oldValues, newValues, ipAddress, userAgent)
-       VALUES (@p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9)`,
+        VALUES (@p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9)`,
       [
         userId,
         userEmail,

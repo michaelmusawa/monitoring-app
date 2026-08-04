@@ -116,10 +116,10 @@ export default function AuditLogTable({
               </tr>
             </thead>
             <tbody className="divide-y">
-              {logs.map((log) => (
+              {logs.map((log, i) => (
                 <>
                   <tr
-                    key={log.id}
+                    key={log.id + i}
                     className="hover:bg-muted/30 cursor-pointer"
                     onClick={() =>
                       setExpandedId(expandedId === log.id ? null : log.id)

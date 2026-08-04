@@ -178,11 +178,20 @@ async function createNotification(data: {
   }
 }
 
+// ─── Permission-based user lookup ────────────────────────────────────────────
+
 async function getMEOfficerIds(): Promise<string[]> {
-  const { rows } = await safeQuery<{ id: string }>(
-    `SELECT id FROM [User] WHERE sector = 'Monitoring And Evaluation'`,
+  const { rows } = await safeQuery<{ userId: string }>(
+    `SELECT DISTINCT ur.userId
+     FROM UserRoles ur
+     JOIN RolePermission rp ON rp.roleId = ur.roleId
+     JOIN Permission p ON p.id = rp.permissionId
+     WHERE p.code = 'category:review'
+       AND (ur.expiresAt IS NULL OR ur.expiresAt > GETUTCDATE())`,
+    [],
   );
-  return rows.map((r) => r.id);
+  console.log("notifications", rows);
+  return rows.map((r) => r.userId);
 }
 
 async function getUserIdByEmail(email: string | null): Promise<string | null> {
@@ -446,7 +455,7 @@ export async function deleteCategory(id: string): Promise<void> {
     : null;
 
   await safeQuery(`DELETE FROM ProjectCategory WHERE id = @p1`, [id]);
-  revalidatePath("/cidp");
+  revalidatePath("/projectCategory");
 
   await logAudit({
     action: "category.delete",
@@ -483,7 +492,7 @@ export async function submitForReview(
       `);
     }
   });
-  revalidatePath("/cidp");
+  revalidatePath("/projectCategory");
 
   // Audit each submission
   for (const id of categoryIds) {
@@ -503,7 +512,7 @@ export async function submitForReview(
   const categoryNames = await getCategoryNames(categoryIds);
   const title = "CIDP Category Submitted for Review";
   const message = `${actorEmail ?? "A sector officer"} submitted ${categoryNames} for ME review.`;
-  const link = "/cidp?status=PENDING_REVIEW";
+  const link = "/projectCategory?status=PENDING_REVIEW";
   const metadata = { categoryIds, actorEmail };
   for (const userId of meOfficerIds) {
     await createNotification({
@@ -527,7 +536,7 @@ export async function submitForReview(
           type: "submission_confirmation",
           title: "Submission Received",
           message: `Your category "${category.name}" has been submitted and is pending review.`,
-          link: "/cidp",
+          link: "/projectCategory",
         });
       }
     }
@@ -561,7 +570,7 @@ export async function approveCategories(
       `);
     }
   });
-  revalidatePath("/cidp");
+  revalidatePath("/projectCategory");
 
   for (const id of categoryIds) {
     await logAudit({
@@ -583,7 +592,7 @@ export async function approveCategories(
           type: "category_approved",
           title: "CIDP Category Approved",
           message: `Your category "${category.name}" has been approved by ${actorEmail ?? "ME officer"}.`,
-          link: `/cidp?category=${id}`,
+          link: `/projectCategory?category=${id}`,
           metadata: { categoryId: id, approver: actorEmail },
         });
       }
@@ -675,7 +684,7 @@ export async function requestChanges(
       VALUES (@histId, @catId, @fromStatus, @toStatus, @actor)
     `);
   });
-  revalidatePath("/cidp");
+  revalidatePath("/projectCategory");
 
   await logAudit({
     action: "category.request_changes",
@@ -705,7 +714,7 @@ export async function requestChanges(
         type: "changes_requested",
         title: "Changes Requested on Your CIDP Category",
         message: `${reviewerEmail ?? "ME officer"} requested changes on "${category.name}". Changes: ${changesSummary}.`,
-        link: `/cidp?category=${categoryId}`,
+        link: `/projectCategory?category=${categoryId}`,
         metadata: { categoryId, changes, reviewerEmail },
       });
       console.log("Notification created");
@@ -725,7 +734,7 @@ export async function acknowledgeChanges(categoryId: string): Promise<void> {
     `UPDATE ProjectCategory SET status = 'DRAFT', updatedAt = GETDATE() WHERE id = @p1 AND status = 'CHANGES_REQUESTED'`,
     [categoryId],
   );
-  revalidatePath("/cidp");
+  revalidatePath("/projectCategory");
 
   await logAudit({
     action: "category.acknowledge_changes",
@@ -743,7 +752,7 @@ export async function acknowledgeChanges(categoryId: string): Promise<void> {
       type: "acknowledged",
       title: "Category Changes Acknowledged",
       message: `The sector officer has acknowledged and will re‑edit "${category?.name}".`,
-      link: `/cidp?category=${categoryId}`,
+      link: `/projectCategory?category=${categoryId}`,
       metadata: { categoryId },
     });
   }

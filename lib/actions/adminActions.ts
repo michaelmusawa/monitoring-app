@@ -137,7 +137,7 @@ export async function fetchFilteredUsers({
     params.push(offset, ITEMS_PER_PAGE);
 
     const { rows } = await safeQuery<any>(
-      `SELECT id, name, email, role, sector, status, image, createdAt
+      `SELECT id, name, email, role, status, image, createdAt
        FROM [User]
        ${where}
        ORDER BY createdAt DESC
@@ -195,8 +195,6 @@ export async function fetchUsersPages(
     return 0;
   }
 }
-
-// ─── createUser ───────────────────────────────────────────────────────────────
 
 // ─── createUser ───────────────────────────────────────────────────────────────
 // Now accepts roleIds instead of a single role string.
@@ -325,12 +323,14 @@ export async function getRecentActivity(): Promise<AdminActivity[]> {
         FROM [User] WHERE createdAt IS NOT NULL
         UNION ALL
         SELECT
-          CAST(id AS NVARCHAR),
+          CAST(p.id AS NVARCHAR),
           'project_created',
-          name,
-          CONCAT('Project created · ', ISNULL(sector,'—')),
-          createdAt
-        FROM Project WHERE createdAt IS NOT NULL
+          p.name,
+          CONCAT('Project created · ', ISNULL(ou.name, '—')) AS detail,
+          p.createdAt
+        FROM Project p
+        LEFT JOIN OrganisationalUnit ou ON p.orgUnitId = ou.id
+        WHERE p.createdAt IS NOT NULL
         UNION ALL
         SELECT
           CAST(ts.id AS NVARCHAR),

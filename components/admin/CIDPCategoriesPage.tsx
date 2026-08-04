@@ -1675,8 +1675,10 @@ export default function CIDPCategoriesPage({
           ))}
         </div>
 
+        {/*********Commented the AI extraction from the CIDP********/}
+
         {/* Admin PDF extraction */}
-        {canExtractPDF && (
+        {/*{canExtractPDF && (
           <div className="border border-border rounded-xl p-5 space-y-4">
             <div className="flex items-center gap-2">
               <FileText className="w-4 h-4 text-primary" />
@@ -1727,7 +1729,7 @@ export default function CIDPCategoriesPage({
               />
             )}
           </div>
-        )}
+        )}*/}
 
         {/* Changes-requested alert for sector */}
         {hasEditPermission && changesRequestedCount > 0 && (

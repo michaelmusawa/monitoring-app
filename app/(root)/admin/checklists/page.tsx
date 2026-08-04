@@ -1,42 +1,62 @@
 import { auth } from "@/auth";
 import AdminChecklistsClient from "@/components/checklistTemplate/AdminChecklistsClient";
 import { getUser } from "@/lib/actions/usersActions";
+import { getUserPermissions } from "@/lib/actions/adminActions";
 import { redirect } from "next/navigation";
+import { getAllTemplates } from "@/lib/actions/templateActions";
 
 export default async function AdminChecklistsPage() {
   const session = await auth();
   const user = await getUser(session?.user?.email ?? "");
+  const permissions = await getUserPermissions(user?.id ?? "");
 
-  const role = user?.role || "";
-  const sector = user?.sector || "";
+  // Permissions
+  const hasFullAccess = permissions.some((p) =>
+    ["template:manage_all"].includes(p),
+  );
+  const hasViewAccess = permissions.some((p) =>
+    [
+      "checklist:view",
+      "checklist:edit",
+      "checklist:manage",
+      "admin:full",
+      "template:manage_all",
+      "checklist:view_all",
+    ].includes(p),
+  );
+  const hasEditAccess = permissions.some((p) =>
+    [
+      "checklist:edit",
+      "checklist:manage",
+      "admin:full",
+      "template:manage_all",
+    ].includes(p),
+  );
 
-  // const hasAccess = (role: string) => ["system admin", "admin"].includes(role);
+  console.log(hasFullAccess);
 
-  // if (!user || !hasAccess(role)) {
-  //   redirect("/");
-  // }
+  if (!hasViewAccess) {
+    redirect("/");
+  }
 
-  // Fetch all templates from the API (server‑side)
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000";
-  const res = await fetch(`${baseUrl}/api/admin/checklists`, {
-    cache: "no-store",
-  });
-  const allTemplates = res.ok ? await res.json() : [];
+  // Fetch all templates directly using a server action
+  const allTemplates = await getAllTemplates();
 
-  // System admin sees everything
-  if (role === "system admin") {
+  // Full access sees everything
+  if (hasFullAccess) {
     return (
       <AdminChecklistsClient
         initialTemplates={allTemplates}
-        userRole={role}
-        userSector={sector}
-        canEdit={true}
-        isSystemAdmin={true}
+        userRole={user?.role ?? ""}
+        userSector={user?.sector ?? ""}
+        canEdit={hasEditAccess}
+        isSystemAdmin={true} // or we could rename this prop, but for now keep it
       />
     );
   }
 
-  // Admin (sector‑based) – filter to template whose name matches sector
+  // Sector‑level access – filter to template matching user's sector
+  const sector = user?.sector ?? "";
   const sectorTemplate = Array.isArray(allTemplates)
     ? allTemplates.find((t: any) => t.name === sector)
     : null;
@@ -46,9 +66,9 @@ export default async function AdminChecklistsPage() {
   return (
     <AdminChecklistsClient
       initialTemplates={initialTemplates}
-      userRole={role}
+      userRole={user?.role ?? ""}
       userSector={sector}
-      canEdit={true}
+      canEdit={hasEditAccess}
       isSystemAdmin={false}
     />
   );

@@ -7,7 +7,6 @@ import PermissionsClient from "@/components/admin/PermissionsClient";
 export default async function AdminPermissionsPage() {
   const session = await auth();
   const user = await getUser(session?.user?.email ?? "");
-  if (!session || user?.role !== "system admin") redirect("/");
 
   const permissions = await fetchAllPermissions();
 
